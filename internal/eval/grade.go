@@ -21,7 +21,7 @@ type Trial struct {
 	Arm     string    `json:"arm"` // with：按题目参数运行；without：消融对照组
 	N       int       `json:"n"`
 	TaskID  string    `json:"task_id"`
-	Run     string    `json:"run,omitempty"` // 观测台里的对话ID：从观测台发起时，每个试次都能打开看轨迹
+	Run     string    `json:"run,omitempty"` // 网页端里的对话ID：从网页端发起时，每个试次都能打开看轨迹
 	Status  string    `json:"status"`        // pending、running、done、failed、interrupted
 	Outcome string    `json:"outcome"`       // 检查点的结局：no_tool_calls、repeated_action、max_steps…
 	Detail  string    `json:"detail,omitempty"`
@@ -312,7 +312,7 @@ func (j *Judge) vote(ctx context.Context, messages []llm.Message) (string, strin
 	return v.Verdict, v.Reason
 }
 
-// Clip 把空白压成单个空格并截到 n 个字符；观测台重建轨迹时也用它。
+// Clip 把空白压成单个空格并截到 n 个字符；网页端重建轨迹时也用它。
 func Clip(s string, n int) string { return clip(s, n) }
 
 func clip(s string, n int) string {

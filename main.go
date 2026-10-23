@@ -30,7 +30,6 @@ import (
 	"github.com/xuzhao123/tern/internal/mcp"
 	"github.com/xuzhao123/tern/internal/memory"
 	"github.com/xuzhao123/tern/internal/metrics"
-	"github.com/xuzhao123/tern/internal/observer"
 	"github.com/xuzhao123/tern/internal/permission"
 	"github.com/xuzhao123/tern/internal/protocol"
 	"github.com/xuzhao123/tern/internal/queue"
@@ -40,17 +39,18 @@ import (
 	"github.com/xuzhao123/tern/internal/telemetry"
 	"github.com/xuzhao123/tern/internal/tenant"
 	"github.com/xuzhao123/tern/internal/tools"
+	"github.com/xuzhao123/tern/internal/web"
 	"github.com/xuzhao123/tern/internal/websearch"
 	"github.com/xuzhao123/tern/internal/workspace"
 
 	"go.opentelemetry.io/otel/trace"
 )
 
-// 唯一入口：go run . observe 启动观测台（含内置远程 MCP）；go run . queue 运行任务队列；go run . metrics 统计指标；go run . eval 跑评测与归因；go run . audit 查看并校验审计日志；go run . rewind 按轮撤销文件改动；其余用法都是 agent 本身。
+// 唯一入口：go run . web 启动网页端（含内置远程 MCP）；go run . queue 运行任务队列；go run . metrics 统计指标；go run . eval 跑评测与归因；go run . audit 查看并校验审计日志；go run . rewind 按轮撤销文件改动；其余用法都是 agent 本身。
 func main() {
 	run := run
-	if len(os.Args) > 1 && os.Args[1] == "observe" {
-		run = func() error { return observer.Run(os.Args[2:], mcp.Handler()) }
+	if len(os.Args) > 1 && os.Args[1] == "web" {
+		run = func() error { return web.Run(os.Args[2:], mcp.Handler()) }
 	}
 	// 沙箱里的第一个程序（见 internal/sandbox）：转发代理端口后运行命令。不解析其他参数、不读配置。
 	if len(os.Args) > 1 && os.Args[1] == "sandbox-init" {
@@ -64,8 +64,8 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "queue" {
 		run, service = func() error { return queue.Run(os.Args[2:]) }, "queue"
 	}
-	if len(os.Args) > 1 && os.Args[1] == "observe" {
-		service = "observer"
+	if len(os.Args) > 1 && os.Args[1] == "web" {
+		service = "web"
 	}
 	// 评测集与回归；归因卡片与回放验证。
 	if len(os.Args) > 1 && os.Args[1] == "eval" {
@@ -79,7 +79,7 @@ func main() {
 		}
 		return
 	}
-	// 撤销某一轮及之后各轮改过的文件（观测台的“撤销”按钮也走这里）；不请求模型。
+	// 撤销某一轮及之后各轮改过的文件（网页端的“撤销”按钮也走这里）；不请求模型。
 	if len(os.Args) > 1 && os.Args[1] == "rewind" {
 		if err := agent.RewindCommand(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
@@ -130,7 +130,7 @@ func run() error {
 	flag.StringVar(&workspace.PromptVariant, "coding-prompt", "default", "消融：编码提示词，minimal（只说工作区）、default、extended（加并行读取、只用编辑工具改、该问就问、没验证不下结论）")
 	flag.BoolVar(&agent.Todo, "todo", false, "消融：提供上下文内的 todo_write 清单工具（默认不提供）")
 	flag.BoolVar(&agent.ClearOldResults, "clear-old-results", false, "消融：续聊时把之前各轮的工具结果换成占位")
-	flag.BoolVar(&agent.AskUser, "ask-user", false, "提供 ask_user 工具，模型可以在运行中向用户提问（经协议的 user/requestInput）；只在界面上有人能当场回答时打开（终端客户端、观测台）")
+	flag.BoolVar(&agent.AskUser, "ask-user", false, "提供 ask_user 工具，模型可以在运行中向用户提问（经协议的 user/requestInput）；只在界面上有人能当场回答时打开（终端客户端、网页端）")
 	verifier := flag.String("verifier", "", "判定功能是否完成的验证者用哪家供应商；默认和主模型不同的一家（主模型是 DeepSeek 时用 ark，否则 deepseek）")
 	model := flag.String("model", "", "这家供应商下的具体模型，优先于 LLM_MODEL / DEEPSEEK_MODEL 与默认值；作为启动参数写进检查点，续跑、回放与子 agent 沿用")
 	effort := flag.String("reasoning-effort", "high", "所有请求统一的推理强度：minimal、low、medium或high")
@@ -256,7 +256,7 @@ func run() error {
 				}
 			}
 		}
-		// 观测台启动的 agent 在它给的 Unix socket 上等界面连进来（见 protocol/session.go）：观测台重启后可以重新接管。
+		// 网页端启动的 agent 在它给的 Unix socket 上等界面连进来（见 protocol/session.go）：网页端重启后可以重新接管。
 		// 读完就删掉这个环境变量，子 agent 继承环境时不会去抢同一个 socket。
 		if path := os.Getenv("AGENT_APP_SOCKET"); path != "" {
 			os.Unsetenv("AGENT_APP_SOCKET")
@@ -396,7 +396,7 @@ func run() error {
 		}
 		if *memoryForget != "" {
 			// 删除不做容量淘汰：一次性命令的默认上限不能顺带删掉其他记忆。
-			// 人发起的删除（命令行或观测台记忆页的按钮），先记下是谁要求的，删除本身由记忆模块记录。
+			// 人发起的删除（命令行或网页端记忆页的按钮），先记下是谁要求的，删除本身由记忆模块记录。
 			audit.Log(context.Background(), audit.Record{Actor: "user", Event: "memory_forget_command", Target: *memoryForget})
 			_, err := memory.Active.Forget(*memoryForget, "人工删除")
 			return err
@@ -451,7 +451,7 @@ func run() error {
 		ctx, cancel = context.WithTimeout(ctx, *timeout)
 		defer cancel()
 	}
-	// 一次运行一个根 span invoke_agent。父进程（观测台、队列、父 agent）通过 TRACEPARENT 把它挂到自己的 span 下；
+	// 一次运行一个根 span invoke_agent。父进程（网页端、队列、父 agent）通过 TRACEPARENT 把它挂到自己的 span 下；
 	// 启动阶段的检索建库、MCP 连接也在它下面。结局与任务ID由 agent.Run 补上。
 	ctx, root := telemetry.Begin(telemetry.FromEnv(ctx), "invoke_agent tern", trace.SpanKindInternal, agent.RootAttributes()...)
 	defer root.End()
@@ -485,7 +485,7 @@ func run() error {
 		}
 	}
 	// 本次运行发给模型的工具：先放内置工具，再按开关追加。复制一份，不改动 tools.Definitions。
-	// -disallowed-tools 去掉其中单个工具（观测台设置里内置工具和 web_search、open_page 各有开关）；拼错的名字直接报错，免得悄悄不生效。
+	// -disallowed-tools 去掉其中单个工具（网页端设置里内置工具和 web_search、open_page 各有开关）；拼错的名字直接报错，免得悄悄不生效。
 	off := map[string]bool{}
 	for _, name := range strings.Split(*disallowedTools, ",") {
 		if name = strings.TrimSpace(name); name == "" {
@@ -699,7 +699,7 @@ func run() error {
 	}
 	defer unlock()
 	audit.Task, audit.Conversation = agent.CheckpointID, telemetry.ConversationID
-	// 启动参数带进来的联网白名单也是用户授权（命令行，或观测台把之前的批准转成参数），每次运行记一条。
+	// 启动参数带进来的联网白名单也是用户授权（命令行，或网页端把之前的批准转成参数），每次运行记一条。
 	for _, domain := range sandbox.Allow {
 		audit.Log(ctx, audit.Record{Actor: "user", Event: "network_allow_flag", Target: domain, Decision: "allow", Detail: "启动参数 -net-allow"})
 	}

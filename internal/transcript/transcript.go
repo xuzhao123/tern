@@ -1,6 +1,6 @@
 // Package transcript 把其他 agent 的会话记录（Codex 的 rollout、Claude Code 的会话 JSONL）还原成一串模型请求，
-// 供观测台导入后只读查看。消息统一换成 OpenAI Chat 格式（system / user / assistant + tool_calls / tool），
-// 和观测台代理记下的请求同一个形状，页面不用为每家写一套视图。
+// 供网页端导入后只读查看。消息统一换成 OpenAI Chat 格式（system / user / assistant + tool_calls / tool），
+// 和网页端代理记下的请求同一个形状，页面不用为每家写一套视图。
 //
 // 记录里只有对话历史，没有原始请求：每次请求的输入按“到这一步为止的历史”重建，耗时按记录的时间戳估算。
 package transcript

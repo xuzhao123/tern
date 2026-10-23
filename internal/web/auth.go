@@ -1,4 +1,4 @@
-package observer
+package web
 
 import (
 	"bufio"
@@ -25,14 +25,14 @@ import (
 	"github.com/xuzhao123/tern/internal/tenant"
 )
 
-// 登录与多租户。账号放在 .data/users.json（平台数据，不按租户分），观测台启动时读入：
+// 登录与多租户。账号放在 .data/users.json（平台数据，不按租户分），网页端启动时读入：
 //
 //	{"users": [{"name": "alice", "tenant": "acme", "salt": "…", "hash": "…", "iterations": 600000}],
 //	 "tenants": {"acme": {"max_running": 2, "features": ["memory", "rag", "bash"]}}}
 //
 // tenant 为空的账号属于平台：看到的是 .data/ 下原有的数据，可以用评测、归因和 Skills/MCP 配置。
 // 租户账号只看得到自己租户的对话、记忆与审计，功能与并发按 tenants 里的策略限制。
-// 账号用 go run . observe -add-user 名字 [-tenant 租户] 添加，密码从标准输入读，不出现在命令行和 shell 历史里。
+// 账号用 go run . web -add-user 名字 [-tenant 租户] 添加，密码从标准输入读，不出现在命令行和 shell 历史里。
 const usersPath = ".data/users.json"
 
 type account struct {
@@ -94,7 +94,7 @@ func hashPassword(password string, salt []byte, iter int) string {
 
 var namePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,31}$`)
 
-// addUser 是 go run . observe -add-user 的实现：新增或重设一个账号的密码，可同时设置租户策略。
+// addUser 是 go run . web -add-user 的实现：新增或重设一个账号的密码，可同时设置租户策略。
 func addUser(name, space, features string, maxRunning int) error {
 	if !namePattern.MatchString(name) {
 		return errors.New("用户名只能是小写字母、数字和 ._-，最长32")
@@ -158,11 +158,11 @@ func addUser(name, space, features string, maxRunning int) error {
 	if space != "" {
 		where = "租户 " + space
 	}
-	fmt.Printf("已保存账号 %s（%s）到 %s；观测台重启后生效\n", name, where, usersPath)
+	fmt.Printf("已保存账号 %s（%s）到 %s；网页端重启后生效\n", name, where, usersPath)
 	return nil
 }
 
-// 从终端读密码时关闭回显；从管道读时（脚本里 printf … | go run . observe -add-user …）直接读一行。
+// 从终端读密码时关闭回显；从管道读时（脚本里 printf … | go run . web -add-user …）直接读一行。
 func readPassword() (string, error) {
 	info, _ := os.Stdin.Stat()
 	terminal := info != nil && info.Mode()&os.ModeCharDevice != 0
@@ -214,7 +214,7 @@ func loadAuth() (*auth, error) {
 	a := &auth{accounts: map[string]account{}, tenants: map[string]policy{}, sessions: map[string]session{}, failures: map[string]failure{}}
 	data, err := os.ReadFile(usersPath)
 	if os.IsNotExist(err) {
-		return nil, errors.New("还没有账号：先运行 go run . observe -add-user 名字 添加平台账号（加 -tenant 租户 添加租户账号），再启动观测台")
+		return nil, errors.New("还没有账号：先运行 go run . web -add-user 名字 添加平台账号（加 -tenant 租户 添加租户账号），再启动网页端")
 	}
 	if err != nil {
 		return nil, err
@@ -346,7 +346,7 @@ func (s *server) protect(next http.Handler) http.Handler {
 			return
 		}
 		if req.Method != http.MethodGet && req.Method != http.MethodHead && !sameOriginRequest(req) {
-			http.Error(w, "只接受本机观测页面发来的请求", http.StatusForbidden)
+			http.Error(w, "只接受网页端页面发来的请求", http.StatusForbidden)
 			return
 		}
 		next.ServeHTTP(w, req.WithContext(context.WithValue(req.Context(), userKey{}, u)))
@@ -380,7 +380,7 @@ func (s *server) loginPage(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	if !sameOriginRequest(req) {
-		http.Error(w, "只接受本机观测页面发来的请求", http.StatusForbidden)
+		http.Error(w, "只接受网页端页面发来的请求", http.StatusForbidden)
 		return
 	}
 	var input struct{ Name, Password string }

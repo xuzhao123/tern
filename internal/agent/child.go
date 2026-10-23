@@ -149,7 +149,7 @@ func ChildAttr() *syscall.SysProcAttr { return childAttr() }
 type ChildIO struct {
 	Out    io.Writer              // 子进程 stderr：给人看的日志
 	Notify func(protocol.Message) // 子进程发来的通知；nil 表示不要
-	Env    []string               // 额外的环境变量，如观测台的代理地址（评测在观测台里运行时）
+	Env    []string               // 额外的环境变量，如网页端的代理地址（评测在网页端里运行时）
 	Tenant string                 // 任务所属的租户；空表示平台空间
 	// 分叉的子 agent 从父对话接着做（新任务时经 turn/start 交给它；续跑用自己的检查点）；
 	// Started 在子进程启动后拿到它的协议连接，后台子 agent 经它插话、停止。

@@ -1,4 +1,4 @@
-package observer
+package web
 
 import (
 	"encoding/json"
@@ -47,7 +47,7 @@ var builtin = map[string]string{
 	"hooks": "",
 }
 
-// hooks 在宿主机上以观测台的身份运行命令，只能由平台设置；值是配置原文（以 { 开头）或相对 agent 目录的文件路径，
+// hooks 在宿主机上以网页端的身份运行命令，只能由平台设置；值是配置原文（以 { 开头）或相对 agent 目录的文件路径，
 // 对话开始时读成原文拍进快照，之后改文件不影响已经开始的对话。
 var hooksBase string
 
@@ -222,7 +222,7 @@ func (s *server) unavailable(key string, skills []string, servers []mcpServer) s
 				return ""
 			}
 		}
-		return "没有找到 Chrome：在启动观测台的环境里设置 CHROME_PATH"
+		return "没有找到 Chrome：在启动网页端的环境里设置 CHROME_PATH"
 	case "ds_search":
 		if _, err := llm.LoadConfig("deepseek"); err != nil {
 			return "没有 DeepSeek 密钥：在 .env 或环境变量里配置 DEEPSEEK_API_KEY"

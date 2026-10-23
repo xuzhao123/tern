@@ -50,7 +50,7 @@ type Grader struct {
 
 func (g Grader) Process() bool { return g.Type == "tool_used" || g.Type == "outcome" }
 
-// Name 是给人看的一句话，报告与观测台都用它。
+// Name 是给人看的一句话，报告与网页端都用它。
 func (g Grader) Name() string {
 	switch g.Type {
 	case "number":

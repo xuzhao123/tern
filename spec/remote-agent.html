@@ -1,0 +1,769 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tern 远程 agent</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;700&display=swap">
+<style>
+/* 布局：左侧目录 + 单栏正文；图和表在正文宽度里，窄屏时图横向滚动。配色取北极燕鸥：海天灰底、墨色线条、喙的红橙只标“新加的部分”。 */
+:root {
+  --bg: #f2f4f6;
+  --surface: #ffffff;
+  --ink: #17202a;
+  --muted: #5c6774;
+  --line: #d5dbe2;
+  --accent: #c93e26;
+  --accent-soft: #fbe7e1;
+  --blue: #2b6896;
+  --blue-soft: #e2edf6;
+  --code-bg: #edf0f3;
+  --font-body: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d1217; --surface: #151c23; --ink: #e3e8ed; --muted: #96a2ae; --line: #2a343f;
+    --accent: #ff6b4e; --accent-soft: #3a1d17; --blue: #7ab4df; --blue-soft: #15283a; --code-bg: #1b232c;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d1217; --surface: #151c23; --ink: #e3e8ed; --muted: #96a2ae; --line: #2a343f;
+  --accent: #ff6b4e; --accent-soft: #3a1d17; --blue: #7ab4df; --blue-soft: #15283a; --code-bg: #1b232c;
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.75;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap {
+  max-width: 1160px;
+  margin: 0 auto;
+  padding-block: 48px 96px;
+  display: grid;
+  grid-template-columns: 188px minmax(0, 1fr);
+  gap: 56px;
+}
+nav.toc {
+  position: sticky;
+  top: calc(env(safe-area-inset-top, 0px) + 32px);
+  align-self: start;
+  font-size: 13px;
+  display: grid;
+  gap: 2px;
+}
+nav.toc .toc-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+nav.toc a {
+  color: var(--muted);
+  text-decoration: none;
+  padding: 3px 0 3px 12px;
+  border-left: 2px solid var(--line);
+}
+nav.toc a:hover, nav.toc a:focus-visible { color: var(--ink); border-left-color: var(--accent); outline: none; }
+main { min-width: 0; max-width: 860px; }
+
+header.hero { display: grid; gap: 18px; padding-bottom: 36px; border-bottom: 1px solid var(--line); }
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.status {
+  font-family: var(--font-body);
+  font-size: 12px;
+  letter-spacing: 0;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 999px;
+  padding: 1px 10px;
+}
+h1 {
+  font-size: clamp(28px, 4.4vw, 40px);
+  line-height: 1.25;
+  font-weight: 700;
+  margin: 0;
+  text-wrap: balance;
+}
+.lede { font-size: 17px; margin: 0; max-width: 40em; }
+.facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+  margin: 8px 0 0;
+}
+.facts div { display: grid; gap: 4px; align-content: start; }
+.facts dt { font-weight: 700; font-size: 14px; }
+.facts dd { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
+.facts dt::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-right: 8px; vertical-align: 1px; }
+
+section { padding-top: 48px; }
+section h2 {
+  font-size: 22px;
+  line-height: 1.4;
+  margin: 0 0 14px;
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  text-wrap: balance;
+}
+section h2 .no { font-family: var(--font-mono); font-size: 13px; font-weight: 500; color: var(--muted); }
+h3 { font-size: 16px; margin: 24px 0 8px; }
+p { margin: 0 0 12px; max-width: 42em; }
+ul, ol { margin: 0 0 12px; padding-left: 1.3em; max-width: 42em; }
+li { margin: 4px 0; }
+code, .mono { font-family: var(--font-mono); font-size: 0.88em; }
+:not(pre) > code { background: var(--code-bg); border-radius: 4px; padding: 1px 5px; overflow-wrap: anywhere; }
+a { color: var(--blue); }
+strong { font-weight: 700; }
+
+.steps { counter-reset: s; list-style: none; padding: 0; display: grid; gap: 10px; }
+.steps li { counter-increment: s; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 10px; margin: 0; }
+.steps li::before {
+  content: counter(s);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  display: grid; place-items: center;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.where { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.05em; color: var(--muted); text-transform: uppercase; margin-right: 6px; }
+
+pre.term {
+  background: var(--ink);
+  color: var(--bg);
+  border-radius: 10px;
+  padding: 16px 18px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.7;
+  overflow-x: auto;
+  margin: 16px 0;
+}
+pre.term .p { color: var(--accent); }
+pre.term .c { opacity: 0.62; }
+.note { font-size: 13px; color: var(--muted); }
+
+figure { margin: 20px 0 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px 18px 14px; }
+figure .scroll { overflow-x: auto; }
+figure svg { display: block; width: 100%; height: auto; min-width: 640px; }
+figcaption { font-size: 13px; color: var(--muted); margin-top: 10px; line-height: 1.6; }
+
+/* 图里的元素：线条与文字跟正文同色，新加的部分用强调色 */
+.dg { color: var(--ink); font-family: var(--font-body); }
+.dg text { fill: currentColor; font-size: 12px; }
+.dg .t-title { font-size: 14px; font-weight: 700; }
+.dg .t-label { font-size: 13px; font-weight: 700; }
+.dg .t-muted { fill: var(--muted); }
+.dg .t-small { font-size: 11px; }
+.dg .t-mono { font-family: var(--font-mono); font-size: 11px; }
+.dg .t-accent { fill: var(--accent); }
+.dg .halo { paint-order: stroke; stroke: var(--surface); stroke-width: 5px; stroke-linejoin: round; }
+.dg .box { fill: var(--bg); stroke: currentColor; stroke-width: 1.2; }
+.dg .box-new { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.8; }
+.dg .zone { fill: none; stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 6 5; }
+.dg .edge { fill: none; stroke: currentColor; stroke-width: 1.5; }
+.dg .edge-new { fill: none; stroke: var(--accent); stroke-width: 2; }
+.dg .dash { stroke-dasharray: 5 4; }
+.dg .life { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 4; }
+.dg .mk { fill: currentColor; }
+.dg .mk-new { fill: var(--accent); }
+.dg .dot { fill: currentColor; }
+.dg .dot-new { fill: var(--accent); }
+.dg .dot-hop { fill: var(--surface); stroke: currentColor; stroke-width: 1.4; }
+.dg .tag { fill: var(--surface); stroke: currentColor; stroke-width: 1.2; }
+.dg .tag-new { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.4; }
+
+.tbl { overflow-x: auto; margin: 12px 0 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; line-height: 1.6; }
+th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+tr:last-child td { border-bottom: 0; }
+th { font-size: 12px; font-weight: 500; color: var(--muted); background: var(--code-bg); white-space: nowrap; }
+td:first-child { white-space: nowrap; }
+table.wide { min-width: 620px; }
+.chip { display: inline-block; font-size: 12px; line-height: 1.6; padding: 0 9px; border-radius: 999px; white-space: nowrap; }
+.chip.p1 { color: var(--accent); background: var(--accent-soft); }
+.chip.p2 { color: var(--blue); background: var(--blue-soft); }
+.chip.p3 { color: var(--ink); border: 1px solid var(--line); }
+.chip.no { color: var(--muted); border: 1px dashed var(--line); }
+
+.split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 12px 0; }
+.split > div { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+.split h3 { margin-top: 0; }
+.split p:last-child, .split ul:last-child { margin-bottom: 0; }
+
+.questions { list-style: none; padding: 0; display: grid; gap: 12px; max-width: none; }
+.questions li { margin: 0; display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.questions .qn { font-family: var(--font-mono); font-size: 13px; color: var(--accent); padding-top: 1px; }
+.questions p { margin: 0; }
+.questions .lean { color: var(--muted); font-size: 13px; margin-top: 4px; }
+
+footer { margin-top: 64px; padding-top: 20px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+
+@media (max-width: 980px) {
+  .wrap { grid-template-columns: minmax(0, 1fr); gap: 0; padding-block: 32px 72px; }
+  nav.toc { display: none; }
+}
+@media (max-width: 640px) {
+  body { font-size: 14.5px; }
+  .facts, .split { grid-template-columns: minmax(0, 1fr); }
+  .lede { font-size: 16px; }
+  figure { padding: 14px 12px 12px; }
+  td:first-child { white-space: normal; }
+}
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+section[id], header[id] { scroll-margin-top: 24px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav class="toc" aria-label="目录">
+    <div class="toc-label">目录</div>
+    <a href="#surfaces">几种界面</a>
+    <a href="#usage">怎么用</a>
+    <a href="#architecture">架构</a>
+    <a href="#change">变的是哪一跳</a>
+    <a href="#run">一次对话怎么跑</a>
+    <a href="#reconnect">断线重连</a>
+    <a href="#auth">配对与鉴权</a>
+    <a href="#messages">控制连接的消息</a>
+    <a href="#model">模型请求与密钥</a>
+    <a href="#security">安全边界</a>
+    <a href="#features">功能对照</a>
+    <a href="#code">代码改动</a>
+    <a href="#phases">分期与验证</a>
+    <a href="#questions">待确认的问题</a>
+  </nav>
+
+  <main>
+    <header class="hero" id="top">
+      <div class="eyebrow"><span>tern · spec/remote-agent-design.md</span><span class="status">设计稿 · 待确认</span><span>2026-10-23</span></div>
+      <h1>网页操作用户本机的代码</h1>
+      <p class="lede">用户在自己的机器上运行 <code>tern connect</code>，主动连上我们部署的网页端。之后在网页上发起的对话交给<strong>他本机的 tern</strong> 执行：读写文件、跑命令都发生在他的机器上，网页只负责显示过程和让人审批。思路同 Claude Code 的 Remote Control。</p>
+      <dl class="facts">
+        <div><dt>一条向外的连接</dt><dd>用户本机不开端口；断线重连后，正在跑的对话接着显示。</dd></div>
+        <div><dt>密钥只在服务器</dt><dd>用户不需要自己的模型密钥，模型请求经服务器的代理加密钥转发。</dd></div>
+        <div><dt>本机有上限</dt><dd>只动登记的目录、权限模式有上限、bash 一律进沙箱，服务器改不了。</dd></div>
+      </dl>
+    </header>
+
+    <section id="surfaces">
+      <h2><span class="no">01</span>tern 的几种界面</h2>
+      <p>agent 只有一个；下面这些是它的界面，都经同一套 app-server 协议与它通信。</p>
+      <div class="tbl">
+        <table>
+          <thead><tr><th>中文</th><th>命令或形态</th><th>是什么</th></tr></thead>
+          <tbody>
+            <tr><td>命令行</td><td><code>tern</code></td><td>一次一个任务，适合脚本</td></tr>
+            <tr><td>终端</td><td><code>tern chat</code></td><td>终端里的多轮对话</td></tr>
+            <tr><td>网页端</td><td><code>tern web</code></td><td>浏览器里用，可以部署给别人（以前叫观测台）</td></tr>
+            <tr><td>桌面端</td><td>单独的应用（以后）</td><td>装在本机，窗口里用</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>连接器 <code>tern connect</code> 不是界面：它把本机目录接到网页端，在本机执行任务，就是这份设计要做的东西。</p>
+      <p>桌面端以后做时和这份设计的关系：桌面端本来就跑在用户机器上，只用本机时它就是本地的网页端；连上服务器时，它同时承担连接器的角色。所以连接器的逻辑放在 <code>internal/connect</code> 包里，<code>tern connect</code> 只是一个薄的命令行入口，桌面端以后直接复用这个包。网页端的页面也会被桌面端复用，页面里不要写死“一定部署在服务器上”这类假设（比如登录这一步）。</p>
+    </section>
+
+    <section id="usage">
+      <h2><span class="no">02</span>用户怎么用</h2>
+      <ol class="steps">
+        <li><div><span class="where">网页</span>设置 → 本机连接 → 新建连接，起个名字（如“笔记本”），拿到只显示一次的令牌。</div></li>
+        <li><div><span class="where">本机</span>运行 <code>tern connect</code>，列出允许 agent 使用的目录。</div></li>
+        <li><div><span class="where">网页</span>新对话 → 工作区下拉里出现“笔记本：app” → 提问。</div></li>
+        <li><div><span class="where">本机</span>终端逐行显示这条对话在做什么；Ctrl-C 停止全部对话并断开。</div></li>
+        <li><div><span class="where">网页</span>本机连接 → 吊销，令牌立即失效，连接断开。</div></li>
+      </ol>
+<pre class="term" aria-label="tern connect 的终端输出示意"><span class="p">$</span> tern connect -server https://tern.example.com -token tk_••••••• -dir ~/code/app -dir ~/code/lib
+已连接 · 账号 alice · 目录 app、lib · 权限上限 edit
+<span class="c">[对话 3f2a · app]</span> read_file internal/agent/react.go
+<span class="c">[对话 3f2a · app]</span> edit_file internal/agent/react.go
+<span class="c">[对话 3f2a · app]</span> bash go test ./...   → exit 0
+<span class="c">[对话 3f2a · app]</span> 结束 · 6 次模型请求</pre>
+      <p class="note">终端输出是示意。<code>-dir</code> 可以写多次，目录名默认取最后一段，重名时写 <code>-dir app=~/code/app</code>。只有列出的目录会出现在网页上。</p>
+    </section>
+
+    <section id="architecture">
+      <h2><span class="no">03</span>架构</h2>
+      <p>两台机器之间只有两条连接，都由用户这一侧发起。<strong>控制连接</strong>是一条 WebSocket：启动、停止对话，以及把每条对话的 app-server 协议消息原样来回转发。<strong>模型请求</strong>和现在本机 agent 经网页端代理一样，只是地址从 <code>http://127.0.0.1:8090</code> 换成服务器的 https 地址。</p>
+      <figure>
+        <div class="scroll">
+          <svg class="dg" viewBox="0 0 960 545" role="img" aria-label="用户本机上的连接器启动 agent，并用一条向外的 wss 连接与服务器上的网页端通信；agent 的模型请求经服务器的模型代理加密钥后发给模型供应商。">
+            <defs>
+              <marker id="a-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk" d="M0,0 L10,5 L0,10 z"/></marker>
+              <marker id="a-arrow-new" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk-new" d="M0,0 L10,5 L0,10 z"/></marker>
+            </defs>
+            <!-- 网页 -->
+            <rect class="box" x="655" y="6" width="170" height="40" rx="20"/>
+            <text x="740" y="31" text-anchor="middle">网页（浏览器）</text>
+            <line class="edge" x1="740" y1="46" x2="740" y2="128" marker-start="url(#a-arrow)" marker-end="url(#a-arrow)"/>
+            <text class="t-small t-muted halo" x="752" y="98">HTTPS · SSE</text>
+
+            <!-- 用户本机 -->
+            <rect class="zone" x="20" y="60" width="400" height="380" rx="14"/>
+            <text class="t-label" x="40" y="88">用户本机</text>
+            <text class="t-small t-muted" x="40" y="107">只有向外的连接，不开端口</text>
+            <rect class="box-new" x="50" y="130" width="340" height="104" rx="10"/>
+            <text class="t-title" x="70" y="158">tern connect · 连接器</text>
+            <text class="t-muted" x="70" y="182">登记的目录、权限上限</text>
+            <text class="t-muted" x="70" y="202">每条对话起一个 agent 子进程</text>
+            <text class="t-muted" x="70" y="222">本机 socket ⇄ wss 转发协议</text>
+            <line class="edge" x1="220" y1="236" x2="220" y2="308" marker-start="url(#a-arrow)" marker-end="url(#a-arrow)"/>
+            <text x="234" y="266">启动进程 · Unix socket</text>
+            <text class="t-mono t-muted" x="234" y="284">AGENT_APP_SOCKET</text>
+            <rect class="box" x="50" y="310" width="340" height="104" rx="10"/>
+            <text class="t-title" x="70" y="338">tern -app-server · agent</text>
+            <text class="t-muted" x="70" y="362">文件工具 · bash 沙箱 · 子 agent</text>
+            <text class="t-muted" x="70" y="382">检查点、快照、审计都在本机</text>
+            <text class="t-muted" x="70" y="402">工作区 ~/code/app</text>
+
+            <!-- 服务器 -->
+            <rect class="zone" x="540" y="60" width="400" height="380" rx="14"/>
+            <text class="t-label" x="560" y="88">服务器</text>
+            <text class="t-small t-muted" x="560" y="107">模型密钥只在这里</text>
+            <rect class="box" x="570" y="130" width="340" height="104" rx="10"/>
+            <text class="t-title" x="590" y="158">tern web · 网页端</text>
+            <text class="t-muted" x="590" y="182">/connect：认令牌、登记连接器</text>
+            <text class="t-muted" x="590" y="202">远程对话的 run.conn 走 wss</text>
+            <text class="t-muted" x="590" y="222">存档 · 审批 · 页面照旧</text>
+            <rect class="box" x="570" y="310" width="340" height="104" rx="10"/>
+            <text class="t-title" x="590" y="338">/llm/&lt;对话ID&gt; · 模型代理</text>
+            <text class="t-muted" x="590" y="362">按供应商名查路由表</text>
+            <text class="t-muted" x="590" y="382">服务器加密钥再转发</text>
+            <text class="t-muted" x="590" y="402">忽略 agent 声明的上游</text>
+
+            <!-- 两条跨机器的连接 -->
+            <line class="edge-new" x1="390" y1="174" x2="568" y2="174" marker-end="url(#a-arrow-new)"/>
+            <text class="t-accent halo" x="480" y="164" text-anchor="middle">wss 控制连接</text>
+            <text class="t-small t-muted halo" x="480" y="194" text-anchor="middle">连接器发起，消息双向</text>
+            <line class="edge" x1="390" y1="352" x2="568" y2="352" marker-end="url(#a-arrow)"/>
+            <text class="halo" x="480" y="342" text-anchor="middle">HTTPS 模型请求</text>
+            <text class="t-mono t-muted halo" x="480" y="372" text-anchor="middle">X-Agent-Token</text>
+
+            <!-- 模型供应商 -->
+            <line class="edge" x1="740" y1="414" x2="740" y2="478" marker-end="url(#a-arrow)"/>
+            <text class="t-small t-muted halo" x="752" y="463">加密钥后转发</text>
+            <rect class="box" x="610" y="480" width="260" height="50" rx="10"/>
+            <text x="740" y="510" text-anchor="middle">方舟 · DeepSeek · Coconut</text>
+          </svg>
+        </div>
+        <figcaption>红色是新加的部分：本机的连接器和它发起的 wss 连接。agent 和网页端都是现有的程序；agent 照旧在 <code>AGENT_APP_SOCKET</code> 上等界面连进来，网页端照旧把它当成一个 <code>protocol.Conn</code>。</figcaption>
+      </figure>
+    </section>
+
+    <section id="change">
+      <h2><span class="no">04</span>变的是哪一跳</h2>
+      <p>现在网页端和 agent 之间已经全部经 <code>protocol.Conn</code> 交互，只有“起进程”和“Dial 本机 socket”这两件事要求两者在同一台机器上。远程对话把这两件事交给连接器，中间多出一跳 wss。</p>
+      <figure>
+        <div class="scroll">
+          <svg class="dg" viewBox="0 0 960 290" role="img" aria-label="本地对话里网页端直接起 agent 进程并连它的 Unix socket；远程对话里网页端经 wss 连到用户本机的连接器，由连接器起 agent 进程并连 socket。">
+            <defs>
+              <marker id="b-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk" d="M0,0 L10,5 L0,10 z"/></marker>
+              <marker id="b-arrow-new" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk-new" d="M0,0 L10,5 L0,10 z"/></marker>
+            </defs>
+            <!-- 本地对话 -->
+            <text class="t-label" x="20" y="82">本地对话</text>
+            <text class="t-small t-muted" x="20" y="100">现在</text>
+            <rect class="zone" x="100" y="50" width="770" height="70" rx="10"/>
+            <rect class="box" x="120" y="62" width="150" height="46" rx="8"/>
+            <text x="195" y="90" text-anchor="middle">网页端</text>
+            <line class="edge" x1="270" y1="85" x2="698" y2="85" marker-end="url(#b-arrow)"/>
+            <text class="halo" x="485" y="76" text-anchor="middle">起进程 + Unix socket</text>
+            <rect class="box" x="700" y="62" width="150" height="46" rx="8"/>
+            <text x="775" y="90" text-anchor="middle">agent 子进程</text>
+            <text class="t-small t-muted" x="485" y="140" text-anchor="middle">一台机器（服务器）</text>
+
+            <!-- 远程对话 -->
+            <text class="t-label" x="20" y="212">远程对话</text>
+            <text class="t-small t-muted" x="20" y="230">第一期</text>
+            <rect class="zone" x="100" y="180" width="190" height="70" rx="10"/>
+            <rect class="zone" x="370" y="180" width="500" height="70" rx="10"/>
+            <rect class="box" x="120" y="192" width="150" height="46" rx="8"/>
+            <text x="195" y="220" text-anchor="middle">网页端</text>
+            <line class="edge-new" x1="270" y1="215" x2="388" y2="215" marker-end="url(#b-arrow-new)" marker-start="url(#b-arrow-new)"/>
+            <text class="t-accent halo" x="330" y="206" text-anchor="middle">wss</text>
+            <rect class="box-new" x="390" y="192" width="150" height="46" rx="8"/>
+            <text x="465" y="220" text-anchor="middle">连接器</text>
+            <line class="edge" x1="540" y1="215" x2="698" y2="215" marker-end="url(#b-arrow)"/>
+            <text class="halo" x="620" y="206" text-anchor="middle">起进程 + Unix socket</text>
+            <rect class="box" x="700" y="192" width="150" height="46" rx="8"/>
+            <text x="775" y="220" text-anchor="middle">agent 子进程</text>
+            <text class="t-small t-muted" x="195" y="272" text-anchor="middle">服务器</text>
+            <text class="t-small t-muted" x="620" y="272" text-anchor="middle">用户本机</text>
+          </svg>
+        </div>
+        <figcaption>右边一段完全相同：agent 和它那一侧的 socket 不改。变的是谁来起进程、谁来 Dial：现在是网页端，远程时是连接器；网页端那一侧把 wss 上的一路虚拟流当成原来的 socket。</figcaption>
+      </figure>
+    </section>
+
+    <section id="run">
+      <h2><span class="no">05</span>一次远程对话怎么跑</h2>
+      <figure>
+        <div class="scroll">
+          <svg class="dg" viewBox="0 0 960 580" role="img" aria-label="一次远程对话的时序：网页发起，网页端经 wss 派给连接器，连接器过滤参数后启动 agent；agent 的模型请求直接发给服务器的代理；审批请求经连接器和网页端到网页，人的答复原路返回；结束时连接器上报退出状态。">
+            <defs>
+              <marker id="c-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk" d="M0,0 L10,5 L0,10 z"/></marker>
+              <marker id="c-arrow-new" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk-new" d="M0,0 L10,5 L0,10 z"/></marker>
+            </defs>
+            <!-- 参与者 -->
+            <rect class="box" x="30" y="20" width="120" height="36" rx="8"/><text class="t-label" x="90" y="43" text-anchor="middle">网页</text>
+            <rect class="box" x="240" y="20" width="120" height="36" rx="8"/><text class="t-label" x="300" y="43" text-anchor="middle">网页端</text>
+            <rect class="box-new" x="450" y="20" width="120" height="36" rx="8"/><text class="t-label" x="510" y="43" text-anchor="middle">连接器</text>
+            <rect class="box" x="660" y="20" width="120" height="36" rx="8"/><text class="t-label" x="720" y="43" text-anchor="middle">agent</text>
+            <rect class="box" x="840" y="20" width="110" height="36" rx="8"/><text class="t-label" x="895" y="43" text-anchor="middle">模型供应商</text>
+            <line class="life" x1="90" y1="56" x2="90" y2="568"/>
+            <line class="life" x1="300" y1="56" x2="300" y2="568"/>
+            <line class="life" x1="510" y1="56" x2="510" y2="568"/>
+            <line class="life" x1="720" y1="56" x2="720" y2="568"/>
+            <line class="life" x1="895" y1="56" x2="895" y2="568"/>
+
+            <!-- 1 发起 -->
+            <line class="edge" x1="90" y1="96" x2="298" y2="96" marker-end="url(#c-arrow)"/>
+            <text class="halo" x="195" y="88" text-anchor="middle">POST /runs（选“笔记本：app”）</text>
+            <!-- 2 派给连接器 -->
+            <line class="edge-new" x1="300" y1="140" x2="508" y2="140" marker-end="url(#c-arrow-new)"/>
+            <text class="t-accent halo" x="405" y="132" text-anchor="middle">run/launch：目录名、参数、turn</text>
+            <!-- 3 本机过滤 -->
+            <rect class="tag-new" x="520" y="166" width="190" height="28" rx="6"/>
+            <text class="t-small t-accent" x="532" y="184">按本机上限过滤，补工作区路径</text>
+            <!-- 4 启动 agent -->
+            <line class="edge" x1="510" y1="228" x2="718" y2="228" marker-end="url(#c-arrow)"/>
+            <text class="halo" x="615" y="220" text-anchor="middle">启动 · attach · turn/start</text>
+            <!-- 5 模型请求直接到服务器 -->
+            <line class="edge" x1="720" y1="272" x2="302" y2="272" marker-end="url(#c-arrow)"/>
+            <text class="halo" x="510" y="264" text-anchor="middle">模型请求 /llm/&lt;对话ID&gt;（HTTPS，不经连接器）</text>
+            <!-- 6 加密钥转发 -->
+            <line class="edge" x1="300" y1="312" x2="893" y2="312" marker-end="url(#c-arrow)"/>
+            <text class="halo" x="600" y="304" text-anchor="middle">加上服务器的密钥转发</text>
+            <!-- 7 流式回复 -->
+            <line class="edge dash" x1="895" y1="352" x2="722" y2="352" marker-end="url(#c-arrow)"/>
+            <text class="halo" x="808" y="344" text-anchor="middle">流式回复（经代理转回）</text>
+            <!-- 8 审批请求 -->
+            <line class="edge" x1="720" y1="396" x2="92" y2="396" marker-end="url(#c-arrow)"/>
+            <circle class="dot-hop" cx="510" cy="396" r="4"/>
+            <circle class="dot-hop" cx="300" cy="396" r="4"/>
+            <text class="halo" x="405" y="388" text-anchor="middle">tool/requestApproval（包在 run/data 里）</text>
+            <!-- 9 人的答复 -->
+            <line class="edge" x1="90" y1="440" x2="718" y2="440" marker-end="url(#c-arrow)"/>
+            <circle class="dot-hop" cx="300" cy="440" r="4"/>
+            <circle class="dot-hop" cx="510" cy="440" r="4"/>
+            <text class="halo" x="405" y="432" text-anchor="middle">人点“允许”，原路回去</text>
+            <!-- 10 过程与结局 -->
+            <line class="edge" x1="720" y1="484" x2="92" y2="484" marker-end="url(#c-arrow)"/>
+            <circle class="dot-hop" cx="510" cy="484" r="4"/>
+            <circle class="dot-hop" cx="300" cy="484" r="4"/>
+            <text class="halo" x="405" y="476" text-anchor="middle">item/completed · turn/completed</text>
+            <!-- 11 退出 -->
+            <line class="edge-new" x1="510" y1="528" x2="302" y2="528" marker-end="url(#c-arrow-new)"/>
+            <text class="t-accent halo" x="405" y="520" text-anchor="middle">run/exit：退出状态</text>
+          </svg>
+        </div>
+        <figcaption>空心小圆点是转发经过的地方：连接器只转发，不解析；网页端照旧存档、推给页面、等人点按钮。模型请求是 agent 直接发给服务器的，不经过连接器。</figcaption>
+      </figure>
+      <div class="split">
+        <div>
+          <h3>停止</h3>
+          <p>第一次按停止，网页端经协议发 <code>turn/interrupt</code>，和现在一样。再按一次强制结束：本地对话是向进程组发 SIGKILL，远程对话改发 <code>run/stop {force: true}</code>，由连接器结束进程组。</p>
+        </div>
+        <div>
+          <h3>续聊</h3>
+          <p>网页端照旧从自己的存档还原上一轮的消息：模型请求都经过它的代理，存档里有完整的请求与回答。中途被停下的对话第一期也用存档还原（agent 会给没有结果的工具调用补“结果未知”），第二期再从连接器取本机检查点。</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="reconnect">
+      <h2><span class="no">06</span>断线重连</h2>
+      <p>连接器断网时，agent 子进程照常运行：它在本机 socket 上脱离，发出的消息按序号留在内存里，最多等 10 分钟（<code>protocol.DetachGrace</code>）。连接器重新连上后，网页端对每条还没结束的对话发 <code>run/attach {after}</code>，补发的消息经 wss 回来。这和网页端重启后接管本机 agent 是同一套机制。</p>
+      <figure>
+        <div class="scroll">
+          <svg class="dg" viewBox="0 0 920 245" role="img" aria-label="wss 断开期间 agent 发出的第 39 到 43 条消息留在内存里；重连后网页端以 after=38 重新附着，这几条一次补发，之后照常实时到达。">
+            <!-- 车道标签 -->
+            <text class="t-label" x="20" y="84">agent 发出</text>
+            <text class="t-label" x="20" y="149">wss 连接</text>
+            <text class="t-label" x="20" y="209">网页端收到</text>
+            <!-- 脱离期间的括号 -->
+            <path class="edge-new" d="M342,60 V54 H598 V60"/>
+            <text class="t-small t-accent" x="470" y="45" text-anchor="middle">脱离期间按序号留在内存里</text>
+            <!-- agent 发出的消息 -->
+            <circle class="dot" cx="150" cy="80" r="5"/><text class="t-small t-muted" x="150" y="102" text-anchor="middle">36</text>
+            <circle class="dot" cx="214" cy="80" r="5"/><text class="t-small t-muted" x="214" y="102" text-anchor="middle">37</text>
+            <circle class="dot" cx="278" cy="80" r="5"/><text class="t-small t-muted" x="278" y="102" text-anchor="middle">38</text>
+            <circle class="dot-new" cx="342" cy="80" r="5"/><text class="t-small t-accent" x="342" y="102" text-anchor="middle">39</text>
+            <circle class="dot-new" cx="406" cy="80" r="5"/><text class="t-small t-accent" x="406" y="102" text-anchor="middle">40</text>
+            <circle class="dot-new" cx="470" cy="80" r="5"/><text class="t-small t-accent" x="470" y="102" text-anchor="middle">41</text>
+            <circle class="dot-new" cx="534" cy="80" r="5"/><text class="t-small t-accent" x="534" y="102" text-anchor="middle">42</text>
+            <circle class="dot-new" cx="598" cy="80" r="5"/><text class="t-small t-accent" x="598" y="102" text-anchor="middle">43</text>
+            <circle class="dot" cx="662" cy="80" r="5"/><text class="t-small t-muted" x="662" y="102" text-anchor="middle">44</text>
+            <circle class="dot" cx="726" cy="80" r="5"/><text class="t-small t-muted" x="726" y="102" text-anchor="middle">45</text>
+            <circle class="dot" cx="790" cy="80" r="5"/><text class="t-small t-muted" x="790" y="102" text-anchor="middle">46</text>
+            <circle class="dot" cx="854" cy="80" r="5"/><text class="t-small t-muted" x="854" y="102" text-anchor="middle">47</text>
+            <!-- wss -->
+            <line class="edge" x1="150" y1="145" x2="310" y2="145"/>
+            <line class="life" x1="310" y1="145" x2="630" y2="145"/>
+            <line class="edge" x1="630" y1="145" x2="880" y2="145"/>
+            <text class="t-small t-muted halo" x="470" y="137" text-anchor="middle">断开，agent 照常运行</text>
+            <circle class="dot-new" cx="630" cy="145" r="4"/>
+            <text class="t-small t-accent" x="630" y="167" text-anchor="middle">重连</text>
+            <!-- 网页端收到 -->
+            <circle class="dot" cx="150" cy="205" r="5"/>
+            <circle class="dot" cx="214" cy="205" r="5"/>
+            <circle class="dot" cx="278" cy="205" r="5"/>
+            <circle class="dot-new" cx="640" cy="205" r="4"/>
+            <circle class="dot-new" cx="650" cy="205" r="4"/>
+            <circle class="dot-new" cx="660" cy="205" r="4"/>
+            <circle class="dot-new" cx="670" cy="205" r="4"/>
+            <circle class="dot-new" cx="680" cy="205" r="4"/>
+            <circle class="dot" cx="700" cy="205" r="5"/>
+            <circle class="dot" cx="726" cy="205" r="5"/>
+            <circle class="dot" cx="790" cy="205" r="5"/>
+            <circle class="dot" cx="854" cy="205" r="5"/>
+            <text class="t-small t-accent" x="660" y="232" text-anchor="middle">run/attach after=38 → 补发 39–43</text>
+          </svg>
+        </div>
+        <figcaption>上一行是 agent 发出每条消息的时刻，下一行是网页端收到的时刻。断开期间的 39–43 在重连后一次补齐，44 排在补发之后，再往后照常实时到达。心跳每 30 秒一次，90 秒收不到就当断开；连接器按 1、2、4…最多 60 秒退避重连。</figcaption>
+      </figure>
+    </section>
+
+    <section id="auth">
+      <h2><span class="no">07</span>配对与鉴权</h2>
+      <ul>
+        <li><strong>连接令牌</strong>在网页“本机连接”里新建：32 字节随机数，只显示一次。服务器只存 SHA-256，放 <code>.data/connectors.json</code>（0600，不提交），连同账号、租户、名字、创建与最近连接时间。</li>
+        <li><strong>一个令牌对应一个连接器、属于一个账号。</strong>吊销即删除记录，正连着的立即断开；同一令牌再连一次，旧连接作废。</li>
+        <li><strong>连接</strong>只接受 <code>wss://&lt;服务器&gt;/connect</code>，<code>Authorization: Bearer &lt;令牌&gt;</code>，令牌不经明文。第一条消息是 <code>connector/hello</code>，核对后回 <code>connector/welcome</code>。</li>
+        <li><strong>只派自己的对话：</strong>网页端只把这个账号发起的对话派给它；按编号访问的接口照旧核对租户。</li>
+        <li><strong>租户账号</strong>要租户开通新功能 <code>connect</code> 才能建连接（同 <code>workspace</code>）；平台账号默认可以。</li>
+      </ul>
+      <h3>账号与连接器</h3>
+      <ul>
+        <li><strong>网页端仍然要登录。</strong>账号密码管的是“谁在用网页”，连接令牌管的是“哪台机器替这个账号干活”，两者不互相替代。令牌只能由登录后的账号在“本机连接”里创建，归这个账号所有；连接器不知道账号的密码。</li>
+        <li><strong>一个连接器只属于一个账号。</strong>同一台机器要给两个账号用，就跑两个连接器，各用各的令牌和数据目录。两边的检查点、快照、审计、沙箱临时目录互不相干，网页上各自只看到自己登记的目录。</li>
+        <li><strong>同一个目录</strong>两个账号都可以登记，但同时改同一份代码时看不到对方的改动：编辑前“读过的内容没变”的检查能拦下直接覆盖，拦不住逻辑上的冲突。不同账号最好用不同的目录或 git worktree。</li>
+        <li>以后要一个进程服务多个账号，可以让 <code>tern connect</code> 接受多个 <code>-token</code>，每个令牌一个独立的数据目录；第一期不做。</li>
+      </ul>
+<pre class="term" aria-label="同一台机器给两个账号各跑一个连接器"><span class="p">$</span> TERN_HOME=~/.tern-alice tern connect -server https://tern.example.com -token &lt;alice 的令牌&gt; -dir ~/code/app
+<span class="p">$</span> TERN_HOME=~/.tern-bob   tern connect -server https://tern.example.com -token &lt;bob 的令牌&gt;   -dir ~/code/lib</pre>
+    </section>
+
+    <section id="messages">
+      <h2><span class="no">08</span>控制连接上的消息</h2>
+      <p>一行一条 JSON-RPC 2.0，和 app-server 协议同一种写法，两侧都复用 <code>protocol.Conn</code>。审批、提问、插话、停止都是 <code>run/data</code> 里的原有协议行，不需要新消息。</p>
+      <div class="tbl">
+        <table class="wide">
+          <thead><tr><th>方向</th><th>消息</th><th>内容</th></tr></thead>
+          <tbody>
+            <tr><td>连接器 → 网页端</td><td><code>connector/hello</code></td><td>版本、系统与架构；登记的目录（名字、git 分支，不含本机路径）；bash 是否可用；权限上限；正在运行的对话ID</td></tr>
+            <tr><td>网页端 → 连接器</td><td><code>run/launch</code></td><td>对话ID、目录名、过滤后的 agent 参数、模型代理地址与令牌、<code>turn/start</code> 的内容；回复 pid 或拒绝原因</td></tr>
+            <tr><td>网页端 → 连接器</td><td><code>run/attach</code></td><td>对话ID、after：重连后补齐</td></tr>
+            <tr><td>双向</td><td><code>run/data</code></td><td>对话ID 加一行 app-server 协议消息，原样转发，不解析</td></tr>
+            <tr><td>网页端 → 连接器</td><td><code>run/stop</code></td><td>对话ID、force：false 发 <code>turn/interrupt</code>，true 按进程组结束</td></tr>
+            <tr><td>连接器 → 网页端</td><td><code>run/exit</code></td><td>对话ID、退出状态（连接器看得到真实的退出码）</td></tr>
+            <tr><td>双向</td><td><code>ping</code></td><td>心跳，每 30 秒</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="model">
+      <h2><span class="no">09</span>模型请求与密钥</h2>
+      <p>现在的代理转发 agent 带来的密钥，发到 agent 在 <code>X-Agent-Upstream</code> 里声明的地址。对远程 agent 这不成立：用户机器上没有我们的密钥，也不能让它指定上游，否则它能把我们加上的密钥发到自己的地址。所以远程对话的请求里，agent 只说用哪家，地址和密钥都由服务器定。</p>
+      <figure>
+        <div class="scroll">
+          <svg class="dg" viewBox="0 0 960 250" role="img" aria-label="本地对话里密钥和上游地址都由 agent 提供，代理照着转发；远程对话里 agent 只声明供应商名，代理查路由表得到地址并加上服务器的密钥。">
+            <defs>
+              <marker id="d-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk" d="M0,0 L10,5 L0,10 z"/></marker>
+              <marker id="d-arrow-new" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk-new" d="M0,0 L10,5 L0,10 z"/></marker>
+            </defs>
+            <!-- 本地对话 -->
+            <text class="t-label" x="20" y="72">本地对话</text>
+            <text class="t-small t-muted" x="20" y="90">现在</text>
+            <rect class="box" x="140" y="52" width="160" height="46" rx="8"/>
+            <text class="t-label" x="220" y="72" text-anchor="middle">agent</text>
+            <text class="t-small t-muted" x="220" y="90" text-anchor="middle">本机 .env 里有密钥</text>
+            <rect class="tag" x="262" y="38" width="46" height="20" rx="10"/>
+            <text class="t-small" x="285" y="52" text-anchor="middle">密钥</text>
+            <line class="edge" x1="300" y1="75" x2="468" y2="75" marker-end="url(#d-arrow)"/>
+            <text class="halo" x="385" y="66" text-anchor="middle">密钥 + 上游地址</text>
+            <text class="t-mono t-muted halo" x="385" y="92" text-anchor="middle">X-Agent-Upstream</text>
+            <rect class="box" x="470" y="52" width="160" height="46" rx="8"/>
+            <text class="t-label" x="550" y="72" text-anchor="middle">模型代理</text>
+            <text class="t-small t-muted" x="550" y="90" text-anchor="middle">照 agent 说的转发</text>
+            <line class="edge" x1="630" y1="75" x2="788" y2="75" marker-end="url(#d-arrow)"/>
+            <text class="halo" x="710" y="66" text-anchor="middle">agent 声明的地址</text>
+            <rect class="box" x="790" y="52" width="150" height="46" rx="8"/>
+            <text class="t-label" x="865" y="72" text-anchor="middle">上游</text>
+            <text class="t-small t-muted" x="865" y="90" text-anchor="middle">任意地址</text>
+
+            <!-- 远程对话 -->
+            <text class="t-label" x="20" y="192">远程对话</text>
+            <text class="t-small t-muted" x="20" y="210">第一期</text>
+            <rect class="box" x="140" y="172" width="160" height="46" rx="8"/>
+            <text class="t-label" x="220" y="192" text-anchor="middle">agent</text>
+            <text class="t-small t-muted" x="220" y="210" text-anchor="middle">用户本机，没有密钥</text>
+            <line class="edge" x1="300" y1="195" x2="468" y2="195" marker-end="url(#d-arrow)"/>
+            <text class="halo" x="385" y="186" text-anchor="middle">只说供应商名</text>
+            <text class="t-mono t-muted halo" x="385" y="212" text-anchor="middle">X-Agent-Provider</text>
+            <rect class="box-new" x="470" y="172" width="160" height="46" rx="8"/>
+            <text class="t-label" x="550" y="192" text-anchor="middle">模型代理</text>
+            <text class="t-small t-muted" x="550" y="210" text-anchor="middle">查 llm.Providers</text>
+            <rect class="tag-new" x="592" y="158" width="46" height="20" rx="10"/>
+            <text class="t-small t-accent" x="615" y="172" text-anchor="middle">密钥</text>
+            <line class="edge-new" x1="630" y1="195" x2="788" y2="195" marker-end="url(#d-arrow-new)"/>
+            <text class="halo" x="710" y="186" text-anchor="middle">路由表里的地址</text>
+            <text class="t-small t-accent halo" x="710" y="212" text-anchor="middle">加服务器的密钥</text>
+            <rect class="box" x="790" y="172" width="150" height="46" rx="8"/>
+            <text class="t-label" x="865" y="192" text-anchor="middle">上游</text>
+            <text class="t-small t-muted" x="865" y="210" text-anchor="middle">路由表里的三家</text>
+          </svg>
+        </div>
+        <figcaption>看“密钥”标签挂在哪里：本地对话挂在 agent 上，远程对话挂在服务器的代理上。远程对话的代理忽略请求里的 <code>X-Agent-Upstream</code> 和 <code>Authorization</code>。</figcaption>
+      </figure>
+      <ul>
+        <li>agent 判断“经代理”的条件改成<strong>有 <code>AGENT_PROXY_TOKEN</code></strong>，不再看地址是不是 <code>http://127.0.0.1</code>；代理模式下 <code>llm.LoadConfig</code> 不要求本机有密钥。</li>
+        <li>用量照旧记在网页端的存档里，<code>underQuota</code> 照旧按账号限制同时运行的对话数。</li>
+      </ul>
+    </section>
+
+    <section id="security">
+      <h2><span class="no">10</span>安全边界</h2>
+      <p>连上就意味着用户允许这台服务器在他登记的目录里运行 agent。下面这些上限由连接器在本机执行，服务器（包括被攻破的服务器）改不了。</p>
+      <div class="tbl">
+        <table class="wide">
+          <thead><tr><th>服务器传来</th><th>连接器怎么处理</th></tr></thead>
+          <tbody>
+            <tr><td>任意路径、<code>../</code></td><td>只认 <code>-dir</code> 登记的目录名，路径由连接器补；文件工具经 <code>os.Root</code> 限制在目录内</td></tr>
+            <tr><td><code>-permission-mode full</code></td><td>降到本机上限 <code>-max-permission</code>（默认 edit）；要 full 得用户在本机显式写 <code>-max-permission full</code></td></tr>
+            <tr><td><code>-hooks</code>、<code>-mcp-server</code></td><td>一律丢掉：它们在用户机器上、沙箱外执行。本机 hooks 只来自 <code>tern connect -hooks</code>（第二期）</td></tr>
+            <tr><td><code>-bash</code></td><td>一律在沙箱里（bubblewrap、seccomp、cgroup、断网、<code>.git</code> 只读、<code>.env</code> 换空）；本机没有 bubblewrap 就不提供 bash</td></tr>
+            <tr><td><code>-net-allow</code></td><td>照用（来自这个账号自己的设置与审批）；本机给了 <code>-net-allow-max</code> 时只接受其中的域名</td></tr>
+            <tr><td>替用户点“允许”</td><td>剩下的风险。加 <code>tern connect -approve-locally</code> 后，审批与联网请求改在本机终端由人确认，网页上的答复不算数（第二期）</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="split">
+        <div>
+          <h3>留在用户本机</h3>
+          <ul>
+            <li>代码本身</li>
+            <li>检查点、编辑快照、会话记录、agent 的执行审计、沙箱临时文件，都在 <code>~/.tern/.data/</code></li>
+          </ul>
+        </div>
+        <div>
+          <h3>会到服务器上</h3>
+          <ul>
+            <li>模型读到的文件内容：经代理发给模型供应商，并记进服务器的对话存档（页面、续聊、归因靠它）</li>
+            <li>人的点击审计</li>
+          </ul>
+        </div>
+      </div>
+      <p class="note">“会到服务器上”的部分要在网页的“本机连接”页面上写明。</p>
+    </section>
+
+    <section id="features">
+      <h2><span class="no">11</span>功能对照</h2>
+      <div class="tbl">
+        <table class="wide">
+          <thead><tr><th>功能</th><th>远程对话</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td>对话、续聊、停止、插话、审批、提问</td><td><span class="chip p1">第一期</span></td><td>协议原样转发</td></tr>
+            <tr><td>文件工具（读、找、搜、改）</td><td><span class="chip p1">第一期</span></td><td>本机执行，各系统都可用</td></tr>
+            <tr><td>bash 沙箱、后台命令</td><td><span class="chip p1">第一期</span></td><td>Linux；macOS 第三期</td></tr>
+            <tr><td>子 agent</td><td><span class="chip p1">第一期</span></td><td>在本机起子进程，模型请求同样经代理</td></tr>
+            <tr><td>编辑文件的快照</td><td><span class="chip p1">第一期</span></td><td>快照存在本机，照常写</td></tr>
+            <tr><td>撤销</td><td><span class="chip p2">第二期</span></td><td><code>run/rewind</code> 交给连接器在本机执行 <code>tern rewind</code></td></tr>
+            <tr><td>沙箱文件面板</td><td><span class="chip p2">第二期</span></td><td><code>run/files</code> 经连接器读写，限制在本对话的 /scratch</td></tr>
+            <tr><td>附图</td><td><span class="chip p2">第二期</span></td><td>附件随 <code>run/launch</code> 发给连接器，写进本机附件目录</td></tr>
+            <tr><td>中断后从检查点续聊</td><td><span class="chip p2">第二期</span></td><td><code>run/checkpoint</code>；第一期用存档还原</td></tr>
+            <tr><td>调用链视图</td><td><span class="chip p2">第二期</span></td><td>agent 把 span 经 OTLP 发给网页端</td></tr>
+            <tr><td>本机 hooks、<code>-approve-locally</code></td><td><span class="chip p2">第二期</span></td><td>只来自连接器的命令行</td></tr>
+            <tr><td>macOS 上的 bash</td><td><span class="chip p3">第三期</span></td><td>Seatbelt（sandbox-exec），同 Codex、Claude Code</td></tr>
+            <tr><td>浏览器、DeepSeek 搜索、长期记忆、知识库检索、Skills、MCP</td><td><span class="chip no">暂不支持</span></td><td>依赖服务器上的资源，或会在本机执行服务器下发的命令，需要另行设计</td></tr>
+            <tr><td>评测、队列、指标</td><td><span class="chip no">不适用</span></td><td>只在服务器上跑</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="code">
+      <h2><span class="no">12</span>代码改动</h2>
+      <div class="tbl">
+        <table class="wide">
+          <thead><tr><th>位置</th><th>改动</th></tr></thead>
+          <tbody>
+            <tr><td><code>main.go</code></td><td>新子命令 <code>tern connect</code></td></tr>
+            <tr><td><code>internal/connect</code>（新）</td><td>连接器：参数与本机上限、WebSocket 客户端与重连、对话管理（启动 agent、Dial/Attach、转发、停止、退出上报）、参数过滤</td></tr>
+            <tr><td><code>internal/web</code></td><td><code>/connect</code> 端点与连接器登记；<code>.data/connectors.json</code>；设置页“本机连接”（新建、吊销、在线状态）；工作区下拉合入在线连接器的目录；<code>launchRemote</code>；远程对话的强制停止；租户功能 <code>connect</code></td></tr>
+            <tr><td>网页端的模型代理</td><td>远程对话按供应商名路由、服务器加密钥</td></tr>
+            <tr><td><code>internal/protocol</code></td><td>把一路 <code>run/data</code> 包成 <code>io.Reader</code>/<code>io.Writer</code>，给 <code>protocol.NewConn</code> 用；两侧共用</td></tr>
+            <tr><td><code>internal/llm</code></td><td>代理模式按 <code>AGENT_PROXY_TOKEN</code> 判断；代理模式下不要求本机密钥；发 <code>X-Agent-Provider</code></td></tr>
+            <tr><td><code>internal/sandbox/seccomp.go</code></td><td>加 <code>//go:build linux</code>：其他系统上能编译、只是不提供 bash，连接器才能在 macOS 上跑文件工具。<strong>已完成</strong>（2026-10-23，另加 <code>seccomp_other.go</code>）</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>WebSocket 用 <code>golang.org/x/net/websocket</code>：<code>golang.org/x/net</code> 已经在依赖里，不增加新模块；它不再加新功能，但收发文本帧、配合应用层心跳够用。</p>
+    </section>
+
+    <section id="phases">
+      <h2><span class="no">13</span>分期与验证</h2>
+      <div class="split">
+        <div>
+          <h3><span class="chip p1">第一期</span></h3>
+          <p>配对与吊销、连接与重连、远程目录、发起与续聊、审批与提问、停止、模型代理加密钥、Linux 上的文件工具与 bash、子 agent。</p>
+        </div>
+        <div>
+          <h3><span class="chip p2">第二期</span> <span class="chip p3">第三期</span></h3>
+          <p>第二期：撤销、沙箱文件面板、附图、检查点续聊、调用链、本机 hooks、<code>-approve-locally</code>。第三期：macOS 的 bash。</p>
+        </div>
+      </div>
+      <h3>第一期怎么验证</h3>
+      <p>用真实模型、两套环境：服务器跑网页端，另一台机器（或同一台机器上换一个用户和数据目录）跑连接器，在临时 clone 里做编码任务。</p>
+      <ul>
+        <li><strong>正常编码任务</strong>：读、改、跑测试，改动出现在连接器那边的目录里；服务器上没有这份代码的拷贝（存档里的模型请求除外）。</li>
+        <li><strong>断网重连</strong>：对话进行中断开连接器的网络 30 秒，恢复后页面补齐中间的过程，对话正常结束。</li>
+        <li><strong>越权</strong>：服务器传 <code>-permission-mode full</code>、<code>-hooks</code>、<code>-mcp-server</code>、不存在的目录名、<code>../</code> 路径，连接器拒绝或降级，并在本机终端说明。</li>
+        <li><strong>吊销</strong>：对话进行中吊销令牌，连接立即断开，agent 收尾写好检查点。</li>
+        <li><strong>密钥</strong>：连接器所在机器上没有任何模型密钥，对话照常；改写 <code>X-Agent-Upstream</code> 指向别的地址，服务器不转发。</li>
+      </ul>
+    </section>
+
+    <section id="questions">
+      <h2><span class="no">14</span>需要确认的问题</h2>
+      <ol class="questions">
+        <li><span class="qn">Q1</span><div><p>远程对话的模型请求要不要完整记进服务器存档？记的话页面、续聊、归因照常；不记的话代码片段不落服务器，但这些功能要改成从连接器取。</p><p class="lean">设计按“记”写。</p></div></li>
+        <li><span class="qn">Q2</span><div><p>连接器的权限上限默认 edit，还是更保守的 ask？</p><p class="lean">设计按 edit 写，和本地对话的默认一致。</p></div></li>
+        <li><span class="qn">Q3</span><div><p>租户账号能不能用？</p><p class="lean">设计里需要租户开通 <code>connect</code> 功能。</p></div></li>
+        <li><span class="qn">Q4</span><div><p><code>-approve-locally</code>（审批只在本机终端确认）放第二期是否可以，还是第一期就要？</p><p class="lean">它防的是服务器被攻破后替用户点“允许”。</p></div></li>
+      </ol>
+    </section>
+
+    <footer>源文档：同目录的 <a href="remote-agent-design.md">remote-agent-design.md</a>。页面内容与它一致；有出入以文档为准。</footer>
+  </main>
+</div>
+</body>
+</html>

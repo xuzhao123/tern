@@ -25,7 +25,7 @@ import (
 )
 
 // 调用链追踪：用 OpenTelemetry Go SDK 创建 span，属性按 GenAI 语义约定（gen_ai.*）命名。
-// 每个进程启动时调用 Start：span 结束时写进 .data/traces/<trace_id>.jsonl（观测台读它）；
+// 每个进程启动时调用 Start：span 结束时写进 .data/traces/<trace_id>.jsonl（网页端读它）；
 // 设置了 OTEL_EXPORTER_OTLP_ENDPOINT 时再批量发给 Jaeger、Langfuse 等兼容 OTLP 的平台。
 // 跨进程靠 W3C trace context：子进程用环境变量 TRACEPARENT，HTTP 用 traceparent 头，MCP 用 params._meta。
 
@@ -38,13 +38,13 @@ var Tracer = otel.Tracer("tern")
 var CaptureContent = os.Getenv("OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT") == "true"
 
 // 同一个对话的多次交互（每次一个 trace）用 gen_ai.conversation.id 归到一起。
-// 观测台启动 agent 时设 AGENT_CONVERSATION_ID；子 agent 继承环境变量，因此属于同一个对话。
+// 网页端启动 agent 时设 AGENT_CONVERSATION_ID；子 agent 继承环境变量，因此属于同一个对话。
 var ConversationID = os.Getenv("AGENT_CONVERSATION_ID")
 
 // Start 安装 SDK 并返回关闭函数；关闭时把还在缓冲区里的 span 发出去。
 func Start(service string) (shutdown func()) {
 	res, _ := resource.Merge(resource.Default(), resource.NewSchemaless(semconv.ServiceName(service), semconv.ProcessPID(os.Getpid())))
-	// 本地文件同步写：span 一结束就落盘，观测台能实时看到，进程被 kill -9 也只丢还没结束的 span。
+	// 本地文件同步写：span 一结束就落盘，网页端能实时看到，进程被 kill -9 也只丢还没结束的 span。
 	options := []sdktrace.TracerProviderOption{sdktrace.WithResource(res), sdktrace.WithSpanProcessor(sdktrace.NewSimpleSpanProcessor(&fileExporter{}))}
 	if os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "" || os.Getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") != "" {
 		// 网络导出走批处理：后台攒一批再发，不在每个 span 结束时等网络。地址、协议等由标准 OTEL_* 环境变量决定。
@@ -180,7 +180,7 @@ func ValidTraceID(id string) bool { return traceIDPattern.MatchString(id) }
 func Path(traceID string) string { return filepath.Join(Dir, traceID+".jsonl") }
 
 // fileExporter 实现 SDK 的 SpanExporter 接口：按 trace_id 分文件追加。
-// 同一个 trace 的 span 来自好几个进程（观测台、agent、子 agent、MCP server），各自以 O_APPEND 写一整行，互不覆盖。
+// 同一个 trace 的 span 来自好几个进程（网页端、agent、子 agent、MCP server），各自以 O_APPEND 写一整行，互不覆盖。
 type fileExporter struct{ mu sync.Mutex }
 
 func (e *fileExporter) ExportSpans(_ context.Context, spans []sdktrace.ReadOnlySpan) error {

@@ -37,7 +37,7 @@ var skillNamePattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 const maxSkillBytes = 64 << 10
 
 // 坏文件逐个报错并跳过，不让一个 skill 拖垮启动：索引是可选增强，降级比 fail-fast 合适。
-// only 非空时只启用其中的名字（观测台 Skills 中心的开关）；列了却不存在的名字同样报错跳过。
+// only 非空时只启用其中的名字（网页端 Skills 中心的开关）；列了却不存在的名字同样报错跳过。
 func Scan(dir string, only []string) []Skill {
 	paths, _ := filepath.Glob(filepath.Join(dir, "*", "SKILL.md"))
 	skills := []Skill{}
@@ -65,7 +65,7 @@ func Scan(dir string, only []string) []Skill {
 	return skills
 }
 
-// -skills-list：观测台 Skills 中心用同一套解析与校验列出 skill，不在网页端另写一份规则。
+// -skills-list：网页端 Skills 中心用同一套解析与校验列出 skill，不在网页端另写一份规则。
 func List(dir string) map[string]any {
 	paths, _ := filepath.Glob(filepath.Join(dir, "*", "SKILL.md"))
 	skills, failures := []map[string]any{}, []map[string]string{}

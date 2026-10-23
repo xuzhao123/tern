@@ -23,7 +23,7 @@ import (
 	"github.com/xuzhao123/tern/internal/tenant"
 )
 
-// 终端客户端 go run . chat。它和观测台一样只是 app-server 协议的一个界面：每一轮启动一个 agent 子进程（-app-server，stdio），
+// 终端客户端 go run . chat。它和网页端一样只是 app-server 协议的一个界面：每一轮启动一个 agent 子进程（-app-server，stdio），
 // 用 turn/start 交问题和上一轮的检查点，读通知显示过程，回答 agent 发来的请求（联网审批、高风险确认、ask_user 的提问）。
 // 页面能做的这里都能做，说明协议本身够用；另外加了运行中插话和几条会话命令（见 help）。
 //
@@ -37,7 +37,7 @@ const help = `命令：
   /compact                   下一条消息发出前先压缩上下文
   /fork <n>                  从第 n 轮之后另起一支（后面各轮留在原处，文件不动）
   /rewind <n> [both|files|chat]  撤销第 n 轮及之后：文件与对话一起退（默认）、只退文件、只退对话
-  /resume <检查点ID>          接着某一轮聊（比如观测台或命令行跑过的一轮）
+  /resume <检查点ID>          接着某一轮聊（比如网页端或命令行跑过的一轮）
   /new                       开始新对话
   /exit                      退出
 运行中：直接输入的话会排进 agent 的下一次模型请求（插话）；Ctrl+C 停止这一轮，再按一次强制结束。

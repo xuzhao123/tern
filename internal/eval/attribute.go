@@ -12,16 +12,16 @@ import (
 	"github.com/xuzhao123/tern/internal/llm"
 )
 
-// 扩展：对观测台里的一段对话自动归因，不需要人先写评分标准。
+// 扩展：对网页端里的一段对话自动归因，不需要人先写评分标准。
 // 做法参照 REFLECT：模型先诊断（判断成败、写出评分标准、指出决定性的一步和原因、给一条纠正），
 // 再用回放验证这条诊断——从那一步之前分叉，插入纠正跑 3 次，同时插入“继续。”作安慰剂对照跑 3 次。
 // 纠正能让结局翻转、安慰剂不能，诊断才算“已证实”。自动定位出错步骤本身不可靠（Who&When 约 14%），
 // 所以结论标明“模型初判”，证据是回放结果；人可以在卡片上改写开放编码。
 type Attribution struct {
-	Run    string `json:"run"`     // 观测台对话ID
+	Run    string `json:"run"`     // 网页端对话ID
 	TaskID string `json:"task_id"` // 被归因的那一轮的检查点
 	Tools  string `json:"tools"`   // 当时可用的工具：名字与描述
-	// 诊断读到的轨迹。界面给出完整轨迹（观测台从代理与协议事件重建，压缩前的决定也在）；
+	// 诊断读到的轨迹。界面给出完整轨迹（网页端从代理与协议事件重建，压缩前的决定也在）；
 	// 没有时退回检查点里的 View，压缩过的部分只剩摘要。
 	Trajectory  string `json:"trajectory"`
 	Full        bool   `json:"full_trajectory"`

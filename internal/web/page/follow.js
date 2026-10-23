@@ -43,7 +43,7 @@ export function show(id, updateURL = true) {
     es.close();
     if (ui.source !== es) return;
     ui.loading = false;
-    if (!ui.run.exit) { ui.run.exit = "进程中断，没有退出记录"; ui.run.tEnd = ui.run.last; } // 观测台在运行中重启过
+    if (!ui.run.exit) { ui.run.exit = "进程中断，没有退出记录"; ui.run.tEnd = ui.run.last; } // 网页端在运行中重启过
     render(); loadRuns();
   });
   es.onerror = () => { es.close(); if (ui.source !== es) return; ui.loading = true; syncComposer(); $("hint").textContent = "连接中断，请重新选择对话加载记录。"; };

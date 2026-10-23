@@ -24,7 +24,7 @@ async function openAudit(task = "") {
   form.append(input, go);
   if (task) { const all = el("button", "", "全部"); all.type = "button"; all.onclick = () => openAudit(); form.append(all); }
   const status = data.broken_seq ? el("div", "err", `哈希链校验失败：第 ${data.broken_seq} 条，${data.reason}`) : el("div", "meta", `哈希链完整：共 ${data.total || 0} 条记录`);
-  panel.replaceChildren(el("h2", "", "审计日志"), el("p", "meta", ".data/audit/audit.jsonl · 只追加，每条带上一条的哈希。agent 记录程序判断、执行结局与记忆变更，观测台记录你的点击；参数只存哈希，原文在检查点与对话存档里。命令行校验：go run . audit -verify"), status, form);
+  panel.replaceChildren(el("h2", "", "审计日志"), el("p", "meta", ".data/audit/audit.jsonl · 只追加，每条带上一条的哈希。agent 记录程序判断、执行结局与记忆变更，网页端记录你的点击；参数只存哈希，原文在检查点与对话存档里。命令行校验：go run . audit -verify"), status, form);
   if (!records.length) { panel.append(el("div", "empty", "还没有审计记录。")); return; }
   const table = el("table", "eval-table"), head = el("tr");
   for (const h of ["#", "时间", "谁", "事件", "任务", "工具 / 对象", "风险", "决定 / 结局", "说明"]) head.append(el("th", "", h));
@@ -186,7 +186,7 @@ export async function openSettings() {
   const netsWrap = el("span"); netsWrap.append(nets, tag("net_allow"));
   grid.append(el("span", "meta", "沙箱联网白名单"), netsWrap);
   panel.append(grid, el("p", "meta", "沙箱里的命令只能经代理访问白名单里的域名；连到别的域名时代理当场问你，命令等你答复。审批时点“始终允许”会把域名加进你的个人设置。"), el("p", "meta","权限模式在每条对话的输入框旁边还能换（每轮生效）；规则在对话开始时拍进快照。高风险确认（删除记忆、破坏性 MCP、含私有数据后的外发、续跑重做）在全权以外的模式下都询问；全权模式同 Claude Code、Codex，不再询问，由程序放行并写审计（续跑重做不自动做，回填结果未知）。"));
-  // hooks 在本机以观测台的身份运行命令，不在沙箱里，所以只有平台账号能改；个人设置里不生效。
+  // hooks 在本机以网页端的身份运行命令，不在沙箱里，所以只有平台账号能改；个人设置里不生效。
   panel.append(el("h3", "", "Hooks"), el("p", "meta", "在固定时刻运行本机命令：用户提交（UserPromptSubmit）、工具执行前（PreToolUse）、工具成功后（PostToolUse）、模型准备结束（Stop）。格式同 Claude Code 的 hooks 段；填配置原文，或相对 agent 目录的文件路径（如 hooks/hooks.json）。对话开始时读成原文拍进快照。命令不在沙箱里运行，只有平台账号能设置。"));
   const hooksBox = el("textarea"); hooksBox.rows = 3; hooksBox.style.width = "100%"; hooksBox.value = values.hooks;
   hooksBox.placeholder = "hooks/hooks.json\n或 {\"hooks\": {\"PostToolUse\": [{\"matcher\": \"edit_file|write_file\", \"hooks\": [{\"type\": \"command\", \"command\": \"...\"}]}]}}";
@@ -279,7 +279,7 @@ export async function openSkills() {
   }
 }
 // 预设统一从源码启动，在项目根目录执行，无需提前准备可执行文件。
-const MCP_PRESETS = [["observer", location.origin + "/mcp", "观测台内置的远程 MCP server（Streamable HTTP），工具是 agent 的 calculator"], ["everything", "go run github.com/mark3labs/mcp-go/examples/everything@v1.1.1", "示例 server；首次运行会下载并编译"], ["calculator", "go run . -mcp-serve", "本项目 server，始终用当前源码"]];
+const MCP_PRESETS = [["tern-web", location.origin + "/mcp", "网页端内置的远程 MCP server（Streamable HTTP），工具是 agent 的 calculator"], ["everything", "go run github.com/mark3labs/mcp-go/examples/everything@v1.1.1", "示例 server；首次运行会下载并编译"], ["calculator", "go run . -mcp-serve", "本项目 server，始终用当前源码"]];
 export async function openMCP() {
   const panel = await openHubPage("MCP 中心", "两种 server：填 http(s) 地址是远程 server（Streamable HTTP，每条消息一个 POST）；填命令是本地 stdio server（相对 agent 目录执行，按空格切分、不经过 shell）。配置保存在 .data/hub.json。新对话勾选 MCP 时，打开的 server 由 agent 逐个连接，工具注册为 mcp_<原名>；连不上的 server 跳过，与已有工具重名的工具跳过。");
   if (!panel) return;
@@ -288,7 +288,7 @@ export async function openMCP() {
   catch (err) { panel.lastChild.replaceWith(el("div", "err", "读取失败：" + err.message)); return; }
   if (!panel.isConnected) return;
   const form = el("form", "hub-form"), name = el("input"), command = el("input"), submit = el("button", "ghost", "添加 server");
-  name.placeholder = "name：如 observer"; command.placeholder = "远程地址如 " + location.origin + "/mcp；或 stdio 命令如 go run . -mcp-serve";
+  name.placeholder = "name：如 tern-web"; command.placeholder = "远程地址如 " + location.origin + "/mcp；或 stdio 命令如 go run . -mcp-serve";
   const presets = el("div", "row");
   presets.append(el("span", "meta", "快速填入："));
   for (const [n, c, tip] of MCP_PRESETS) { const b = el("button", "link", n); b.type = "button"; b.title = tip; b.onclick = () => { name.value = n; command.value = c; }; presets.append(b); }
@@ -300,7 +300,7 @@ export async function openMCP() {
     catch (err) { alert(err.message); submit.disabled = false; }
   };
   panel.lastChild.replaceWith(form);
-  if (data.hosted) panel.insertBefore(el("div", "banner", `观测台内置远程 MCP server：${location.origin}/mcp · ${data.hosted}。它把 agent 的 calculator 以 Streamable HTTP 提供出来；要在对话里使用，用“快速填入 → observer”添加。`), form);
+  if (data.hosted) panel.insertBefore(el("div", "banner", `网页端内置远程 MCP server：${location.origin}/mcp · ${data.hosted}。它把 agent 的 calculator 以 Streamable HTTP 提供出来；要在对话里使用，用“快速填入 → observer”添加。`), form);
   if (!data.mcp_servers.length) panel.append(el("div", "empty", "还没有 MCP server。用上面的表单添加一个。"));
   for (const m of data.mcp_servers) {
     const card = el("article", "hub-card" + (m.enabled ? "" : " off")), head = el("div", "hub-head"), push = el("div", "push");

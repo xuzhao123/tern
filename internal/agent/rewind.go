@@ -44,7 +44,7 @@ func Rewound(id string) bool {
 	return err == nil
 }
 
-// RewindResult 是一次撤销（或预览）的结果，观测台据此显示和确认。
+// RewindResult 是一次撤销（或预览）的结果，网页端据此显示和确认。
 type RewindResult struct {
 	Turns     []string `json:"turns"`     // 撤销的各轮，从新到旧
 	Continues string   `json:"continues"` // 撤销后对话接着的那一轮；空表示连第一轮也撤销了
@@ -169,7 +169,7 @@ func Rewind(target string, dryRun bool, mode string) (*RewindResult, error) {
 	return result, nil
 }
 
-// RewindCommand 是 go run . rewind：命令行与观测台（“撤销”按钮）共用。结果以 JSON 输出。
+// RewindCommand 是 go run . rewind：命令行与网页端（“撤销”按钮）共用。结果以 JSON 输出。
 func RewindCommand(args []string) error {
 	flags := flag.NewFlagSet("rewind", flag.ContinueOnError)
 	flags.StringVar(&tenant.Current, "tenant", "", "这一轮所属的租户；不给时是平台空间 .data/")

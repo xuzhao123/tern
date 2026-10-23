@@ -1,4 +1,4 @@
-package observer
+package web
 
 import (
 	"bytes"
@@ -42,7 +42,7 @@ func (s *server) uploadAttachment(w http.ResponseWriter, req *http.Request) {
 	}
 	name := attachmentName(req.URL.Query().Get("name"))
 	u := current(req)
-	record := audit.Record{Actor: "user", User: u.Name, Tenant: u.Tenant, Event: "user_attach", Target: name, Detail: "观测台页面"}
+	record := audit.Record{Actor: "user", User: u.Name, Tenant: u.Tenant, Event: "user_attach", Target: name, Detail: "网页端页面"}
 	record.Args(string(data))
 	if err := audit.Write(req.Context(), record); err != nil {
 		http.Error(w, "审计日志写入失败，没有保存这张图："+err.Error(), http.StatusInternalServerError)

@@ -67,7 +67,7 @@ func NewContext(system func() string, options ContextOptions, withTools bool) *C
 }
 
 // 续聊导入上次请求的messages加最后的assistant回答，保留摘要与工具配对。
-// 使用通用JSON输入，agent无需知道观测台或其存档目录。
+// 使用通用JSON输入，agent无需知道网页端或其存档目录。
 type HistoryInput struct {
 	Messages  []llm.Message `json:"messages"`
 	Usage     *llm.Usage    `json:"usage"`

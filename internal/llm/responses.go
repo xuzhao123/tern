@@ -17,12 +17,12 @@ import (
 //	reasoning_effort                 reasoning.effort
 //	max_completion_tokens            max_output_tokens
 //
-// agent 的消息、检查点和观测台存档都只有 chat 形式：发往 Responses 上游前由 ResponsesBody 换一次，
+// agent 的消息、检查点和网页端存档都只有 chat 形式：发往 Responses 上游前由 ResponsesBody 换一次，
 // 收到的流式事件由 Stream.Add 拼回同一个 Message。store 为 false，每次发完整历史，和 chat 的用法一样。
 // 推理内容不回传：Responses 要回传的是带 id 或加密内容的 reasoning 项，这个服务只给摘要文字。
 
 // ResponsesBody 把 chat/completions 的请求体换成 Responses 的请求体。agent 直连上游时自己换，
-// 经观测台时由代理换（存档留的是换之前的 chat 形式），两处用这一份。
+// 经网页端时由代理换（存档留的是换之前的 chat 形式），两处用这一份。
 func ResponsesBody(chat []byte) ([]byte, error) {
 	var in struct {
 		Model    string    `json:"model"`

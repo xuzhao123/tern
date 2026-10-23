@@ -115,7 +115,7 @@ func Close() {
 
 // 在新标签页里打开 address，等页面加载完，再执行 script 取回结果；script 可以返回 Promise。
 // 工具的 ctx 取消或超时时关闭标签页，正在进行的 chromedp 调用随即返回。
-// 浏览期间开启 screencast，画面帧写到 FrameDir/<callID>.jpg，观测台据此显示实时画面；结束时再存一张最终截图。
+// 浏览期间开启 screencast，画面帧写到 FrameDir/<callID>.jpg，网页端据此显示实时画面；结束时再存一张最终截图。
 func inTab[T any](ctx context.Context, callID, address, script string) (_ T, err error) {
 	var zero T
 	// 一个标签页一个 span（CLIENT：访问进程外的网站）；被拦截的内网请求数记在属性里。
@@ -199,7 +199,7 @@ func framePath(callID string) string {
 	return filepath.Join(FrameDir, callID+".jpg")
 }
 
-// 先写临时文件再改名：观测台随时来读，读到的总是一张完整的图。
+// 先写临时文件再改名：网页端随时来读，读到的总是一张完整的图。
 func writeFrame(file string, data []byte) {
 	tmp := file + ".tmp"
 	if os.WriteFile(tmp, data, 0o644) == nil {

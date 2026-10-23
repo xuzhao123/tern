@@ -286,7 +286,7 @@ func ForkCheckpoint(src *Checkpoint, id string, rounds int, note string) (*Check
 	return ForkSnapshot(src, id, messages, rounds, rounds, note)
 }
 
-// ForkSnapshot 从一份完整的上下文快照分叉：messages 是第 step+1 次模型决定当时看到的输入（观测台代理记录的那次请求），
+// ForkSnapshot 从一份完整的上下文快照分叉：messages 是第 step+1 次模型决定当时看到的输入（网页端代理记录的那次请求），
 // calls 是在它之前已经用掉的模型请求（含压缩），续跑的预算因此和原运行在那一刻相同。
 // 检查点里只有最后的 View，压缩过就无法按轮截断；请求快照没有这个问题，而且就是模型当时看到的原文。
 func ForkSnapshot(src *Checkpoint, id string, messages []llm.Message, step, calls int, note string) (*Checkpoint, error) {

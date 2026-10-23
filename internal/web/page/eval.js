@@ -102,7 +102,7 @@ function attributionView(rec, id) {
     row("原因", a.why); row("类别", a.label); row("建议修在", a.fix);
     row("回放插入", a.note); row("正确结果", a.expected); row("评分标准", a.rubric);
   }
-  if (a.trajectory) card.append(fold(a.full_trajectory ? "诊断读到的完整轨迹（由观测台记录重建，按实际请求编号）" : "诊断读到的轨迹（只有检查点里的 View：压缩过的部分只剩摘要）", a.trajectory));
+  if (a.trajectory) card.append(fold(a.full_trajectory ? "诊断读到的完整轨迹（由网页端记录重建，按实际请求编号）" : "诊断读到的轨迹（只有检查点里的 View：压缩过的部分只剩摘要）", a.trajectory));
   if (a.tools) card.append(fold("当时可用的工具", a.tools));
   card.append(el("div", "meta", "诊断是模型初判（自动定位出错步骤并不可靠）；证据是下面的回放：纠正能让结局翻转、安慰剂不能，才算已证实。卡片上的开放编码可以改写。"));
   box.append(card);
@@ -118,7 +118,7 @@ function caseTags(c) {
 }
 function evalStatus(status, busy) {
   if (busy) return { run: "运行中", replay: "回放中", regrade: "重新打分中" }[busy];
-  return { running: "未完成（观测台重启过）", done: "已完成", interrupted: "已停止" }[status] || status;
+  return { running: "未完成（网页端重启过）", done: "已完成", interrupted: "已停止" }[status] || status;
 }
 function tile(value, label) { const t = el("div", "eval-tile"); t.append(el("b", "", value), el("span", "", label)); return t; }
 function trialChip(t, onclick) {

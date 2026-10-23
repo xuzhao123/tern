@@ -107,7 +107,7 @@ func (r *Retrieval) degrade(reason string) {
 	r.Degraded = append(r.Degraded, Redact(clipText(reason, 200)))
 }
 
-// 记忆检索的终端行都带 phase；观测台据此把开场调入和运行中的 search_memory 分开显示。
+// 记忆检索的终端行都带 phase；网页端据此把开场调入和运行中的 search_memory 分开显示。
 // 记忆事件：终端照旧打印“Memory 类型: 内容”，有界面时再发一条 memory/event，界面直接读类型字段，不解析文本。
 func memLog(kind, format string, args ...any) {
 	text := Redact(fmt.Sprintf(format, args...))

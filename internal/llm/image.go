@@ -47,16 +47,16 @@ const (
 	maxImageBlocks = 2500
 	// ImageTokens 是每张图在估算里占的 token：豆包 high 档单图固定 1280，不看 base64 长度。
 	ImageTokens = 1280
-	// MaxImages 是每条用户消息最多带几张图：agent（-image 与 turn/start）和观测台共用这一个上限。
+	// MaxImages 是每条用户消息最多带几张图：agent（-image 与 turn/start）和网页端共用这一个上限。
 	MaxImages = 8
-	// MaxImageBytes 是一张原图最多多大：观测台上传与 view_image 读文件共用。
+	// MaxImageBytes 是一张原图最多多大：网页端上传与 view_image 读文件共用。
 	MaxImageBytes = 20 << 20
 
 	attachmentPrefix = "attachment://"
 	imageCloseTag    = "</image>"
 )
 
-// PrepareImage 把一张图变成可发给模型的 Image（照 Codex 的高清档）。命令行、观测台和之后的
+// PrepareImage 把一张图变成可发给模型的 Image（照 Codex 的高清档）。命令行、网页端和之后的
 // view_image 共用它：按文件头只收 PNG、JPEG、GIF、WebP，像素过多直接拒绝；
 // 超过 2048 长边或 2500 个 32×32 块时等比缩小，不需要缩放的 PNG、JPEG、WebP 原样保留字节，
 // 其余重新编码（JPEG 质量 85，其他编码成 PNG，GIF 只取第一帧）。字节按内容寻址写进附件目录。
@@ -213,7 +213,7 @@ func LoadAttachment(ref string) ([]byte, error) {
 
 // StoreDataURL 把 data:<mime>;base64,<数据> 解码后按内容寻址存进 dir，返回附件引用。
 // agent 发出的 data URL 就是附件文件的原字节，所以算出来的名字和 agent 写入时相同：
-// 观测台存档时用它把请求体里的 base64 换回引用。
+// 网页端存档时用它把请求体里的 base64 换回引用。
 func StoreDataURL(dir, url string) (string, error) {
 	rest, ok := strings.CutPrefix(url, "data:")
 	if !ok {
@@ -338,7 +338,7 @@ type imageURL struct {
 
 // prepareHistory 是发请求前的最后一步：把 attachment:// 展开成 data URL。
 // 模型不能看图时，把历史和工具结果里的图换成说明文字（照 Codex 的 strip_images_when_unsupported）：
-// 这一道兜住续跑、回放和命令行，界面上的禁用与观测台的校验挡不住它们。
+// 这一道兜住续跑、回放和命令行，界面上的禁用与网页端的校验挡不住它们。
 func prepareHistory(history []Message, vision bool) []Message {
 	out := make([]Message, len(history))
 	for i, m := range history {

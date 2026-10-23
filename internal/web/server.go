@@ -1,4 +1,4 @@
-package observer
+package web
 
 import (
 	"bufio"
@@ -40,12 +40,12 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// 页面在 web/：外壳 index.html、样式 app.css 和按功能拆开的原生 ES 模块（入口 main.js），不打包，打进同一个程序。
+// 页面在 page/：外壳 index.html、样式 app.css 和按功能拆开的原生 ES 模块（入口 main.js），不打包，打进同一个程序。
 //
-//go:embed web
+//go:embed page
 var webFS embed.FS
 
-// 观测系统不读取 agent 源码：它代理模型请求、转发终端输出，从协议数据还原过程。
+// 网页端不读取 agent 源码：它代理模型请求、转发终端输出，从协议数据还原过程。
 type event struct {
 	Seq        int             `json:"seq"`
 	Time       time.Time       `json:"time"`
@@ -135,13 +135,13 @@ type server struct {
 	evals          evals      // 评测记录（见 eval.go）
 }
 
-// Run 启动观测台：go run . observe [-addr …] [-dev]，须在项目根目录运行。
-// 观测台与内置 MCP server 在同一个进程；每次对话仍启动一个独立的 agent 子进程，
+// Run 启动网页端：go run . web [-addr …] [-dev]，须在项目根目录运行。
+// 网页端与内置 MCP server 在同一个进程；每次对话仍启动一个独立的 agent 子进程，
 // 这样各次运行的全局状态、终端输出和故障互不影响，模型请求也照旧经过本机代理记录。
 func Run(args []string, mcpHandler http.Handler) error {
-	flags := flag.NewFlagSet("observe", flag.ContinueOnError)
-	addr := flags.String("addr", "127.0.0.1:8090", "观测页面地址")
-	dev := flags.Bool("dev", false, "每次对话用 go run . 启动 agent：改完 agent 代码不必重启观测台，代价是每次多一次编译")
+	flags := flag.NewFlagSet("web", flag.ContinueOnError)
+	addr := flags.String("addr", "127.0.0.1:8090", "网页端地址")
+	dev := flags.Bool("dev", false, "每次对话用 go run . 启动 agent：改完 agent 代码不必重启网页端，代价是每次多一次编译")
 	addUserName := flags.String("add-user", "", "添加或重设一个登录账号（密码从标准输入读）后退出")
 	userTenant := flags.String("tenant", "", "配合 -add-user：账号所属的租户；不给时是平台账号")
 	features := flags.String("features", "", "配合 -add-user -tenant：这个租户可用的功能，逗号分隔（"+strings.Join(allFeatures, ",")+"）；不给时不改")
@@ -150,18 +150,18 @@ func Run(args []string, mcpHandler http.Handler) error {
 		return err
 	}
 	if flags.NArg() != 0 {
-		return errors.New("observe 只接受 -addr、-dev，或 -add-user [-tenant -features -max-running]")
+		return errors.New("web 只接受 -addr、-dev，或 -add-user [-tenant -features -max-running]")
 	}
 	if *addUserName != "" {
 		return addUser(*addUserName, *userTenant, *features, *maxRunning)
 	}
-	// agent 读 .env、skills/、.data/ 都相对项目根目录，所以观测台以当前目录为准。
+	// agent 读 .env、skills/、.data/ 都相对项目根目录，所以网页端以当前目录为准。
 	dir, err := os.Getwd()
 	if err != nil {
 		return err
 	}
 	if _, err := os.Stat(filepath.Join(dir, "go.mod")); err != nil {
-		return errors.New("请在项目根目录运行 go run . observe")
+		return errors.New("请在项目根目录运行 go run . web")
 	}
 	agentBin := ""
 	if !*dev {
@@ -177,7 +177,7 @@ func Run(args []string, mcpHandler http.Handler) error {
 	s := &server{agentDir: dir, addr: *addr, agentBin: agentBin, auth: authState, evals: evals{jobs: map[string]*evalJob{}}}
 	s.loadRuns()
 	mux := http.NewServeMux()
-	web, _ := fs.Sub(webFS, "web")
+	web, _ := fs.Sub(webFS, "page")
 	page, err := fs.ReadFile(web, "index.html")
 	if err != nil {
 		return err
@@ -247,16 +247,16 @@ func Run(args []string, mcpHandler http.Handler) error {
 	mux.HandleFunc("POST /hub/mcp/{name}/test", platform(s.testMCP))
 	// 内置远程 MCP：同一进程直接处理，不另开端口、不转发；同样只接受本机同源请求。
 	mux.Handle("/mcp", sameOrigin(mcpHandler))
-	mode := "直接执行当前程序（改了 agent 代码需重启观测台）"
+	mode := "直接执行当前程序（改了 agent 代码需重启网页端）"
 	if *dev {
 		mode = "go run .（每次读取最新源码）"
 	}
-	fmt.Printf("观测页面：http://%s\n远程 MCP：http://%s/mcp（内置 calculator，Streamable HTTP）\nAgent：项目根目录 · %s\n模型上游：由每个 agent 按 -provider 在请求头声明\n", *addr, *addr, mode)
+	fmt.Printf("网页端：http://%s\n远程 MCP：http://%s/mcp（内置 calculator，Streamable HTTP）\nAgent：项目根目录 · %s\n模型上游：由每个 agent 按 -provider 在请求头声明\n", *addr, *addr, mode)
 	fmt.Printf("登录账号：%s（%d 个）\n", usersPath, len(authState.accounts))
 	return http.ListenAndServe(*addr, s.protect(mux))
 }
 
-// agent 子进程：默认执行当前程序本身，与观测台同一份代码、不需要编译、在哪台机器运行就是哪台机器的格式；
+// agent 子进程：默认执行当前程序本身，与网页端同一份代码、不需要编译、在哪台机器运行就是哪台机器的格式；
 // -dev 时改用 go run .，读取最新源码。
 // agent 浏览时把画面写到 .data/browser/<任务ID>/<调用ID>.jpg（screencast 帧不断覆盖，结束时是最终截图）。
 // 页面运行中反复来取这张图，就是实时画面；调用结束后它就是这一步的快照。
@@ -414,7 +414,7 @@ func (s *server) startRun(w http.ResponseWriter, req *http.Request) {
 	}
 	snap.Embedding = input.Embedding
 	args := snapshotArgs(snap, snap.NetAllow)
-	// 对话 ID：随机 UUID（v4），不含时间，与观测台在哪个时区启动无关。
+	// 对话 ID：随机 UUID（v4），不含时间，与网页端在哪个时区启动无关。
 	// 早期存档的 ID 是“20261006-213820.763”这样的本地时间，照常读回，不改名，旧链接仍能打开。
 	id := uuid.NewString()
 	file, err := s.createRunFile(u.Tenant, id)
@@ -439,7 +439,7 @@ func (s *server) startRun(w http.ResponseWriter, req *http.Request) {
 
 // GET /models：输入框第二级下拉的候选项。路由表只存在 llm 包里，这里按它读出来给页面，不做第二份。
 // default 是不选具体模型时 agent 实际会用的那个：.env 或环境变量里的 LLM_MODEL / DEEPSEEK_MODEL 覆盖路由表默认值，
-// agent 子进程继承观测台的环境、在同一目录读 .env，所以按同样的规则解析。
+// agent 子进程继承网页端的环境、在同一目录读 .env，所以按同样的规则解析。
 // 每个模型带上能不能看图：页面据此禁用附图按钮，服务端收图时同样按这条规则判断。
 // 供应商的下拉（输入框与设置页）也从这里来：label 是显示名，error 是本机没配好的原因（缺密钥或地址），页面据此灰掉。
 func (s *server) listModels(w http.ResponseWriter, req *http.Request) {
@@ -600,7 +600,7 @@ func (s *server) continueRun(w http.ResponseWriter, req *http.Request) {
 	json.NewEncoder(w).Encode(r.summary())
 }
 
-// 每次交互（首问或续聊）一个 trace，根 span 是观测台的 interaction；agent 进程的 invoke_agent 挂在它下面。
+// 每次交互（首问或续聊）一个 trace，根 span 是网页端的 interaction；agent 进程的 invoke_agent 挂在它下面。
 // 同一个对话的多个 trace 用 gen_ai.conversation.id（对话ID）归到一起。
 func (r *run) beginTurn(query string) (context.Context, trace.Span) {
 	r.mu.Lock()
@@ -617,7 +617,7 @@ func (r *run) beginTurn(query string) (context.Context, trace.Span) {
 }
 
 // agent 以 -app-server 启动，协议走 .data/[tenants/<租户>/]live/ 下的 Unix socket（见 live.go），给人看的终端输出也经协议的 log 通知送来。
-// 观测台退出时 agent 照常运行，观测台重启后重新接管（adopt）。turn 为 nil 时由命令行参数决定要做什么，不发 turn/start。
+// 网页端退出时 agent 照常运行，网页端重启后重新接管（adopt）。turn 为 nil 时由命令行参数决定要做什么，不发 turn/start。
 //
 // 多租户：租户对话的 agent 带 -tenant 启动，读写都落在租户目录下；发起人的用户名经 AGENT_USER 进审计。
 // 每次启动生成一个代理令牌：模型代理只接受带着本对话当前令牌的请求，别的进程不能往这条对话里塞记录；重新接管时 agent 也要出示它。
@@ -632,7 +632,7 @@ func (s *server) launch(ctx context.Context, r *run, args []string, turn map[str
 	cmd.Env = append(cmd.Env, telemetry.Env(ctx)...)
 	os.MkdirAll(s.abs(filepath.Dir(livePath(r, ".sock"))), 0o700)
 	s.cleanLive(r)
-	// 文件描述符 2 接到文件上：观测台退出后 agent 往这里写也不会出错；正常日志走协议，这里只会有崩溃一类的输出。
+	// 文件描述符 2 接到文件上：网页端退出后 agent 往这里写也不会出错；正常日志走协议，这里只会有崩溃一类的输出。
 	errFile, err := os.OpenFile(s.abs(livePath(r, ".err")), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		r.add(event{Kind: "exit", Text: err.Error()})
@@ -643,7 +643,7 @@ func (s *server) launch(ctx context.Context, r *run, args []string, turn map[str
 	r.mu.Lock()
 	r.approvals, r.toolWaits, r.asks, r.token, r.exitStatus = map[string][]int64{}, map[string]toolWait{}, map[string]int64{}, token, ""
 	r.mu.Unlock()
-	// 自己的进程组：停止时向整组发信号；观测台所在终端的 Ctrl-C 也不会传到 agent。-dev 模式下组里是 go run 和它编译出的 agent。
+	// 自己的进程组：停止时向整组发信号；网页端所在终端的 Ctrl-C 也不会传到 agent。-dev 模式下组里是 go run 和它编译出的 agent。
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	err = cmd.Start()
 	errFile.Close()
@@ -759,7 +759,7 @@ func appendMemoryArgs(args []string, memory bool, ttl string) []string {
 	return args
 }
 
-// 记忆文件由 agent 写入；观测台只读展示。删除走 agent 的 -memory-forget，与 agent 共用文件锁和事务。
+// 记忆文件由 agent 写入；网页端只读展示。删除走 agent 的 -memory-forget，与 agent 共用文件锁和事务。
 // 派生索引（背景说明、块状态）只用来展示，缺失或损坏时显示为空，不影响原始记忆。
 func (s *server) listMemory(w http.ResponseWriter, req *http.Request) {
 	space := current(req).Tenant
@@ -805,7 +805,7 @@ func (s *server) forgetMemory(w http.ResponseWriter, req *http.Request) {
 }
 
 // 撤销某一轮及之后各轮的文件改动，对话退回到它的上一轮。文件由 agent 的 rewind 命令恢复（和记忆删除一样，
-// 改动用户数据的事交给 agent，观测台不自己写工作区）；这里核对这一轮属于这条对话、对话没有在运行，再把结果记进对话记录。
+// 改动用户数据的事交给 agent，网页端不自己写工作区）；这里核对这一轮属于这条对话、对话没有在运行，再把结果记进对话记录。
 // dry_run 只预览：页面先列出会恢复、删除的文件和冲突，人确认后再真正执行。
 func (s *server) rewindRun(w http.ResponseWriter, req *http.Request) {
 	r := s.runOf(w, req)
@@ -1328,7 +1328,7 @@ func (r *run) add(e event) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.seq++
-	e.Seq, e.Time = r.seq, time.Now().UTC() // 统一存 UTC：换时区启动观测台、或别人打开页面，时间都不会错
+	e.Seq, e.Time = r.seq, time.Now().UTC() // 统一存 UTC：换时区启动网页端、或别人打开页面，时间都不会错
 	r.events = append(r.events, e)
 	if line, err := json.Marshal(e); err == nil && e.Kind != "delta" {
 		r.file.Write(append(line, '\n'))
@@ -1379,7 +1379,7 @@ func (s *server) streamEvents(w http.ResponseWriter, req *http.Request) {
 // 沙箱网络白名单由用户审批。请求来自 agent 的 request_network_access（模型发起）或沙箱代理（命令连到不在白名单的域名）；
 // 用户在页面上点“允许 / 拒绝”，这里记一条 allow/deny 事件（存进对话记录），下一轮续聊时作为 -net-allow 传给 agent。
 // “始终允许”另外把域名加进这个账号的个人设置（net_allow），之后新开的对话都带上（同 Claude Code 的“Yes, and don't ask again”）。
-// 模型自己无法调用这个接口：它在断网的沙箱里，也没有访问观测台的工具。
+// 模型自己无法调用这个接口：它在断网的沙箱里，也没有访问网页端的工具。
 var domainPattern = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
 
 func (s *server) decideNetwork(w http.ResponseWriter, req *http.Request) {
@@ -1414,7 +1414,7 @@ func (s *server) decideNetwork(w http.ResponseWriter, req *http.Request) {
 	}
 	r.mu.Unlock()
 	always := input.Allow && input.Always
-	detail := "观测台页面"
+	detail := "网页端页面"
 	if always {
 		detail += "；始终允许：写入个人设置"
 	}
@@ -1529,7 +1529,7 @@ func (s *server) decideTool(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "这项操作已不在等待确认（可能已超时或 agent 已结束）", http.StatusConflict)
 		return
 	}
-	decision, detail := "deny", "观测台页面"
+	decision, detail := "deny", "网页端页面"
 	if input.Allow {
 		decision = "allow"
 	}
@@ -1541,9 +1541,9 @@ func (s *server) decideTool(w http.ResponseWriter, req *http.Request) {
 			http.Error(w, "这项操作只能单次允许", http.StatusBadRequest)
 			return
 		}
-		decision, detail = "allow_session", "观测台页面；本对话内都允许："+wait.Scope
+		decision, detail = "allow_session", "网页端页面；本对话内都允许："+wait.Scope
 	}
-	// 观测台记下“人点了什么”，与 agent 那边的 approval_decision 互相对照；参数哈希应与 agent 的请求记录一致。
+	// 网页端记下“人点了什么”，与 agent 那边的 approval_decision 互相对照；参数哈希应与 agent 的请求记录一致。
 	// 先写审计再回复：审计写不进去，就不把“允许”交给 agent。
 	record := audit.Record{Actor: "user", User: current(req).Name, Tenant: r.Tenant, Event: "user_decision", Task: wait.Task, Conversation: r.ID, CallID: input.CallID, Tool: wait.Tool, Risk: wait.Risk, Decision: decision, Detail: detail}
 	record.Args(wait.Arguments)
@@ -1862,7 +1862,7 @@ func (r *run) handle(m protocol.Message) {
 			conn := r.conn
 			r.mu.Unlock()
 			if conn != nil {
-				conn.Reply(*m.ID, nil, &protocol.Error{Code: -32601, Message: "观测台不支持 " + m.Method})
+				conn.Reply(*m.ID, nil, &protocol.Error{Code: -32601, Message: "网页端不支持 " + m.Method})
 			}
 			return
 		}

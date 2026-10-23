@@ -1,4 +1,4 @@
-package observer
+package web
 
 import (
 	"encoding/json"
@@ -54,7 +54,7 @@ func (s *server) importRun(w http.ResponseWriter, req *http.Request) {
 }
 
 // importEvents 按时间顺序生成事件，时间用记录里的原始时间戳。每一轮以 start/continue 开始、exit 结束，
-// 和观测台自己启动的对话一样；请求只带新增的消息（append），页面接在上一次请求后面还原完整输入。
+// 和网页端自己启动的对话一样；请求只带新增的消息（append），页面接在上一次请求后面还原完整输入。
 func importEvents(conv *transcript.Conversation) []event {
 	var events []event
 	add := func(e event, at time.Time) {

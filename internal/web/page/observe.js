@@ -213,7 +213,7 @@ function renderSpanInspector(r, s) {
   if (link && !link.sub) {
     const go = el("button", "ghost", `在轨迹中查看原始请求 #${link.call}`); go.type = "button";
     go.onclick = () => { ui.tab = "trace"; ui.follow = false; select("in" + link.call); };
-    box.append(section("观测代理记录", go));
+    box.append(section("代理记录", go));
   }
   box.append(section("属性 attributes", el("pre", "", pretty(s.attributes || {}))));
   if (s.events?.length) box.append(section(`事件 events（${s.events.length}）`, ...s.events.map((e) => fold(`${e.name} · ${new Date(e.time).toLocaleTimeString()}`, e.attributes || {}, true))));
@@ -502,7 +502,7 @@ export function renderInspector(it) {
     add("用途", c.aux ? `${AUX_LABEL[c.purpose]}（${c.purpose}，无工具，不是用户回合或最终回答）` : c.compact ? "上下文摘要（不执行工具）" : "任务决策");
     add("公共前缀", `${c.shared || 0} 条消息（实际缓存看usage）`);
     add("耗时", c.ms ? `${c.ms} ms` + (c.firstToken ? `（首字 ${c.firstToken} ms，生成 ${c.ms - c.firstToken} ms）` : c.chunks ? "" : "（非流式，无首字拆分）") : "等待响应");
-    if (c.chunks) add("流式", `${c.chunks} 个 chunk；响应 JSON 由观测台按 chunk 拼回`);
+    if (c.chunks) add("流式", `${c.chunks} 个 chunk；响应 JSON 由网页端按 chunk 拼回`);
     if (c.status) add("HTTP", String(c.status));
     if (u.total_tokens) { add("输入", `${u.prompt_tokens}（缓存 ${p.cached}）`); add("输出", `${u.completion_tokens}（推理 ${p.reasoning}）`); }
     if (c.choice) add("finish_reason", c.choice.finish_reason);

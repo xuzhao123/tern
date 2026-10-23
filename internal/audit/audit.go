@@ -25,23 +25,23 @@ import (
 // 审计日志：回答“谁、在什么时候、对什么做了什么决定、结果如何”。
 // 与终端日志、trace 的区别：只记关键动作与决定；只追加；每条带上一条的哈希，改动或删除中间任何一条，校验都会失败。
 //
-// 写入方有两个：agent 进程记录程序规则的判断、执行结果与记忆变更；观测台记录人点了什么。
+// 写入方有两个：agent 进程记录程序规则的判断、执行结果与记忆变更；网页端记录人点了什么。
 // 两边写同一个文件，用文件锁保证一次只追加一条，链不会断。参数只存哈希和长度，不存原文，审计本身不成为泄露源；
-// 要核对“批准的是不是这次执行的参数”，用检查点或观测台存档里的原文重新算哈希比对。
+// 要核对“批准的是不是这次执行的参数”，用检查点或网页端存档里的原文重新算哈希比对。
 //
 // 多租户：每个租户一条自己的链（.data/tenants/<租户>/audit/audit.jsonl），平台一条（.data/audit/audit.jsonl）。
-// 记录写进哪条链由 Record.Tenant 决定：agent 进程默认是自己的租户，观测台按对话所属的租户填。
+// 记录写进哪条链由 Record.Tenant 决定：agent 进程默认是自己的租户，网页端按对话所属的租户填。
 func path(space string) string { return tenant.Path(space, "audit", "audit.jsonl") }
 
-// 由 main 设置：本进程的任务ID 与对话ID；观测台写入时在记录里自己填。
-// User 是发起本次运行的登录用户（观测台经环境变量 AGENT_USER 传入），命令行运行时为空。
+// 由 main 设置：本进程的任务ID 与对话ID；网页端写入时在记录里自己填。
+// User 是发起本次运行的登录用户（网页端经环境变量 AGENT_USER 传入），命令行运行时为空。
 var Task, Conversation, User = "", "", os.Getenv("AGENT_USER")
 
 type Record struct {
 	Seq          int64  `json:"seq"`
 	Time         string `json:"time"`
 	Actor        string `json:"actor"`          // user：人；model：模型提议；program：程序规则或模块自己做的
-	User         string `json:"user,omitempty"` // 登录用户名：观测台里的操作才有
+	User         string `json:"user,omitempty"` // 登录用户名：网页端里的操作才有
 	Tenant       string `json:"tenant,omitempty"`
 	Event        string `json:"event"`
 	Task         string `json:"task,omitempty"`
@@ -103,7 +103,7 @@ func Write(ctx context.Context, r Record) error {
 		return err
 	}
 	defer file.Close()
-	// 观测台和多个 agent 进程会同时写：加锁 → 读最后一条 → 接上链 → 写入并落盘 → 解锁。
+	// 网页端和多个 agent 进程会同时写：加锁 → 读最后一条 → 接上链 → 写入并落盘 → 解锁。
 	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX); err != nil {
 		return err
 	}

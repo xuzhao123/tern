@@ -14,8 +14,8 @@ import (
 	"time"
 )
 
-// 接管：可以脱离的连接。观测台启动的 agent 不用 stdio，而是在 AGENT_APP_SOCKET 指定的 Unix socket 上等界面连进来。
-// 观测台退出或重启时连接断开，agent 照常运行：发出的通知与请求（item/delta 除外）按顺序编号留在内存里，
+// 接管：可以脱离的连接。网页端启动的 agent 不用 stdio，而是在 AGENT_APP_SOCKET 指定的 Unix socket 上等界面连进来。
+// 网页端退出或重启时连接断开，agent 照常运行：发出的通知与请求（item/delta 除外）按顺序编号留在内存里，
 // 界面重新连上时先发 session/attach，说出已经收到第几条（after）；agent 补发之后的各条，
 // 以及还在等答复的请求（哪怕界面收到过：新的界面要重新登记它们）。
 // 脱离超过 DetachGrace 仍没有界面连回，Closed 关闭，按界面断开处理：中断、写检查点、退出。
@@ -50,7 +50,7 @@ func (s *session) keep(m *Message) {
 // Listen 在 path 上等界面连进来，返回 agent 一侧的连接。之后每个连进来的界面都要先发 session/attach。
 func Listen(path, token string, handle func(Message)) (*Conn, error) {
 	os.Remove(path) // 上一次运行留下的 socket 文件
-	// 谁能连进来由所在目录决定：观测台把它建在 0700 的 .data/…/live/ 下（有的文件系统不支持对 socket 文件 chmod）。
+	// 谁能连进来由所在目录决定：网页端把它建在 0700 的 .data/…/live/ 下（有的文件系统不支持对 socket 文件 chmod）。
 	l, err := net.Listen("unix", path)
 	if err != nil {
 		return nil, err
@@ -186,7 +186,7 @@ func CaptureLogs() {
 	}()
 }
 
-// Finish 在进程退出前调用：用 process/exit 请求报告退出状态（观测台重启后接管的进程，它拿不到退出码）。
+// Finish 在进程退出前调用：用 process/exit 请求报告退出状态（网页端重启后接管的进程，它拿不到退出码）。
 // 界面按顺序处理消息，它答复了，说明之前的各条也都记下了，这时才断开退出；界面在答复前断开，
 // 这个请求留着，连回时随补发重发；最多等到 DetachGrace。stdio 连接什么都不做。
 func Finish(status string) {

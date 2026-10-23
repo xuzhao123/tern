@@ -31,7 +31,7 @@ import (
 )
 
 // stdio server 是第三方程序，只给它最小的环境（照 Codex 的 DEFAULT_ENV_VARS），再加 go run 起 server 要用的工具链变量。
-// 模型密钥、观测台的代理令牌都在本进程的环境里，mcp-go 默认把整个 os.Environ() 传下去，所以命令由这里自己建。
+// 模型密钥、网页端的代理令牌都在本进程的环境里，mcp-go 默认把整个 os.Environ() 传下去，所以命令由这里自己建。
 var serverEnvNames = []string{"HOME", "LOGNAME", "PATH", "SHELL", "USER", "LANG", "LC_ALL", "LC_CTYPE", "TERM", "TMPDIR", "TZ",
 	"GOPATH", "GOROOT", "GOCACHE", "GOMODCACHE", "GOPROXY", "GOSUMDB", "GOFLAGS", "GOTOOLCHAIN", "GOPRIVATE", "GONOPROXY", "GONOSUMDB", "GOINSECURE"}
 
@@ -403,7 +403,7 @@ func Raw(ctx context.Context, command, era, callName, callArgs string) error {
 }
 
 // 把 calculate 暴露成 calculator 的 MCP server。server 与传输分开：
-// Serve 用 stdio 或独立 HTTP 端口运行；Handler 让观测台在自己的 /mcp 上直接提供（同一进程，不转发）。
+// Serve 用 stdio 或独立 HTTP 端口运行；Handler 让网页端在自己的 /mcp 上直接提供（同一进程，不转发）。
 func newServer(logger *log.Logger) *server.MCPServer {
 	s := server.NewMCPServer("tern-calculator", "0.7.0",
 		server.WithToolCapabilities(false),
@@ -460,7 +460,7 @@ func Serve(httpAddr string) error {
 	return server.ServeStdio(s, server.WithErrorLogger(logger))
 }
 
-// Handler 是同一个 server 的 Streamable HTTP 入口，观测台挂在自己的 /mcp 上；日志打印到观测台终端。
+// Handler 是同一个 server 的 Streamable HTTP 入口，网页端挂在自己的 /mcp 上；日志打印到网页端终端。
 func Handler() http.Handler {
 	return server.NewStreamableHTTPServer(newServer(log.New(os.Stdout, "[mcp] ", log.Ltime)))
 }

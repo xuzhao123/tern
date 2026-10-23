@@ -30,7 +30,7 @@ export function bashCard(r, c, t) {
   for (const n of notes) body.push(el("div", "meta", n));
   return step(`t${c.n}-${t.index}`, head, body);
 }
-// 模型只能发起请求；“允许 / 拒绝”只有人在页面上点。起 agent 在这里暂停等待：页面上点了，观测台当场回复，本轮接着执行；
+// 模型只能发起请求；“允许 / 拒绝”只有人在页面上点。起 agent 在这里暂停等待：页面上点了，网页端当场回复，本轮接着执行；
 // 决定同时记进对话记录，之后的续聊作为 -net-allow 传给 agent。
 export function netCard(r, t) {
   const args = parse(t.args) || {}, res = parse(t.result), domain = res?.result?.domain || args.domain || "";

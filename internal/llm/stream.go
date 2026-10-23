@@ -14,14 +14,14 @@ import (
 //	finish_reason 只在最后一个有内容的 chunk 出现；没出现就是流被截断
 //	usage         请求里带 stream_options.include_usage 时，[DONE] 前多一个 choices 为空、只有 usage 的 chunk
 //
-// agent 用它边收边拼出完整回答，观测台的代理用同一份逻辑把转发过的流还原成完整响应留档。
+// agent 用它边收边拼出完整回答，网页端的代理用同一份逻辑把转发过的流还原成完整响应留档。
 // Responses 与 Anthropic Messages 协议的流（每行 data 带 type）也由它接收，拼回同样的 Message，见 responses.go、messages.go。
 type Stream struct {
 	ID, Model    string
 	Message      Message
 	FinishReason string
 	Usage        *Usage
-	RawUsage     json.RawMessage // 原样保留供应商的 usage（含 total_tokens、推理 token 等），观测台显示用
+	RawUsage     json.RawMessage // 原样保留供应商的 usage（含 total_tokens、推理 token 等），网页端显示用
 	Chunks       int
 	Done         bool // 读到了 [DONE]
 
@@ -130,7 +130,7 @@ func (s *Stream) Add(line string) (content, reasoning string, err error) {
 }
 
 // Response 把收到的 chunk 拼回非流式响应的结构（choices[0].message、finish_reason、usage）。
-// 观测台按这个结构留档，页面、续聊恢复和归因读取存档的代码不必区分流式与非流式。
+// 网页端按这个结构留档，页面、续聊恢复和归因读取存档的代码不必区分流式与非流式。
 func (s *Stream) Response() map[string]any {
 	message := s.Message
 	if message.Role == "" {

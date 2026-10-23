@@ -124,7 +124,7 @@ func messagesContent(m Message) []any {
 	return blocks
 }
 
-// ConvertBody 按上游协议把 chat 形式的请求体换过去：agent 直连时自己换，经观测台时由代理换，两处用这一份。
+// ConvertBody 按上游协议把 chat 形式的请求体换过去：agent 直连时自己换，经网页端时由代理换，两处用这一份。
 func ConvertBody(protocol string, chat []byte) ([]byte, error) {
 	switch protocol {
 	case "responses":

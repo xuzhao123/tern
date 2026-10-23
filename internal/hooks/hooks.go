@@ -9,7 +9,7 @@
 //
 //	2 = 拦截，stderr 是原因；其他 = hook 自己出错，记一条日志后照常继续（不阻断）。
 //
-// hooks 只能由用户给（-hooks，或观测台的平台设置）：它们在宿主机上以 harness 的身份运行，不在沙箱里，
+// hooks 只能由用户给（-hooks，或网页端的平台设置）：它们在宿主机上以 harness 的身份运行，不在沙箱里，
 // 所以不读工作区里的 hooks 配置——没有“信任这个仓库”的确认，打开一个陌生仓库就等于执行它带的命令。
 package hooks
 
@@ -71,7 +71,7 @@ func Load(value string) error {
 	return nil
 }
 
-// Parse 校验配置；观测台保存设置时也用它，格式错误在保存时就报出来，不等到对话开始。
+// Parse 校验配置；网页端保存设置时也用它，格式错误在保存时就报出来，不等到对话开始。
 func Parse(text string) (map[string][]group, error) {
 	var file struct {
 		Hooks map[string][]group `json:"hooks"`

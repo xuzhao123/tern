@@ -80,7 +80,7 @@ type Note struct {
 	Updated time.Time `json:"updated"`
 }
 
-// Options 是一次评测的设置。Attach 让界面接管每个试次（观测台为它建一条对话、接上代理和协议）；命令行运行时为 nil。
+// Options 是一次评测的设置。Attach 让界面接管每个试次（网页端为它建一条对话、接上代理和协议）；命令行运行时为 nil。
 type Options struct {
 	CasesFile string
 	Set       string // dev（默认，不含留出题）、holdout、all

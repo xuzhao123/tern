@@ -87,7 +87,7 @@ export function md(text, visual) {
   return box;
 }
 // ---------- 可视化：模型写的 HTML 与 ECharts option 只在沙箱 iframe 里运行 ----------
-// sandbox 只给 allow-scripts、不给 allow-same-origin：iframe 是独立的空源，读不到观测台的 cookie、页面和接口。
+// sandbox 只给 allow-scripts、不给 allow-same-origin：iframe 是独立的空源，读不到网页端的 cookie、页面和接口。
 // renderChat 每个事件都重建 DOM，iframe 一旦离开文档就会重载、丢掉交互状态；所以重建前先 moveBefore 停到 #viz-park，
 // 重建后按内容认领回原位。不支持 moveBefore 的浏览器退化为重载。
 const vizFrames = new Map(), vizPending = [];

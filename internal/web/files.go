@@ -1,4 +1,4 @@
-package observer
+package web
 
 import (
 	"encoding/json"
@@ -23,10 +23,10 @@ import (
 // 对话的沙箱文件：agent 在 turn/started 里报告沙箱目录名（对话第一轮的检查点ID），
 // 文件在 .data/[tenants/<租户>/]sandbox/<目录名>/，就是沙箱里的 /workspace。
 //
-// 这个目录里的东西是模型写的，所以观测台把它当不可信数据：
+// 这个目录里的东西是模型写的，所以网页端把它当不可信数据：
 //   - 只经 os.Root 访问：模型在沙箱里建的符号链接若指向 /workspace 之外（比如宿主机的 .env），解析到根外就报错，不会跟出去；
-//   - 只下载普通文件，打开时带 O_NONBLOCK：命名管道不会卡住观测台；
-//   - 一律作为附件下载、nosniff：模型写的 HTML 不会在观测台的页面源里执行（那里有登录 Cookie）。
+//   - 只下载普通文件，打开时带 O_NONBLOCK：命名管道不会卡住网页端；
+//   - 一律作为附件下载、nosniff：模型写的 HTML 不会在网页端的页面源里执行（那里有登录 Cookie）。
 const (
 	maxUpload    = 10 << 20
 	maxListFiles = 1000
@@ -213,7 +213,7 @@ func (s *server) uploadFile(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "无法写入沙箱目录", http.StatusInternalServerError)
 		return
 	}
-	record := audit.Record{Actor: "user", User: current(req).Name, Tenant: r.Tenant, Event: "user_upload", Task: task, Conversation: r.ID, Target: name, Detail: "观测台页面"}
+	record := audit.Record{Actor: "user", User: current(req).Name, Tenant: r.Tenant, Event: "user_upload", Task: task, Conversation: r.ID, Target: name, Detail: "网页端页面"}
 	record.Args(string(data))
 	// 和审批一样，写不进审计就不做：先记再写文件，失败则删掉空文件。
 	if err := audit.Write(req.Context(), record); err != nil {
@@ -262,7 +262,7 @@ func (s *server) deleteFile(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "找不到这个文件（不存在，或路径经过指向沙箱外的链接）", http.StatusNotFound)
 		return
 	}
-	record := audit.Record{Actor: "user", User: current(req).Name, Tenant: r.Tenant, Event: "user_delete", Task: task, Conversation: r.ID, Target: name, Detail: "观测台页面"}
+	record := audit.Record{Actor: "user", User: current(req).Name, Tenant: r.Tenant, Event: "user_delete", Task: task, Conversation: r.ID, Target: name, Detail: "网页端页面"}
 	if err := audit.Write(req.Context(), record); err != nil {
 		http.Error(w, "审计日志写入失败，没有删除："+err.Error(), http.StatusInternalServerError)
 		return

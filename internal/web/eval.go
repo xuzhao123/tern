@@ -1,4 +1,4 @@
-package observer
+package web
 
 import (
 	"context"
@@ -21,8 +21,8 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// 观测台是评测的界面。评测逻辑（选题、执行、打分、回放）在 internal/eval，与 go run . eval 共用同一份记录；
-// 观测台给每个试次建一条对话：模型请求经本机代理、协议通知存成事件，所以每个试次都能像普通对话一样看轨迹、调用链。
+// 网页端是评测的界面。评测逻辑（选题、执行、打分、回放）在 internal/eval，与 go run . eval 共用同一份记录；
+// 网页端给每个试次建一条对话：模型请求经本机代理、协议通知存成事件，所以每个试次都能像普通对话一样看轨迹、调用链。
 type evalJob struct {
 	runner *eval.Runner
 	busy   string // 正在做的事：run、replay、regrade；空表示空闲
@@ -334,7 +334,7 @@ func (s *server) attributeRun(w http.ResponseWriter, req *http.Request) {
 	writeJSON(w, map[string]string{"id": id})
 }
 
-// trajectory 从观测台记下的事件重建这一轮的完整过程，交给诊断：检查点里只有压缩后的 View，
+// trajectory 从网页端记下的事件重建这一轮的完整过程，交给诊断：检查点里只有压缩后的 View，
 // 早先的决定只剩一段摘要，诊断就会把下游的错误当成第一个错误。这里用代理记录的每一次主任务响应
 // （模型的推理、回复与工具调用）和协议里的工具结果，按实际请求顺序编号；压缩只记一行，不算一次决定。
 // 调用方持有 r.mu。

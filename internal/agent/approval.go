@@ -149,7 +149,7 @@ func approve(ctx context.Context, call llm.ToolCall, kind, reason string) string
 		decision = "allow" // 没给范围的请求只能单次允许
 	}
 	fmt.Printf("Approval decision [%s]: %s\n", call.ID, decision)
-	// allow / allow_session / deny 来自界面上的人（观测台另记一条它收到的点击）；unavailable / timeout 是程序按规则处理的。
+	// allow / allow_session / deny 来自界面上的人（网页端另记一条它收到的点击）；unavailable / timeout 是程序按规则处理的。
 	record.Event, record.Decision, record.Actor, record.Detail = "approval_decision", decision, "program", ""
 	if decision == "allow" || decision == "allow_session" || decision == "deny" {
 		record.Actor, record.Detail = "user", "经界面答复"

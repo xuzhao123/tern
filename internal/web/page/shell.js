@@ -333,7 +333,7 @@ export function newChat(updateURL = true) {
   render(); loadRuns(); $("query").focus();
 }
 $("new-chat").onclick = () => newChat();
-// 导入 Codex / Claude Code 的会话文件：服务端换成观测台的存档格式，导入后只读。
+// 导入 Codex / Claude Code 的会话文件：服务端换成网页端的存档格式，导入后只读。
 $("import").onclick = () => $("import-file").click();
 $("import-file").onchange = async () => {
   const file = $("import-file").files[0];

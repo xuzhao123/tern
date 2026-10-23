@@ -1,4 +1,4 @@
-package observer
+package web
 
 import (
 	"context"
@@ -15,8 +15,8 @@ import (
 	"time"
 )
 
-// Skills 中心与 MCP 中心：观测台只保存“装了哪些、开没开”，解析、校验与连接都交给 agent 自己的命令行模式，
-// 不在观测台另写一份 SKILL.md 解析或 MCP client。配置放 agent 的 .data/hub.json（已忽略提交）。
+// Skills 中心与 MCP 中心：网页端只保存“装了哪些、开没开”，解析、校验与连接都交给 agent 自己的命令行模式，
+// 不在网页端另写一份 SKILL.md 解析或 MCP client。配置放 agent 的 .data/hub.json（已忽略提交）。
 type mcpServer struct {
 	Name    string `json:"name"`
 	Command string `json:"command"`
@@ -130,7 +130,7 @@ func (s *server) enabledHub(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"skills": skills, "mcp": servers, "mcp_servers": config.MCPServers, "hosted": "与观测台同一进程，随观测台启动和退出"})
+	json.NewEncoder(w).Encode(map[string]any{"skills": skills, "mcp": servers, "mcp_servers": config.MCPServers, "hosted": "与网页端同一进程，随网页端启动和退出"})
 }
 
 // 列表直接来自 agent 的 -skills-list：和运行时用的是同一套 frontmatter 解析与校验。
@@ -334,7 +334,7 @@ func sameOrigin(next http.Handler) http.Handler {
 		}
 		origin, err := url.Parse(req.Header.Get("Origin"))
 		if (host != "127.0.0.1" && host != "localhost") || (req.Header.Get("Origin") != "" && (err != nil || origin.Host != req.Host)) {
-			http.Error(w, "只接受本机观测页面发来的请求", http.StatusForbidden)
+			http.Error(w, "只接受网页端页面发来的请求", http.StatusForbidden)
 			return
 		}
 		next.ServeHTTP(w, req)

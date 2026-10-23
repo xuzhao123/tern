@@ -50,7 +50,7 @@ function memoryCard(r, turn, phase) {
   all.onclick = () => openMemory();
   return step(`mem-${phase}-${turn}`, [ico("mem", "mem"), el("span", "", label)], [...rows, all]);
 }
-// 本轮启用的 skill 与 MCP：快照来自观测台的 start/continue 事件，实际结果来自 agent 启动时的终端行。
+// 本轮启用的 skill 与 MCP：快照来自网页端的 start/continue 事件，实际结果来自 agent 启动时的终端行。
 function capsSummary(r, turn) {
   const logs = r.caps.filter((l) => l.turn === turn);
   const loaded = logs.find((l) => l.kind === "skills_loaded");

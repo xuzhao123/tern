@@ -14,10 +14,10 @@ import (
 // main 启动时先放入内置工具，再按开关追加检索、记忆、skill 与 MCP 工具。
 var Tools []map[string]any
 
-// 本进程的任务ID（即检查点ID），由 main 设置；只在发往本机观测代理的请求头里使用。
+// 本进程的任务ID（即检查点ID），由 main 设置；只在发往本机网页端的代理的请求头里使用。
 var TaskID string
 
-// Upstream 是供应商的真实地址；APIURL 是这次实际请求的地址，经观测台时是本机代理。
+// Upstream 是供应商的真实地址；APIURL 是这次实际请求的地址，经网页端时是本机代理。
 // Protocol 是上游说的协议：空表示 chat/completions，"responses" 表示 OpenAI Responses（见 responses.go），"messages" 表示 Anthropic Messages（见 messages.go）。
 type Config struct{ Provider, Protocol, APIURL, Upstream, Model, APIKey, Effort string }
 
@@ -31,7 +31,7 @@ type Config struct{ Provider, Protocol, APIURL, Upstream, Model, APIKey, Effort 
 // 或 ark-code-latest（跟控制台的模型选择走），带日期版本号的老模型名属于 /api/v3。
 // 方舟沿用最早的变量名 LLM_API_URL / LLM_MODEL：变量名不变，值是套餐地址与套餐模型名。
 //
-// Models 是同一家供应商下可选的模型清单（观测台输入框的第二级下拉用它）；Model 是其中的默认值。
+// Models 是同一家供应商下可选的模型清单（网页端输入框的第二级下拉用它）；Model 是其中的默认值。
 // 清单只描述“这家供应商有哪些模型”；一次运行用哪个，由 agent 的 -model 参数或 ModelVar 决定。
 // Label 是页面上显示的名字；KeyVars 为空表示这家不要密钥。
 type Provider struct {
