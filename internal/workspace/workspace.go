@@ -20,7 +20,7 @@ import (
 	"strings"
 	"sync"
 
-	"learning-agent/internal/llm"
+	"github.com/xuzhao123/tern/internal/llm"
 )
 
 // 输出预算：工具结果最终还要经过上下文的工具输出上限，这里先按“模型能用”的粒度切好，并告诉它怎么读下一段。

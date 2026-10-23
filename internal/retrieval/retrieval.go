@@ -16,7 +16,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"learning-agent/internal/telemetry"
+	"github.com/xuzhao123/tern/internal/telemetry"
 
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"

@@ -4,8 +4,8 @@ import (
 	"strings"
 	"time"
 
-	"learning-agent/internal/mcp"
-	"learning-agent/internal/sandbox"
+	"github.com/xuzhao123/tern/internal/mcp"
+	"github.com/xuzhao123/tern/internal/sandbox"
 )
 
 // D32：工具的性质只在这里声明一次。调度（并行还是串行）、续跑（能不能重做）、私有来源、外发与不可撤回的判断、
@@ -25,12 +25,9 @@ type Spec struct {
 var specs = map[string]Spec{
 	"calculator":             {ReadOnly: true, Repeatable: true},
 	"get_current_datetime":   {ReadOnly: true, Repeatable: true},
-	"search_notes":           {ReadOnly: true, Repeatable: true},
 	"search_docs":            {ReadOnly: true, Repeatable: true},
-	"read_security_sample":   {ReadOnly: true, Repeatable: true},
 	"load_skill":             {ReadOnly: true, Repeatable: true},
 	"read_output":            {ReadOnly: true, Repeatable: true},
-	"check_task_status":      {ReadOnly: true, Repeatable: true},
 	"search_memory":          {ReadOnly: true, Repeatable: true, Private: "memory"},
 	"remember_memory":        {Permission: "Write"},
 	"forget_memory":          {Irreversible: true, Permission: "Write"},

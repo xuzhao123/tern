@@ -13,9 +13,9 @@ import (
 	"syscall"
 	"time"
 
-	"learning-agent/internal/agent"
-	"learning-agent/internal/protocol"
-	"learning-agent/internal/tenant"
+	"github.com/xuzhao123/tern/internal/agent"
+	"github.com/xuzhao123/tern/internal/protocol"
+	"github.com/xuzhao123/tern/internal/tenant"
 )
 
 // B0 接管：观测台启动的 agent 在 .data/[tenants/<租户>/]live/<对话ID>.sock 上等观测台连进来（见 protocol/session.go），

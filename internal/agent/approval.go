@@ -14,13 +14,13 @@ import (
 	"strings"
 	"sync"
 
-	"learning-agent/internal/audit"
-	"learning-agent/internal/llm"
-	"learning-agent/internal/mcp"
-	"learning-agent/internal/permission"
-	"learning-agent/internal/protocol"
-	"learning-agent/internal/sandbox"
-	"learning-agent/internal/tenant"
+	"github.com/xuzhao123/tern/internal/audit"
+	"github.com/xuzhao123/tern/internal/llm"
+	"github.com/xuzhao123/tern/internal/mcp"
+	"github.com/xuzhao123/tern/internal/permission"
+	"github.com/xuzhao123/tern/internal/protocol"
+	"github.com/xuzhao123/tern/internal/sandbox"
+	"github.com/xuzhao123/tern/internal/tenant"
 )
 
 // D20：高风险操作的人工确认。执行器在执行前按程序规则判断风险，命中就经协议向界面上的人发 tool/requestApproval，

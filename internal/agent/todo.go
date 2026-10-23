@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"slices"
 
-	"learning-agent/internal/llm"
+	"github.com/xuzhao123/tern/internal/llm"
 )
 
 // D37 消融候选：上下文内的 todo 清单（Claude Code 的 TodoWrite 一类）。模型自己写、自己更新，harness 只存最新的一份并原样交回。

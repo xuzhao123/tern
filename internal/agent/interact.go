@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"learning-agent/internal/llm"
-	"learning-agent/internal/protocol"
+	"github.com/xuzhao123/tern/internal/llm"
+	"github.com/xuzhao123/tern/internal/protocol"
 )
 
 // D34：运行中的人机交互——插话、模型向用户提问、手动压缩。三者都只是协议上多了几条消息，界面（终端客户端、观测台）各自呈现。

@@ -17,10 +17,10 @@ import (
 	"syscall"
 	"time"
 
-	"learning-agent/internal/agent"
-	"learning-agent/internal/audit"
-	"learning-agent/internal/protocol"
-	"learning-agent/internal/tenant"
+	"github.com/xuzhao123/tern/internal/agent"
+	"github.com/xuzhao123/tern/internal/audit"
+	"github.com/xuzhao123/tern/internal/protocol"
+	"github.com/xuzhao123/tern/internal/tenant"
 )
 
 // D34：终端客户端 go run . chat。它和观测台一样只是 app-server 协议的一个界面：每一轮启动一个 agent 子进程（-app-server，stdio），
@@ -121,7 +121,7 @@ func Run(args []string) error {
 		close(s.lines)
 	}()
 	signal.Notify(s.sigs, os.Interrupt)
-	fmt.Println("learning-agent 终端客户端。输入问题开始；/help 查看命令。")
+	fmt.Println("tern 终端客户端。输入问题开始；/help 查看命令。")
 	for {
 		if len(s.next) > 0 {
 			question := strings.Join(s.next, "\n")

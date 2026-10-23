@@ -12,9 +12,9 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"learning-agent/internal/audit"
-	"learning-agent/internal/llm"
-	"learning-agent/internal/tenant"
+	"github.com/xuzhao123/tern/internal/audit"
+	"github.com/xuzhao123/tern/internal/llm"
+	"github.com/xuzhao123/tern/internal/tenant"
 )
 
 // 附图：页面把原图存进当前租户的附件目录（按内容寻址，agent 写入的是同一个目录），

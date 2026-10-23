@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"learning-agent/internal/llm"
-	"learning-agent/internal/protocol"
+	"github.com/xuzhao123/tern/internal/llm"
+	"github.com/xuzhao123/tern/internal/protocol"
 )
 
 // D39：子 agent 的控制面。原来 spawn_agent 只有一种用法：派出去、等它做完、拿回结论，父 agent 这段时间什么也做不了。

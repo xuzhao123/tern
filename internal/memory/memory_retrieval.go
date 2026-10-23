@@ -15,11 +15,11 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"learning-agent/internal/llm"
-	"learning-agent/internal/protocol"
-	"learning-agent/internal/retrieval"
-	"learning-agent/internal/telemetry"
-	"learning-agent/internal/tenant"
+	"github.com/xuzhao123/tern/internal/llm"
+	"github.com/xuzhao123/tern/internal/protocol"
+	"github.com/xuzhao123/tern/internal/retrieval"
+	"github.com/xuzhao123/tern/internal/telemetry"
+	"github.com/xuzhao123/tern/internal/tenant"
 
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"

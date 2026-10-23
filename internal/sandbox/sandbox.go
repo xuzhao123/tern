@@ -16,10 +16,10 @@ import (
 	"syscall"
 	"time"
 
-	"learning-agent/internal/audit"
-	"learning-agent/internal/llm"
-	"learning-agent/internal/permission"
-	"learning-agent/internal/telemetry"
+	"github.com/xuzhao123/tern/internal/audit"
+	"github.com/xuzhao123/tern/internal/llm"
+	"github.com/xuzhao123/tern/internal/permission"
+	"github.com/xuzhao123/tern/internal/telemetry"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"

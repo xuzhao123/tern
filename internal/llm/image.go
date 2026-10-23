@@ -21,7 +21,7 @@ import (
 	"golang.org/x/image/draw"
 	_ "golang.org/x/image/webp"
 
-	"learning-agent/internal/tenant"
+	"github.com/xuzhao123/tern/internal/tenant"
 )
 
 // Image 是一张随消息发给模型的图。消息、检查点、对话存档和结果日志里都只放引用，

@@ -19,30 +19,29 @@ import (
 	"syscall"
 	"time"
 
-	"learning-agent/internal/agent"
-	"learning-agent/internal/audit"
-	"learning-agent/internal/browser"
-	"learning-agent/internal/chat"
-	"learning-agent/internal/commands"
-	"learning-agent/internal/eval"
-	"learning-agent/internal/hooks"
-	"learning-agent/internal/labs"
-	"learning-agent/internal/llm"
-	"learning-agent/internal/mcp"
-	"learning-agent/internal/memory"
-	"learning-agent/internal/metrics"
-	"learning-agent/internal/observer"
-	"learning-agent/internal/permission"
-	"learning-agent/internal/protocol"
-	"learning-agent/internal/queue"
-	"learning-agent/internal/retrieval"
-	"learning-agent/internal/sandbox"
-	"learning-agent/internal/skills"
-	"learning-agent/internal/telemetry"
-	"learning-agent/internal/tenant"
-	"learning-agent/internal/tools"
-	"learning-agent/internal/websearch"
-	"learning-agent/internal/workspace"
+	"github.com/xuzhao123/tern/internal/agent"
+	"github.com/xuzhao123/tern/internal/audit"
+	"github.com/xuzhao123/tern/internal/browser"
+	"github.com/xuzhao123/tern/internal/chat"
+	"github.com/xuzhao123/tern/internal/commands"
+	"github.com/xuzhao123/tern/internal/eval"
+	"github.com/xuzhao123/tern/internal/hooks"
+	"github.com/xuzhao123/tern/internal/llm"
+	"github.com/xuzhao123/tern/internal/mcp"
+	"github.com/xuzhao123/tern/internal/memory"
+	"github.com/xuzhao123/tern/internal/metrics"
+	"github.com/xuzhao123/tern/internal/observer"
+	"github.com/xuzhao123/tern/internal/permission"
+	"github.com/xuzhao123/tern/internal/protocol"
+	"github.com/xuzhao123/tern/internal/queue"
+	"github.com/xuzhao123/tern/internal/retrieval"
+	"github.com/xuzhao123/tern/internal/sandbox"
+	"github.com/xuzhao123/tern/internal/skills"
+	"github.com/xuzhao123/tern/internal/telemetry"
+	"github.com/xuzhao123/tern/internal/tenant"
+	"github.com/xuzhao123/tern/internal/tools"
+	"github.com/xuzhao123/tern/internal/websearch"
+	"github.com/xuzhao123/tern/internal/workspace"
 
 	"go.opentelemetry.io/otel/trace"
 )
@@ -124,7 +123,6 @@ func run() error {
 	parallel := flag.Int("parallel", 4, "同时执行的工具数，1 到 16")
 	maxSteps := flag.Int("max-steps", 10, "模型请求总次数，包含最终回答和上下文摘要；0 表示不限（靠熔断与停止收住）")
 	retries := flag.Int("retries", 2, "工具失败后额外重试次数，0 到 5")
-	flag.BoolVar(&tools.LabEnabled, "lab-tools", false, "启用 Day 2 故障实验工具")
 	provider := flag.String("provider", "ark", "模型路由：ark（豆包，方舟）、deepseek、deepseekanthropic（DeepSeek 的 Anthropic 接口）或 coconut（本机 Responses 服务）；地址、模型与密钥见 README")
 	check := flag.String("check", "", "D36：不请求模型，只在沙箱里跑这条校验命令（工作区只读挂载，同 verify_feature），输出 JSON 的退出码与输出后退出；须配合 -workspace 与 -bash")
 	// D37 消融的开关：默认值就是现在的做法。
@@ -141,11 +139,7 @@ func run() error {
 	reserve := flag.Int("reasoning-reserve", 1024, "输入容量额外预留的安全余量")
 	toolOutput := flag.Int("tool-output-tokens", 2000, "工具结果写入视图的估算token上限，至少64")
 	keepGroups := flag.Int("keep-groups", 2, "压缩后最多保留的最近完整消息组数")
-	contextLab := flag.Bool("context-lab", false, "Day 3：33轮真实对话和真实大工具输出实验，建议 -max-steps 60")
 	flag.BoolVar(&retrieval.Enabled, "rag", false, "Day 4：启用本地知识库检索工具与来源引用")
-	ragLab := flag.Bool("rag-lab", false, "Day 4：10题检索检查与无检索/有检索真实模型对比")
-	flag.BoolVar(&tools.SecurityLabEnabled, "security-lab", false, "Day 18：启用本地无害学习样本；仅提供资料读取与基线计算器")
-	securityProtection := flag.Bool("security-protection", false, "配合 -security-lab：标记工具结果为资料，并收紧为只提供资料读取工具")
 	embeddingMode := flag.String("embedding", "ark", "向量模型：ark（线上方舟）或local（本地纯Go推理）")
 	threshold := flag.Float64("min-score", retrieval.MinScore, "检索余弦相似度阈值，-1到1")
 	searchQuery := flag.String("search-docs", "", "只执行检索；不调用聊天模型，local模式无需密钥")
@@ -175,7 +169,7 @@ func run() error {
 	resume := flag.String("resume", "", "Day 9：从这个ID的检查点续跑；配置取自检查点，须单独使用")
 	flag.BoolVar(&browser.Enabled, "browser", false, "Day 11：增加 web_search 与 open_page，用无头 Chrome 查资料（CHROME_PATH 可指定浏览器）")
 	flag.BoolVar(&websearch.Enabled, "ds-search", false, "增加 ds_search 与 ds_fetch，用 DeepSeek 的搜索与抓取 API 查资料（读取 DEEPSEEK_API_KEY）")
-	disallowedTools := flag.String("disallowed-tools", "", "从工具清单里去掉单个工具（与 Claude Code 的 --disallowed-tools 同名，只认工具名；按调用拦用 -deny），逗号分隔：内置的 calculator、get_current_datetime、search_notes，浏览器的 web_search、open_page")
+	disallowedTools := flag.String("disallowed-tools", "", "从工具清单里去掉单个工具（与 Claude Code 的 --disallowed-tools 同名，只认工具名；按调用拦用 -deny），逗号分隔：内置的 calculator、get_current_datetime，浏览器的 web_search、open_page")
 	flag.BoolVar(&sandbox.Enabled, "bash", false, "Day 12：增加 bash 与 request_network_access，在 bubblewrap 沙箱里执行命令（仅 Linux）")
 	flag.BoolVar(&sandbox.ProjectRO, "bash-project-ro", false, "配合 -bash：把项目目录只读挂到 /project（.env、.data、.git 除外）")
 	var netAllow stringList
@@ -279,7 +273,7 @@ func run() error {
 		}
 		// 界面断开等同于中断：收尾、写好检查点再退出。可以脱离的连接要脱离超过 DetachGrace 才算断开。
 		go func() { <-protocol.Client.Closed(); interrupt() }()
-		if *question == "" && agent.Resume == nil && !*contextLab && !*ragLab {
+		if *question == "" && agent.Resume == nil {
 			var m protocol.Message
 			select {
 			case m = <-starts:
@@ -362,24 +356,11 @@ func run() error {
 	if *maxSteps == 0 {
 		*maxSteps = llm.Unlimited
 	}
-	if *securityProtection && !tools.SecurityLabEnabled {
-		return errors.New("security-protection 需要配合 security-lab；普通任务默认标记工具资料")
-	}
-	if tools.SecurityLabEnabled {
-		// 对照实验也只允许读固定样本、做数学运算；不给私有资料、外网或写入能力。
-		if *contextLab || *ragLab || tools.LabEnabled || retrieval.Enabled || *searchQuery != "" || *memoryEnabled || *memoryForget != "" || *memorySearch != "" || skills.Enabled || len(mcpCommands) > 0 || *subagents || browser.Enabled || websearch.Enabled || sandbox.Enabled || *workspaceDir != "" || *historyStdin || history != nil || agent.Continues != "" {
-			return errors.New("security-lab 不与其他实验、检索、记忆、MCP、Skills、子 agent、浏览器、网页搜索、Bash、工作区或续聊组合")
-		}
-		agent.LabelToolData = *securityProtection
-	}
 	if (*embeddingMode != "ark" && *embeddingMode != "local") || math.IsNaN(*threshold) || *threshold < -1 || *threshold > 1 {
 		return errors.New("embedding取ark或local，min-score范围为-1到1")
 	}
-	if *ragLab && (*contextLab || *question != "" || *historyStdin || tools.LabEnabled || *searchQuery != "") {
-		return errors.New("rag-lab请单独运行，不与其他实验、问题或续聊参数组合")
-	}
 	if *searchQuery != "" {
-		if *question != "" || *contextLab || *historyStdin || tools.LabEnabled || retrieval.Enabled {
+		if *question != "" || *historyStdin || retrieval.Enabled {
 			return errors.New("search-docs请单独使用，可配合-k")
 		}
 		if *searchK < 1 || *searchK > 6 {
@@ -392,17 +373,17 @@ func run() error {
 	if !slices.Contains([]string{"keyword", "vector", "bm25", "hybrid", "rerank"}, *memoryMode) {
 		return errors.New("memory-mode取keyword、vector、bm25、hybrid或rerank")
 	}
-	if (len(mcpCommands) > 0 || skills.Enabled) && (*contextLab || *ragLab || *searchQuery != "" || *memoryForget != "" || *memorySearch != "") {
-		return errors.New("mcp-server与skills用于普通问答与续聊，不与实验、search-docs、memory-search或memory-forget组合")
+	if (len(mcpCommands) > 0 || skills.Enabled) && (*searchQuery != "" || *memoryForget != "" || *memorySearch != "") {
+		return errors.New("mcp-server与skills用于普通问答与续聊，不与search-docs、memory-search或memory-forget组合")
 	}
-	if (*taskID != "" || *subagents || browser.Enabled || websearch.Enabled || *timeout != 0) && (*contextLab || *ragLab || *searchQuery != "" || *memoryForget != "" || *memorySearch != "") {
-		return errors.New("task-id、subagents、browser、ds-search与timeout用于普通问答与续聊，不与实验、search-docs、memory-search或memory-forget组合")
+	if (*taskID != "" || *subagents || browser.Enabled || websearch.Enabled || *timeout != 0) && (*searchQuery != "" || *memoryForget != "" || *memorySearch != "") {
+		return errors.New("task-id、subagents、browser、ds-search与timeout用于普通问答与续聊，不与search-docs、memory-search或memory-forget组合")
 	}
 	if *timeout < 0 || agent.ToolTimeout <= 0 || agent.SubagentSteps < 1 || agent.SubagentSteps > 20 {
 		return errors.New("timeout不能为负，tool-timeout须大于0，subagent-steps范围为1到20")
 	}
-	if *memoryEnabled && (*contextLab || *ragLab || *searchQuery != "" || *memoryForget != "" || *memorySearch != "") {
-		return errors.New("memory用于普通问答与续聊，不与实验、search-docs、memory-search或memory-forget组合")
+	if *memoryEnabled && (*searchQuery != "" || *memoryForget != "" || *memorySearch != "") {
+		return errors.New("memory用于普通问答与续聊，不与search-docs、memory-search或memory-forget组合")
 	}
 	if *memoryEnabled || *memoryForget != "" || *memorySearch != "" {
 		memory.Active = memory.New(*memoryLimit, *memoryTTL, *embeddingMode, *memoryTokens, *memoryContextCalls)
@@ -410,7 +391,7 @@ func run() error {
 	// 向量模型按需加载、进程内共享；退出时统一释放。
 	defer retrieval.CloseEmbedders()
 	if *memoryForget != "" || *memorySearch != "" {
-		if *question != "" || *historyStdin || *contextLab || *ragLab || *searchQuery != "" || retrieval.Enabled || (*memoryForget != "" && *memorySearch != "") {
+		if *question != "" || *historyStdin || *searchQuery != "" || retrieval.Enabled || (*memoryForget != "" && *memorySearch != "") {
 			return errors.New("memory-forget和memory-search请单独使用")
 		}
 		if *memoryForget != "" {
@@ -452,9 +433,6 @@ func run() error {
 	if *output < 0 || *reserve < 0 || *toolOutput < 64 || *keepGroups < 0 || options.Capacity() < 256 {
 		return errors.New("输出上限、推理预留和keep-groups须非负、tool-output-tokens至少64；扣除预留后的输入容量至少256")
 	}
-	if *contextLab && (*maxSteps < 36 || *question != "" || tools.LabEnabled || retrieval.Enabled) {
-		return errors.New("context-lab单独使用，至少36次请求，建议 -max-steps 60 为摘要保留额度")
-	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	// 第一次 Ctrl+C 取消 ctx：在跑的工具被打断、结果回填、检查点写好再退出。之后恢复默认处理，再按一次立即结束。
@@ -475,10 +453,10 @@ func run() error {
 	}
 	// D13：一次运行一个根 span invoke_agent。父进程（观测台、队列、父 agent）通过 TRACEPARENT 把它挂到自己的 span 下；
 	// 启动阶段的检索建库、MCP 连接也在它下面。结局与任务ID由 agent.Run 补上。
-	ctx, root := telemetry.Begin(telemetry.FromEnv(ctx), "invoke_agent learning-agent", trace.SpanKindInternal, agent.RootAttributes()...)
+	ctx, root := telemetry.Begin(telemetry.FromEnv(ctx), "invoke_agent tern", trace.SpanKindInternal, agent.RootAttributes()...)
 	defer root.End()
 	// 普通ReAct任务不加载向量模型；只有检索模式初始化，并在当前进程退出时释放。
-	if retrieval.Enabled || *ragLab || *searchQuery != "" {
+	if retrieval.Enabled || *searchQuery != "" {
 		if *searchQuery != "" {
 			retrieval.IndexLog = os.Stderr
 		}
@@ -498,8 +476,8 @@ func run() error {
 		return encoder.Encode(result)
 	}
 	if *historyStdin {
-		if *contextLab || strings.TrimSpace(*question) == "" {
-			return errors.New("history-stdin需要-question，不能与context-lab一起使用")
+		if strings.TrimSpace(*question) == "" {
+			return errors.New("history-stdin需要-question")
 		}
 		history = &agent.HistoryInput{}
 		if err := json.NewDecoder(io.LimitReader(os.Stdin, 8<<20)).Decode(history); err != nil {
@@ -514,7 +492,7 @@ func run() error {
 			continue
 		}
 		if !slices.ContainsFunc(slices.Concat(tools.Definitions, browser.Definitions), func(d map[string]any) bool { return d["name"] == name }) {
-			return fmt.Errorf("disallowed-tools 只能去掉 calculator、get_current_datetime、search_notes、web_search、open_page：%s", name)
+			return fmt.Errorf("disallowed-tools 只能去掉 calculator、get_current_datetime、web_search、open_page：%s", name)
 		}
 		off[name] = true
 	}
@@ -522,16 +500,6 @@ func run() error {
 		return slices.DeleteFunc(slices.Clone(definitions), func(d map[string]any) bool { return off[d["name"].(string)] })
 	}
 	llm.Tools = kept(tools.Definitions)
-	if tools.SecurityLabEnabled {
-		llm.Tools = []map[string]any{tools.SecurityDefinition}
-		if !*securityProtection {
-			llm.Tools = append(llm.Tools, tools.Definitions[0]) // 基线的额外能力也只是无害计算
-		}
-		fmt.Printf("Security lab: protection=%t tools=%d（只读固定资料；不提供联网工具或记忆写入）\n", *securityProtection, len(llm.Tools))
-	}
-	if tools.LabEnabled {
-		llm.Tools = append(llm.Tools, tools.LabDefinitions...)
-	}
 	if retrieval.Enabled {
 		llm.Tools = append(llm.Tools, retrieval.SearchDefinition)
 	}
@@ -568,8 +536,8 @@ func run() error {
 		}
 	}
 	if *workspaceDir != "" {
-		if *contextLab || *ragLab || *searchQuery != "" {
-			return errors.New("workspace用于普通问答与续聊，不与实验或search-docs组合")
+		if *searchQuery != "" {
+			return errors.New("workspace用于普通问答与续聊，不与search-docs组合")
 		}
 		if err := workspace.Open(*workspaceDir); err != nil {
 			return err
@@ -631,12 +599,12 @@ func run() error {
 	if permission.Mode != "edit" || len(allowRules)+len(askRules)+len(denyRules) > 0 {
 		fmt.Printf("Permission: %s\n", permission.Describe())
 	}
-	if !*contextLab && !*ragLab && strings.TrimSpace(*question) == "" {
+	if strings.TrimSpace(*question) == "" {
 		fmt.Print("请输入任务： ")
 		*question, _ = bufio.NewReader(os.Stdin).ReadString('\n')
 	}
 	*question = strings.TrimSpace(*question)
-	if !*contextLab && !*ragLab && *question == "" {
+	if *question == "" {
 		return errors.New("问题不能为空")
 	}
 	config, err := llm.LoadConfig(*provider)
@@ -657,15 +625,6 @@ func run() error {
 		}
 		protocol.Notify("turn/started", map[string]any{"thread_id": thread, "turn_id": turn, "continues": agent.Continues, "resume": agent.Resume != nil,
 			"trace_id": root.SpanContext().TraceID().String(), "input_capacity": options.Capacity(), "provider": config.Provider, "model": config.Model, "pid": os.Getpid(), "sandbox": sandboxID})
-	}
-	if *contextLab || *ragLab {
-		turnStarted("")
-	}
-	if *contextLab {
-		return labs.RunContext(ctx, config, options, *maxSteps)
-	}
-	if *ragLab {
-		return labs.RunRAG(ctx, config, options, *maxSteps)
 	}
 	if skills.Enabled {
 		skills.Index = skills.Scan("skills", skillNames)
@@ -788,11 +747,8 @@ func run() error {
 	}
 	// D30：过长的工具输出存进本对话的目录，模型用 read_output 读回。工具从第一次请求就提供，
 	// 不在中途加：工具列表是请求前缀的一部分，中途变化会让之前的提示词缓存全部失效。
-	// D18 实验的工具范围是固定的，不加。
-	if !tools.SecurityLabEnabled {
-		agent.OutputDir = tenant.Here("outputs", first)
-		llm.Tools = append(llm.Tools, agent.ReadOutputDefinition)
-	}
+	agent.OutputDir = tenant.Here("outputs", first)
+	llm.Tools = append(llm.Tools, agent.ReadOutputDefinition)
 	// 图片输入：view_image 看工作区或 bash 沙箱里的图。不能看图的模型不提供；同样从第一次请求就定下来。
 	if (workspace.Dir != "" || sandbox.Enabled) && config.Vision() {
 		llm.Tools = append(llm.Tools, agent.ViewImageDefinition)

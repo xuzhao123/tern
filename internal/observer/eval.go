@@ -11,10 +11,10 @@ import (
 	"strings"
 	"sync"
 
-	"learning-agent/internal/agent"
-	"learning-agent/internal/eval"
-	"learning-agent/internal/llm"
-	"learning-agent/internal/telemetry"
+	"github.com/xuzhao123/tern/internal/agent"
+	"github.com/xuzhao123/tern/internal/eval"
+	"github.com/xuzhao123/tern/internal/llm"
+	"github.com/xuzhao123/tern/internal/telemetry"
 
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"

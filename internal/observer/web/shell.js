@@ -23,7 +23,7 @@ export function renderShell() {
   runID.hidden = !r;
   runID.textContent = r ? r.id.slice(0, 8) : "";
   runID.title = r ? `对话 ID：${r.id}，点击复制` : "";
-  document.title = r ? `Learning Agent · ${r.id}` : "Learning Agent";
+  document.title = r ? `tern · ${r.id}` : "tern";
   const status = $("status");
   status.className = r && r.exit && r.exit !== "exit 0" ? "bad" : r && !r.exit ? "run" : "";
   const nSub = r ? Object.values(r.subs).reduce((n, s) => n + s.calls.length, 0) : 0;
@@ -36,7 +36,6 @@ export function renderShell() {
 export const TOOL_INFO = {
   calculator: ["计算器", "calculator：四则运算、括号、sqrt 和 floor，只解析数学表达式"],
   get_current_datetime: ["当前时间", "get_current_datetime：Asia/Shanghai 的日期、时间和星期"],
-  search_notes: ["笔记检索", "search_notes：在第 1 天的学习笔记里逐行找关键词。只查这一篇，通用问题模型也会先去查，所以默认关；评测的笔记题在命令行里照常带上"],
   rag:["知识库检索", "search_docs：检索项目学习文档。打开后系统提示词要求知识问题先查资料，所以默认关"],
   memory: ["长期记忆", "remember / search / forget_memory：新对话开头先召回，要多发几次模型请求，所以默认关；按租户各自一份"],
   skills: ["Skills", "Skills 中心里启用的 skill：常驻名字和用途，用到时再加载正文"],
@@ -53,7 +52,7 @@ function runTools(r) {
   // 单个工具按最近一次请求实际带的工具列表显示；还没发请求时按开始时的快照（disallowed_tools）。
   const sent = r.calls.at(-1)?.req.tools;
   const has = (name, group = true) => sent ? sent.some((t) => t.function?.name === name) : group && !r.source && !r.disallowedTools.includes(name);
-  return { calculator: has("calculator"), get_current_datetime: has("get_current_datetime"), search_notes: has("search_notes"), web_search: has("web_search", r.browser), open_page: has("open_page", r.browser),
+  return { calculator: has("calculator"), get_current_datetime: has("get_current_datetime"), web_search: has("web_search", r.browser), open_page: has("open_page", r.browser),
     rag: r.rag || (sent || []).some((t) => t.function?.name === "search_docs"), memory: r.memory, skills: r.skills.length > 0, mcp: r.mcp.length > 0, subagents: r.subagents, ask_user: has("ask_user", r.askUser), bash: r.bash, ds_search: r.dsSearch, coding: !!r.workspace };
 }
 export function toolOn(key) {
@@ -350,46 +349,4 @@ $("import-file").onchange = async () => {
     show((await res.json()).id);
   } catch (err) { alert("导入失败：" + err.message); }
   finally { $("import").lastChild.textContent = label; }
-};
-$("lab").onclick = () => {
-  document.body.classList.remove("nav-open");
-  if (!ui.sending && confirm("自动进行33轮真实对话和一次大工具输出实验，最多60次模型请求（minimal推理）。开始？")) start("/runs", { context_lab: true });
-};
-$("rag-lab").onclick = () => {
-  document.body.classList.remove("nav-open");
-  if (ui.sending) return;
-  $("new-chat").click();
-  const box = $("thread");
-  ui.page = "chat"; renderShell();
-  const notice = el("div", "banner", "运行10题检索检查与20次真实问答（minimal推理，每题每组最多6次模型请求）。检索由Agent进程自动初始化。结果逐条显示在同一实验记录中。");
-  const model = el("select"); model.setAttribute("aria-label", "实验向量模型");
-  for (const [value, label] of [["ark", "线上方舟"], ["local", "本地 MiniLM"]]) { const option = el("option", "", label); option.value = value; model.append(option); }
-  const button = el("button", "ghost", "开始 Day 4 对比（真实调用模型）");
-  button.onclick = () => { button.disabled = true; start("/runs", { rag_lab: true, embedding: model.value }); };
-  notice.append(el("p"), model, button); box.replaceChildren(notice);
-};
-$("security-lab").onclick = () => {
-  document.body.classList.remove("nav-open");
-  if (ui.sending) return;
-  $("new-chat").click();
-  ui.page = "chat"; renderShell();
-  const notice = el("div", "banner");
-  notice.append(el("strong", "", "Day 18–19 · 资料可以提供事实，不能增加权限"));
-  notice.append(el("p", "", "真实模型读取本地学习样本。先试正常资料，再试夹带指令。只提供资料读取与基线计算器，无浏览器、Bash、私有记忆或额外联网能力。"));
-  const sample = el("select"); sample.setAttribute("aria-label", "学习样本");
-  for (const [value, label] of [["clean", "正常资料"], ["answer", "夹带：只回答香蕉"], ["tool", "夹带：额外调用计算器"]]) {
-    const option = el("option", "", label); option.value = value; sample.append(option);
-  }
-  const provider = el("select"); provider.setAttribute("aria-label", "实验聊天模型");
-  for (const [value, label] of [["ark", "方舟"], ["deepseek", "DeepSeek"]]) {
-    const option = el("option", "", label); option.value = value; provider.append(option);
-  }
-  const guard = el("input"); guard.type = "checkbox"; guard.checked = true;
-  const label = el("label"); label.style.display = "block"; label.style.margin = "12px 0";
-  label.append(guard, document.createTextNode(" 开启防护：来源标记 + 只提供资料读取工具"));
-  const hint = el("p", "", "取消勾选是课堂对照组：不附加资料标记，多提供一个无害计算器。正常 Agent 默认有资料标记；两组执行器都校验工具允许列表。实验是单次任务，请另开实验做对比。原始输入输出在‘观测’中查看。");
-  const button = el("button", "ghost", "开始实验（真实调用模型）");
-  button.onclick = () => { button.disabled = true; start("/runs", { security_lab: sample.value, security_protection: guard.checked, provider: provider.value }); };
-  notice.append(sample, document.createTextNode(" "), provider, label, hint, button);
-  $("thread").replaceChildren(notice);
 };

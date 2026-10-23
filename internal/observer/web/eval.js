@@ -290,7 +290,7 @@ function cardView(panel, id, c, info) {
   // 默认保留到第一个异常信号所在的那一轮（含它的工具结果），从下一次模型决定开始改变。
   rounds.value = String(Math.min(c.rounds, c.round || c.rounds));
   for (const k of [1, 2, 3, 4, 5]) { const o = new Option(`跑 ${k} 次`, k); o.selected = k === 3; n.append(o); }
-  fix.placeholder = "插入的纠正（以用户消息出现），例如：check_task_status 查不到 slow_job 的状态，不要再查，直接告诉我结果未知。";
+  fix.placeholder = "插入的纠正（以用户消息出现），例如：上一步的结果已经够了，不要再重复查询，直接回答。";
   go.onclick = async () => {
     if (!fix.value.trim()) return alert("先写一条纠正");
     go.disabled = true;

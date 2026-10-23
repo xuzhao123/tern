@@ -15,8 +15,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"learning-agent/internal/llm"
-	"learning-agent/internal/telemetry"
+	"github.com/xuzhao123/tern/internal/llm"
+	"github.com/xuzhao123/tern/internal/telemetry"
 
 	"github.com/knights-analytics/hugot"
 	"github.com/knights-analytics/hugot/pipelines"

@@ -19,9 +19,9 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"learning-agent/internal/audit"
-	"learning-agent/internal/llm"
-	"learning-agent/internal/tenant"
+	"github.com/xuzhao123/tern/internal/audit"
+	"github.com/xuzhao123/tern/internal/llm"
+	"github.com/xuzhao123/tern/internal/tenant"
 )
 
 // Day 5 长期记忆：跨进程保存在 .data/memory.json。

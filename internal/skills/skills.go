@@ -11,8 +11,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"learning-agent/internal/llm"
-	"learning-agent/internal/protocol"
+	"github.com/xuzhao123/tern/internal/llm"
+	"github.com/xuzhao123/tern/internal/protocol"
 )
 
 // Bonus：知识型 skill。三级加载：索引常驻 system → load_skill 读全文 → load_skill(file) 按需读 references/*.md。

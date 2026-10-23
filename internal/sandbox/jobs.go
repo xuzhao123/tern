@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"learning-agent/internal/llm"
+	"github.com/xuzhao123/tern/internal/llm"
 )
 
 // D32：后台命令。bash 带 background=true 时不等它结束：在同样的沙箱里启动（同样的 cgroup 限制、断网与代理），

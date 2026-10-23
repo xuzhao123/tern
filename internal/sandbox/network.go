@@ -17,10 +17,10 @@ import (
 	"sync"
 	"time"
 
-	"learning-agent/internal/audit"
-	"learning-agent/internal/netguard"
-	"learning-agent/internal/permission"
-	"learning-agent/internal/protocol"
+	"github.com/xuzhao123/tern/internal/audit"
+	"github.com/xuzhao123/tern/internal/netguard"
+	"github.com/xuzhao123/tern/internal/permission"
+	"github.com/xuzhao123/tern/internal/protocol"
 )
 
 // 网络：沙箱在自己的网络 namespace 里，只有回环接口，直接连外网一定失败。

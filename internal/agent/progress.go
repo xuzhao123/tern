@@ -17,11 +17,11 @@ import (
 	"sync"
 	"time"
 
-	"learning-agent/internal/llm"
-	"learning-agent/internal/sandbox"
-	"learning-agent/internal/telemetry"
-	"learning-agent/internal/tenant"
-	"learning-agent/internal/workspace"
+	"github.com/xuzhao123/tern/internal/llm"
+	"github.com/xuzhao123/tern/internal/sandbox"
+	"github.com/xuzhao123/tern/internal/telemetry"
+	"github.com/xuzhao123/tern/internal/tenant"
+	"github.com/xuzhao123/tern/internal/workspace"
 )
 
 // D31 长任务接力与独立验证（参考 Anthropic 的 long-running agent harness）：

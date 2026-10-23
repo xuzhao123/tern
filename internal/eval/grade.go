@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"learning-agent/internal/llm"
+	"github.com/xuzhao123/tern/internal/llm"
 )
 
 // Trial 是一道题的一次尝试。打分只用这里存下的东西，所以改了打分器可以重新打分，不必重跑。

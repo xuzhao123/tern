@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"learning-agent/internal/protocol"
-	"learning-agent/internal/tenant"
+	"github.com/xuzhao123/tern/internal/protocol"
+	"github.com/xuzhao123/tern/internal/tenant"
 )
 
 // D40（O9 的第一步）：只追加的会话记录。agent 发出的每条通知与请求（界面看到的那些：Turn、Item、审批、子 agent……，

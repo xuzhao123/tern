@@ -25,8 +25,8 @@ import (
 	"strings"
 	"time"
 
-	"learning-agent/internal/audit"
-	"learning-agent/internal/protocol"
+	"github.com/xuzhao123/tern/internal/audit"
+	"github.com/xuzhao123/tern/internal/protocol"
 )
 
 var Events = []string{"UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"}

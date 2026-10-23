@@ -16,9 +16,9 @@ import (
 	"strings"
 	"time"
 
-	"learning-agent/internal/commands"
-	"learning-agent/internal/hooks"
-	"learning-agent/internal/llm"
+	"github.com/xuzhao123/tern/internal/commands"
+	"github.com/xuzhao123/tern/internal/hooks"
+	"github.com/xuzhao123/tern/internal/llm"
 )
 
 // 设置：工具常驻，由这里决定；每个对话只选模型和工作区（参考 Claude Code 的 settings.json、Codex 的 config.toml）。
@@ -29,17 +29,17 @@ import (
 
 // 工具开关：设置键 → 租户策略里的功能名。DeepSeek 搜索和浏览器一样是上网查资料，共用 browser 功能。编码工具要求租户明确开通 workspace（工作区是本机目录，不随“全部功能”默认放行）。
 // 内置工具不归租户策略管，功能名留空。
-var toolFeatures = map[string]string{"calculator": "", "get_current_datetime": "", "search_notes": "", "rag": "rag", "memory": "memory", "skills": "skills", "mcp": "mcp", "subagents": "subagents", "ask_user": "", "bash": "bash", "web_search": "browser", "open_page": "browser", "ds_search": "browser", "coding": "workspace"}
-var toolOrder = []string{"calculator", "get_current_datetime", "search_notes", "rag", "memory", "skills", "mcp", "subagents", "ask_user", "bash", "web_search", "open_page", "ds_search", "coding"}
+var toolFeatures = map[string]string{"calculator": "", "get_current_datetime": "", "rag": "rag", "memory": "memory", "skills": "skills", "mcp": "mcp", "subagents": "subagents", "ask_user": "", "bash": "bash", "web_search": "browser", "open_page": "browser", "ds_search": "browser", "coding": "workspace"}
+var toolOrder = []string{"calculator", "get_current_datetime", "rag", "memory", "skills", "mcp", "subagents", "ask_user", "bash", "web_search", "open_page", "ds_search", "coding"}
 
 // singleTools 的开关只管一个工具，键名就是工具名：关掉的写进快照的 disallowed_tools，agent 用 -disallowed-tools 去掉。
-var singleTools = []string{"calculator", "get_current_datetime", "search_notes", "web_search", "open_page"}
+var singleTools = []string{"calculator", "get_current_datetime", "web_search", "open_page"}
 
 // 检索和记忆默认关：检索的系统提示词是为知识库问答写的，会要求每个知识问题先查资料；记忆每次新对话都要多发几次模型请求做召回。
-// 笔记检索默认关：只查第 1 天的一篇笔记，通用问题模型也会先去查（D17）。必应搜索默认关：必应多半不给自动化浏览器结果，
+// 必应搜索默认关：必应多半不给自动化浏览器结果，
 // 搜索交给 ds_search，浏览器只留 open_page 打开要渲染的页面。
 var builtin = map[string]string{
-	"calculator": "on", "get_current_datetime": "on", "search_notes": "off",
+	"calculator": "on", "get_current_datetime": "on",
 	"rag": "off", "memory": "off", "skills": "on", "mcp": "on", "subagents": "on", "ask_user": "on", "bash": "on", "web_search": "off", "open_page": "on", "ds_search": "on", "coding": "on",
 	"embedding": "ark", "memory_ttl": "", "provider": "ark", "model": "", "workspace": "",
 	"max_steps": "0", "context_window": "0", "tool_output": "4000",

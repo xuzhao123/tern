@@ -11,7 +11,7 @@ import (
 	"slices"
 	"strings"
 
-	"learning-agent/internal/agent"
+	"github.com/xuzhao123/tern/internal/agent"
 )
 
 // D16：一道评测题。固定的是题目、参考答案和判定标准，不是模型的回答或工具调用顺序。

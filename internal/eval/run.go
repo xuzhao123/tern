@@ -14,11 +14,11 @@ import (
 	"sync"
 	"time"
 
-	"learning-agent/internal/agent"
-	"learning-agent/internal/llm"
-	"learning-agent/internal/protocol"
-	"learning-agent/internal/queue"
-	"learning-agent/internal/telemetry"
+	"github.com/xuzhao123/tern/internal/agent"
+	"github.com/xuzhao123/tern/internal/llm"
+	"github.com/xuzhao123/tern/internal/protocol"
+	"github.com/xuzhao123/tern/internal/queue"
+	"github.com/xuzhao123/tern/internal/telemetry"
 
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"

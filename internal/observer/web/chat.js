@@ -278,7 +278,6 @@ function welcome() {
   box.append(el("h1", "", "想让 agent 做什么？"), sugs);
   const suggestions = toolOn("memory") ? ["记住：我偏好 Go 而不是 Python", "你还记得我偏好什么语言吗？", "记住流程：代码评审先跑构建，再看逻辑"] : toolOn("rag") ? ["本项目工具失败后总共尝试几次，等待多久？", "我们项目 TS-999 错误码是什么？请给出资料依据。"] : [
     toolOn("calculator") && toolOn("get_current_datetime") && "计算 (1234×5678) 开根号取整，并查询当前日期时间。两项独立，请同轮调用。",
-    toolOn("search_notes") && toolOn("calculator") && "先查学习笔记中的循环职责，再计算职责数量乘以25。",
     toolOn("ds_search") && "搜索一下有什么方式可以学习 agent harness，注明来源。",
   ].filter(Boolean);
   for (const q of suggestions) {

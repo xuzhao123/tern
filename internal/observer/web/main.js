@@ -24,7 +24,7 @@ window.fetch = async (...args) => {
 };
 // 当前账号：显示名字与租户；租户账号隐藏没开通的功能和平台专用入口（评测、归因）。服务端同样会拒绝，这里只是不让人点到。
 // 工具开关在设置页按租户策略显示“未开通”；这里只隐藏没开通的入口。
-const FEATURE_INPUTS = { skills: ["skills-hub"], mcp: ["mcp-hub"], labs: ["lab", "rag-lab", "security-lab"] };
+const FEATURE_INPUTS = { skills: ["skills-hub"], mcp: ["mcp-hub"] };
 async function loadMe() {
   const res = await fetch("/me");
   if (!res.ok) return;

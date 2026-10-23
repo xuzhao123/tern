@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	"learning-agent/internal/llm"
+	"github.com/xuzhao123/tern/internal/llm"
 )
 
 // D30 大工具输出：超过工具输出上限的结果，完整内容存成文件，上下文里只放开头、结尾和文件名，

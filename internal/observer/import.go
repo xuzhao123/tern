@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"learning-agent/internal/transcript"
+	"github.com/xuzhao123/tern/internal/transcript"
 )
 
 // importRun 导入 Codex / Claude Code 的会话文件：换成和代理记下的同一种存档（request/response 成对），

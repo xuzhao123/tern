@@ -17,7 +17,7 @@ import (
 	"slices"
 	"strings"
 
-	"learning-agent/internal/skills"
+	"github.com/xuzhao123/tern/internal/skills"
 )
 
 type Command struct {

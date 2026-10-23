@@ -1,4 +1,4 @@
-module learning-agent
+module github.com/xuzhao123/tern
 
 go 1.25.5
 

@@ -21,8 +21,8 @@ import (
 	"sync"
 	"time"
 
-	"learning-agent/internal/audit"
-	"learning-agent/internal/tenant"
+	"github.com/xuzhao123/tern/internal/audit"
+	"github.com/xuzhao123/tern/internal/tenant"
 )
 
 // 登录与多租户。账号放在 .data/users.json（平台数据，不按租户分），观测台启动时读入：
@@ -49,8 +49,8 @@ type policy struct {
 	Features   []string `json:"features,omitempty"`
 }
 
-// 功能名与发起对话时的开关对应；labs 指 Day 3/4/18 的实验入口。
-var allFeatures = []string{"rag", "memory", "skills", "mcp", "subagents", "browser", "bash", "labs", "workspace"}
+// 功能名与发起对话时的开关对应。
+var allFeatures = []string{"rag", "memory", "skills", "mcp", "subagents", "browser", "bash", "workspace"}
 
 func (p policy) allows(feature string) bool {
 	return len(p.Features) == 0 || slices.Contains(p.Features, feature)
@@ -323,9 +323,9 @@ func current(req *http.Request) *user {
 	return u
 }
 
-// 不需要登录的路径：登录页、课件、agent 进程调用的模型代理（凭进程令牌）和内置 MCP（本机同源）。
+// 不需要登录的路径：登录页、agent 进程调用的模型代理（凭进程令牌）和内置 MCP（本机同源）。
 func public(path string) bool {
-	return path == "/login" || strings.HasPrefix(path, "/slides/") || strings.HasPrefix(path, "/llm/") || path == "/mcp"
+	return path == "/login" || strings.HasPrefix(path, "/llm/") || path == "/mcp"
 }
 
 // protect 包住整个路由表：没登录的页面请求跳到登录页，接口返回 401；
@@ -432,7 +432,7 @@ func (s *server) me(w http.ResponseWriter, req *http.Request) {
 
 const loginHTML = `<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>登录 · Learning Agent</title>
+<title>登录 · tern</title>
 <style>
 :root { --bg: #f9f9f9; --panel: #fff; --text: #0d0d0d; --muted: #6b6b6b; --line: #ebebeb; }
 @media (prefers-color-scheme: dark) { :root { --bg: #141414; --panel: #1f1f1f; --text: #ececec; --muted: #a3a3a3; --line: #2d2d2d; } }
@@ -446,7 +446,7 @@ input:focus { border-color: var(--muted); }
 button { width: 100%; margin-top: 6px; padding: 9px; border: 0; border-radius: 10px; background: var(--text); color: var(--panel); font: inherit; font-weight: 500; cursor: pointer; }
 #err { min-height: 18px; margin: 10px 0 0; color: #d03b2f; font-size: 13px; }
 </style></head><body>
-<form id="f"><div class="mark"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 7 5 5-5 5"/><path d="M13 17h6"/></svg></div><h1>登录 Learning Agent</h1>
+<form id="f"><div class="mark"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 7 5 5-5 5"/><path d="M13 17h6"/></svg></div><h1>登录 tern</h1>
 <label>用户名<input id="name" autocomplete="username" required autofocus></label>
 <label>密码<input id="password" type="password" autocomplete="current-password" required></label>
 <button>登录</button><p id="err"></p></form>

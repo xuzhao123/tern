@@ -17,8 +17,8 @@ import (
 	"syscall"
 	"time"
 
-	"learning-agent/internal/protocol"
-	"learning-agent/internal/telemetry"
+	"github.com/xuzhao123/tern/internal/protocol"
+	"github.com/xuzhao123/tern/internal/telemetry"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"

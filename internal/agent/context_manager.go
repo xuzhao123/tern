@@ -10,10 +10,10 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"learning-agent/internal/llm"
-	"learning-agent/internal/protocol"
-	"learning-agent/internal/telemetry"
-	"learning-agent/internal/workspace"
+	"github.com/xuzhao123/tern/internal/llm"
+	"github.com/xuzhao123/tern/internal/protocol"
+	"github.com/xuzhao123/tern/internal/telemetry"
+	"github.com/xuzhao123/tern/internal/workspace"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"

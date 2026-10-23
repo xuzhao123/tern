@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"learning-agent/internal/permission"
+	"github.com/xuzhao123/tern/internal/permission"
 )
 
 const maxDocBytes = 32 << 10 // 单份项目指令最多放 32KB，超出截断并注明

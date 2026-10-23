@@ -14,8 +14,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"learning-agent/internal/llm"
-	"learning-agent/internal/tenant"
+	"github.com/xuzhao123/tern/internal/llm"
+	"github.com/xuzhao123/tern/internal/tenant"
 )
 
 // D9 检查点：一次运行的全部可恢复状态。每到一个边界就整份原子写回 .data/checkpoints/<id>.json：

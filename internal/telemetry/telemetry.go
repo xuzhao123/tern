@@ -31,7 +31,7 @@ import (
 
 const Dir = ".data/traces"
 
-var Tracer = otel.Tracer("learning-agent")
+var Tracer = otel.Tracer("tern")
 
 // 提示词、回答、工具参数与结果默认不进 span，只记耗时、token、状态这些元数据。
 // 与社区一致：内容可能含敏感信息，要显式打开，并且截断。

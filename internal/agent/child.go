@@ -14,10 +14,10 @@ import (
 	"syscall"
 	"time"
 
-	"learning-agent/internal/llm"
-	"learning-agent/internal/protocol"
-	"learning-agent/internal/sandbox"
-	"learning-agent/internal/telemetry"
+	"github.com/xuzhao123/tern/internal/llm"
+	"github.com/xuzhao123/tern/internal/protocol"
+	"github.com/xuzhao123/tern/internal/sandbox"
+	"github.com/xuzhao123/tern/internal/telemetry"
 )
 
 // RunChild 保证一个任务ID对应的任务最终只完成一次，D10 队列和子 agent 共用：

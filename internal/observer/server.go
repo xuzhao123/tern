@@ -27,13 +27,12 @@ import (
 	"syscall"
 	"time"
 
-	"learning-agent/internal/agent"
-	"learning-agent/internal/audit"
-	"learning-agent/internal/llm"
-	"learning-agent/internal/protocol"
-	"learning-agent/internal/telemetry"
-	"learning-agent/internal/tenant"
-	"learning-agent/internal/tools"
+	"github.com/xuzhao123/tern/internal/agent"
+	"github.com/xuzhao123/tern/internal/audit"
+	"github.com/xuzhao123/tern/internal/llm"
+	"github.com/xuzhao123/tern/internal/protocol"
+	"github.com/xuzhao123/tern/internal/telemetry"
+	"github.com/xuzhao123/tern/internal/tenant"
 
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
@@ -45,9 +44,6 @@ import (
 //
 //go:embed web
 var webFS embed.FS
-
-const contextLabTitle = "Day 3 上下文实验（33轮对话 + 大工具输出）"
-const ragLabTitle = "Day 4 检索实验（10题无检索 / 有检索对比）"
 
 // 观测系统不读取 agent 源码：它代理模型请求、转发终端输出，从协议数据还原过程。
 type event struct {
@@ -181,7 +177,6 @@ func Run(args []string, mcpHandler http.Handler) error {
 	s := &server{agentDir: dir, addr: *addr, agentBin: agentBin, auth: authState, evals: evals{jobs: map[string]*evalJob{}}}
 	s.loadRuns()
 	mux := http.NewServeMux()
-	mux.Handle("GET /slides/", http.StripPrefix("/slides/", http.FileServer(http.Dir(filepath.Join(dir, "docs", "slides")))))
 	web, _ := fs.Sub(webFS, "web")
 	page, err := fs.ReadFile(web, "index.html")
 	if err != nil {
@@ -291,19 +286,15 @@ func (s *server) agentCommand(ctx context.Context, args ...string) *exec.Cmd {
 
 // 每次运行都启动一个独立的 agent 子进程（见 agentCommand），各次运行的状态与输出互不影响。
 func (s *server) startRun(w http.ResponseWriter, req *http.Request) {
-	// 普通对话只选模型和工作区，工具来自设置（见 settings.go）；实验仍按各自的固定参数单独运行。
+	// 普通对话只选模型和工作区，工具来自设置（见 settings.go）。
 	var input struct {
-		Query              string      `json:"query"`
-		ContextLab         bool        `json:"context_lab"`
-		RAGLab             bool        `json:"rag_lab"`
-		SecurityLab        string      `json:"security_lab"`
-		SecurityProtection bool        `json:"security_protection"`
-		Embedding          string      `json:"embedding"`
-		Provider           string      `json:"provider"`
-		Model              string      `json:"model"`      // 第二级下拉选的具体模型；空：用这家供应商的默认值
-		Workspace          *string     `json:"workspace"`  // nil：用设置里的默认工作区；""：本对话不用工作区
-		Permission         string      `json:"permission"` // 空：用设置里的默认权限模式
-		Images             []attachRef `json:"images"`     // 附图：先经 POST /attachments 存好，这里只带引用
+		Query      string      `json:"query"`
+		Embedding  string      `json:"embedding"`
+		Provider   string      `json:"provider"`
+		Model      string      `json:"model"`      // 第二级下拉选的具体模型；空：用这家供应商的默认值
+		Workspace  *string     `json:"workspace"`  // nil：用设置里的默认工作区；""：本对话不用工作区
+		Permission string      `json:"permission"` // 空：用设置里的默认权限模式
+		Images     []attachRef `json:"images"`     // 附图：先经 POST /attachments 存好，这里只带引用
 	}
 	if json.NewDecoder(req.Body).Decode(&input) != nil {
 		http.Error(w, "请求必须是JSON", http.StatusBadRequest)
@@ -323,13 +314,8 @@ func (s *server) startRun(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "embedding须为ark或local", http.StatusBadRequest)
 		return
 	}
-	if input.SecurityLab != "" && (!slices.Contains(tools.SecuritySampleIDs, input.SecurityLab) || input.ContextLab || input.RAGLab) {
-		http.Error(w, "安全学习实验只允许 clean、answer、tool，且不能与其他实验组合", http.StatusBadRequest)
-		return
-	}
-	lab := input.ContextLab || input.RAGLab || input.SecurityLab != ""
-	if (!lab && input.Query == "") || (lab && input.Query != "") || (input.ContextLab && input.RAGLab) {
-		http.Error(w, "普通问答需要query；实验请单独运行", http.StatusBadRequest)
+	if input.Query == "" {
+		http.Error(w, "普通问答需要query", http.StatusBadRequest)
 		return
 	}
 	if input.Provider == "" {
@@ -354,13 +340,9 @@ func (s *server) startRun(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 	}
-	// 附图：实验的工具范围与数据都是固定的，不带图；普通对话要模型能看图才收，
+	// 附图：要模型能看图才收，
 	// 与 agent 发请求前的处理一致（不能看图的模型会把图换成说明文字，那等于白附）。
 	if len(input.Images) > 0 {
-		if lab {
-			http.Error(w, "实验不能带图", http.StatusBadRequest)
-			return
-		}
 		if !s.checkImages(w, u.Tenant, input.Images) {
 			return
 		}
@@ -375,7 +357,7 @@ func (s *server) startRun(w http.ResponseWriter, req *http.Request) {
 		workspace = *input.Workspace
 	}
 	var workDir string
-	if workspace != "" && !lab {
+	if workspace != "" {
 		i := slices.IndexFunc(settings.Workspaces, func(w workspaceDir) bool { return w.Name == workspace })
 		if i < 0 || !settings.on("coding") {
 			http.Error(w, "不能使用工作区 "+workspace+"：没有登记、编码工具没打开，或租户没有开通", http.StatusBadRequest)
@@ -385,15 +367,11 @@ func (s *server) startRun(w http.ResponseWriter, req *http.Request) {
 	} else {
 		workspace = ""
 	}
-	if lab && !u.platform() && !s.auth.policy(u.Tenant).allows("labs") {
-		http.Error(w, "租户 "+u.Tenant+" 没有开通功能：labs", http.StatusForbidden)
-		return
-	}
 	if !s.underQuota(w, u) {
 		return
 	}
 	// 设置快照：这一刻打开的工具，写进 start 事件，续聊沿用。
-	snap := event{Kind: "start", RAG: settings.on("rag"), Memory: settings.on("memory"), MemoryTTL: settings.Values["memory_ttl"], Subagents: settings.on("subagents"), AskUser: settings.on("ask_user") && !lab,
+	snap := event{Kind: "start", RAG: settings.on("rag"), Memory: settings.on("memory"), MemoryTTL: settings.Values["memory_ttl"], Subagents: settings.on("subagents"), AskUser: settings.on("ask_user"),
 		Browser: settings.on("web_search") || settings.on("open_page"), DSSearch: settings.on("ds_search"), Provider: input.Provider, Model: input.Model, Bash: settings.on("bash"), Workspace: workspace, WorkDir: workDir,
 		Permission: settings.Values["permission_mode"], Rules: ruleLines(settings.Values["permission_rules"])}
 	for _, name := range singleTools {
@@ -434,37 +412,8 @@ func (s *server) startRun(w http.ResponseWriter, req *http.Request) {
 	if snap.Bash {
 		snap.NetAllow = netDomains(settings.Values["net_allow"])
 	}
-	var args []string
-	if !lab {
-		snap.Embedding = input.Embedding
-		args = snapshotArgs(snap, snap.NetAllow)
-	}
-	if input.ContextLab {
-		// 使用同一个真实实验入口；所有模型请求仍经过本次运行的代理。
-		args = []string{"-context-lab", "-max-steps", "60", "-reasoning-effort", "minimal"}
-		input.Query = contextLabTitle
-	}
-	if input.RAGLab {
-		args = []string{"-rag-lab", "-max-steps", "6", "-reasoning-effort", "minimal"}
-		input.Query = ragLabTitle
-	}
-	if input.SecurityLab != "" {
-		args = []string{"-security-lab", "-max-steps", "4", "-reasoning-effort", "minimal"}
-		if input.SecurityProtection {
-			args = append(args, "-security-protection")
-		}
-		input.Query = tools.SecurityQuestion(input.SecurityLab)
-	}
-	if input.RAGLab {
-		args = append(args, "-embedding", input.Embedding)
-	}
-	if lab {
-		args = append(args, "-provider", input.Provider)
-		if input.Model != "" {
-			args = append(args, "-model", input.Model)
-		}
-		snap = event{Kind: "start", Provider: input.Provider, Model: input.Model, Embedding: input.Embedding}
-	}
+	snap.Embedding = input.Embedding
+	args := snapshotArgs(snap, snap.NetAllow)
 	// 对话 ID：随机 UUID（v4），不含时间，与观测台在哪个时区启动无关。
 	// 早期存档的 ID 是“20261006-213820.763”这样的本地时间，照常读回，不改名，旧链接仍能打开。
 	id := uuid.NewString()
@@ -480,12 +429,9 @@ func (s *server) startRun(w http.ResponseWriter, req *http.Request) {
 	ctx, span := r.beginTurn(input.Query)
 	snap.Text, snap.Trace, snap.Protocol = r.Query, span.SpanContext().TraceID().String(), true
 	r.add(snap)
-	var turn map[string]any
-	if !input.ContextLab && !input.RAGLab {
-		turn = map[string]any{"question": input.Query}
-		if len(input.Images) > 0 {
-			turn["images"] = input.Images
-		}
+	turn := map[string]any{"question": input.Query}
+	if len(input.Images) > 0 {
+		turn["images"] = input.Images
 	}
 	s.launch(ctx, r, args, turn, u.Name)
 	json.NewEncoder(w).Encode(r.summary())
@@ -970,17 +916,6 @@ func (r *run) resumeHistory() (*resumeInput, error) {
 			start = i + 1
 		}
 	}
-	if start == 0 && r.Query == contextLabTitle {
-		// Day 3后半段是独立的大工具场景；续聊接在33轮学习对话之后。
-		for i, e := range r.events {
-			// B0 起是 lab/phase 通知；之前的存档只有日志行。
-			if (e.Kind == "notify" && e.Method == "lab/phase" && strings.Contains(string(e.Body), "recall_complete")) ||
-				(e.Kind == "stdout" && strings.HasPrefix(e.Text, "Recall complete:")) {
-				end = i
-				break
-			}
-		}
-	}
 	var request struct {
 		Messages []json.RawMessage `json:"messages"`
 		Tools    []json.RawMessage `json:"tools"`
@@ -1148,19 +1083,13 @@ func (r *run) withEmbedding(result *resumeInput) *resumeInput {
 // 调用方持有r.mu。正常结束的对话从最后一个完整回答接着聊；
 // 中途停下的对话（停止按钮、超时、出错）只要 agent 写过检查点，就从检查点接着聊。
 func (r *run) canContinue() bool {
-	// 课堂样本按独立任务对比，不把前一组的资料带进后一组。
-	for _, sample := range tools.SecuritySampleIDs {
-		if r.Query == tools.SecurityQuestion(sample) {
-			return false
-		}
-	}
 	// 用户的网络审批（allow/deny）与撤销（rewind）可能追加在 exit 之后，不算对话进程的事件。
 	i, rewound := len(r.events)-1, false
 	for i >= 0 && (r.events[i].Kind == "allow" || r.events[i].Kind == "deny" || r.events[i].Kind == "rewind") {
 		rewound = rewound || r.events[i].Kind == "rewind"
 		i--
 	}
-	if r.Query == ragLabTitle || r.Source != "" || !r.Done || i < 0 || r.events[i].Kind != "exit" {
+	if r.Source != "" || !r.Done || i < 0 || r.events[i].Kind != "exit" {
 		return false
 	}
 	// D29：撤销之后从撤销点的上一轮接着聊；连第一轮也撤销了，就没有可以接着的对话。

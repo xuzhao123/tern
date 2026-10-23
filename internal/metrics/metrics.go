@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"learning-agent/internal/agent"
-	"learning-agent/internal/telemetry"
-	"learning-agent/internal/tenant"
+	"github.com/xuzhao123/tern/internal/agent"
+	"github.com/xuzhao123/tern/internal/telemetry"
+	"github.com/xuzhao123/tern/internal/tenant"
 )
 
 // D15：5 个核心指标。结局、耗时、成本读检查点（kill -9 也不会丢）；工具指标读 trace，崩溃时可能少记（见 Q19）。

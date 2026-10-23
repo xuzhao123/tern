@@ -18,10 +18,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"learning-agent/internal/agent"
-	"learning-agent/internal/llm"
-	"learning-agent/internal/telemetry"
-	"learning-agent/internal/tenant"
+	"github.com/xuzhao123/tern/internal/agent"
+	"github.com/xuzhao123/tern/internal/llm"
+	"github.com/xuzhao123/tern/internal/telemetry"
+	"github.com/xuzhao123/tern/internal/tenant"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"

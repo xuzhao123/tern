@@ -17,7 +17,7 @@ import (
 	"syscall"
 	"time"
 
-	"learning-agent/internal/tenant"
+	"github.com/xuzhao123/tern/internal/tenant"
 
 	"go.opentelemetry.io/otel/trace"
 )

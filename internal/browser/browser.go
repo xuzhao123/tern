@@ -22,10 +22,10 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	"learning-agent/internal/llm"
-	"learning-agent/internal/netguard"
-	"learning-agent/internal/protocol"
-	"learning-agent/internal/telemetry"
+	"github.com/xuzhao123/tern/internal/llm"
+	"github.com/xuzhao123/tern/internal/netguard"
+	"github.com/xuzhao123/tern/internal/protocol"
+	"github.com/xuzhao123/tern/internal/telemetry"
 )
 
 // Day 11：用真实的无头 Chrome 查资料。整个进程共用一个浏览器，第一次调用时才启动；

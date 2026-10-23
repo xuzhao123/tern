@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"learning-agent/internal/llm"
-	"learning-agent/internal/sandbox"
-	"learning-agent/internal/workspace"
+	"github.com/xuzhao123/tern/internal/llm"
+	"github.com/xuzhao123/tern/internal/sandbox"
+	"github.com/xuzhao123/tern/internal/workspace"
 )
 
 // 图片输入第二步：view_image 让模型自己看工作区或 bash 沙箱里的图（照 Codex 的 view_image）。

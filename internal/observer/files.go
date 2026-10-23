@@ -16,8 +16,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"learning-agent/internal/audit"
-	"learning-agent/internal/tenant"
+	"github.com/xuzhao123/tern/internal/audit"
+	"github.com/xuzhao123/tern/internal/tenant"
 )
 
 // 对话的沙箱文件：agent 在 turn/started 里报告沙箱目录名（对话第一轮的检查点ID），

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"learning-agent/internal/llm"
+	"github.com/xuzhao123/tern/internal/llm"
 )
 
 // DeepSeek 的 Search / Fetch API：搜索和抓取都在 DeepSeek 服务端完成，本机只发一次 JSON 请求，

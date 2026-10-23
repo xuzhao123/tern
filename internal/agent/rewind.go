@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"learning-agent/internal/audit"
-	"learning-agent/internal/tenant"
-	"learning-agent/internal/workspace"
+	"github.com/xuzhao123/tern/internal/audit"
+	"github.com/xuzhao123/tern/internal/tenant"
+	"github.com/xuzhao123/tern/internal/workspace"
 )
 
 // D29 按轮撤销：把某一轮以及它之后各轮改过的文件放回那一轮开始之前的样子，对话也退回到它的上一轮。

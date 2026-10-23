@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"learning-agent/internal/agent"
-	"learning-agent/internal/llm"
+	"github.com/xuzhao123/tern/internal/agent"
+	"github.com/xuzhao123/tern/internal/llm"
 )
 
 // D17 扩展：对观测台里的一段对话自动归因，不需要人先写评分标准。

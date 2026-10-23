@@ -15,10 +15,10 @@ import (
 	"strings"
 	"time"
 
-	"learning-agent/internal/llm"
-	"learning-agent/internal/protocol"
-	"learning-agent/internal/telemetry"
-	"learning-agent/internal/tools"
+	"github.com/xuzhao123/tern/internal/llm"
+	"github.com/xuzhao123/tern/internal/protocol"
+	"github.com/xuzhao123/tern/internal/telemetry"
+	"github.com/xuzhao123/tern/internal/tools"
 
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
@@ -131,7 +131,7 @@ func Connect(ctx context.Context, command string) (conn *Connection, listed []sd
 	}
 	request := sdk.InitializeRequest{}
 	request.Params.ProtocolVersion = sdk.LATEST_PROTOCOL_VERSION
-	request.Params.ClientInfo = sdk.Implementation{Name: "learning-agent", Version: "0.6.0"}
+	request.Params.ClientInfo = sdk.Implementation{Name: "tern", Version: "0.6.0"}
 	info, err := c.Initialize(ctx, request)
 	if err != nil {
 		c.Close()
@@ -350,7 +350,7 @@ func Raw(ctx context.Context, command, era, callName, callArgs string) error {
 		if era == "modern" {
 			params["_meta"] = map[string]any{
 				"io.modelcontextprotocol/protocolVersion":    sdk.ProtocolVersion20260728,
-				"io.modelcontextprotocol/clientInfo":         map[string]string{"name": "learning-agent-raw", "version": "0.6.0"},
+				"io.modelcontextprotocol/clientInfo":         map[string]string{"name": "tern-raw", "version": "0.6.0"},
 				"io.modelcontextprotocol/clientCapabilities": map[string]any{},
 			}
 		}
@@ -373,7 +373,7 @@ func Raw(ctx context.Context, command, era, callName, callArgs string) error {
 			if err := request(1, "initialize", map[string]any{
 				"protocolVersion": sdk.ProtocolVersion20251125,
 				"capabilities":    map[string]any{},
-				"clientInfo":      map[string]string{"name": "learning-agent-raw", "version": "0.6.0"},
+				"clientInfo":      map[string]string{"name": "tern-raw", "version": "0.6.0"},
 			}); err != nil {
 				return err
 			}
@@ -405,7 +405,7 @@ func Raw(ctx context.Context, command, era, callName, callArgs string) error {
 // Day 7：把 calculate 暴露成 calculator 的 MCP server。server 与传输分开：
 // Serve 用 stdio 或独立 HTTP 端口运行；Handler 让观测台在自己的 /mcp 上直接提供（同一进程，不转发）。
 func newServer(logger *log.Logger) *server.MCPServer {
-	s := server.NewMCPServer("learning-agent-calculator", "0.7.0",
+	s := server.NewMCPServer("tern-calculator", "0.7.0",
 		server.WithToolCapabilities(false),
 		// 第一道：按 inputSchema 校验（类型、必填、长度、多余字段），失败返回 isError 结果。
 		server.WithInputSchemaValidation(),

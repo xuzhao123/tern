@@ -7,19 +7,19 @@ import (
 	"fmt"
 	"strings"
 
-	"learning-agent/internal/browser"
-	"learning-agent/internal/llm"
-	"learning-agent/internal/mcp"
-	"learning-agent/internal/memory"
-	"learning-agent/internal/retrieval"
-	"learning-agent/internal/sandbox"
-	"learning-agent/internal/skills"
-	"learning-agent/internal/tools"
-	"learning-agent/internal/websearch"
-	"learning-agent/internal/workspace"
+	"github.com/xuzhao123/tern/internal/browser"
+	"github.com/xuzhao123/tern/internal/llm"
+	"github.com/xuzhao123/tern/internal/mcp"
+	"github.com/xuzhao123/tern/internal/memory"
+	"github.com/xuzhao123/tern/internal/retrieval"
+	"github.com/xuzhao123/tern/internal/sandbox"
+	"github.com/xuzhao123/tern/internal/skills"
+	"github.com/xuzhao123/tern/internal/tools"
+	"github.com/xuzhao123/tern/internal/websearch"
+	"github.com/xuzhao123/tern/internal/workspace"
 )
 
-// 按工具名分发：检索、记忆、skill、浏览器与 MCP 在各自的包里；内置工具和 Day 2/3 实验工具交给 tools.Run。
+// 按工具名分发：检索、记忆、skill、浏览器与 MCP 在各自的包里；内置工具交给 tools.Run。
 // offered 报告这个工具在不在本轮发给模型的工具列表里。
 func offered(name string) bool {
 	for _, definition := range llm.Tools {
