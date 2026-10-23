@@ -283,6 +283,10 @@ func replayProgress(messages []llm.Message) progress {
 			continue
 		}
 		for _, call := range m.ToolCalls {
+			// 和实时检测一致：轮询类调用不计数、不进窗口。
+			if specOf(call.Function.Name).Poll {
+				continue
+			}
 			p.Recent, _ = pushAction(p.Recent, actionKey(call))
 		}
 		var batch []llm.Observation

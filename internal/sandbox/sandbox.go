@@ -91,17 +91,18 @@ var front = sync.OnceValue(func() (t frontTools) {
 	return t
 })
 
-// 资源上限：一次命令最多用这么多；时长由执行器的单次工具时限（-tool-timeout，见 Timeout）控制。
+// 资源上限：一次命令最多用这么多；时长由 -bash-timeout 控制（见 Timeout）。
+// 内存给 2G：沙箱里冷缓存编译整个 Go 模块时 512M 会被内核 OOM 杀掉。机器 7.7G，前台加后台最多同时 5 个沙箱，这是上限，不是预留。
 // 进程数按线程算：无头 Chrome 加载一个页面就要 100 个左右（64 时建不了线程直接崩），256 仍能挡住 fork 炸弹。
 const (
-	memoryMax   = "512M"
+	memoryMax   = "2G"
 	tasksMax    = "256"
 	cpuQuota    = "100%"
 	tmpSize     = "67108864" // /tmp 是内存盘，最多 64MB
 	outputLimit = 128 << 10  // 输出保留开头和结尾各 128KB：过长的结果由上下文存成文件，这里只防内存被撑爆
 )
 
-// Timeout 是一条命令最多跑多久：就是执行器的单次工具时限（-tool-timeout），由 main 设置，写进工具描述与提示词。
+// Timeout 是一条命令最多跑多久：bash 单条命令的时限（-bash-timeout），由 main 设置，写进工具描述与提示词。
 var Timeout = 30 * time.Second
 
 // Definitions 在 Project 定下之后调用：有没有工作区，/workspace 指的不是同一个目录，描述要和 Rules 一致。
@@ -359,8 +360,9 @@ wait:
 		result["note"] = "命令已被终止，沙箱里没有留下还在运行的进程；终止前已经执行的部分（比如写了一半的文件）可能已经生效，下面是终止前的输出"
 	} else if status, ok := cmd.ProcessState.Sys().(syscall.WaitStatus); ok && status.Signaled() {
 		result["signal"] = status.Signal().String()
-		if status.Signal() == syscall.SIGKILL {
-			result["note"] = "进程被强制结束：多半是超出了内存上限（" + memoryMax + "）"
+		// 不是时限到、也不是被停止，却被信号结束：SIGKILL 与 SIGTERM 都多半是 systemd 按内存上限结束了整个 scope。
+		if status.Signal() == syscall.SIGKILL || status.Signal() == syscall.SIGTERM {
+			result["note"] = "进程被系统结束：多半是超出了内存上限（" + memoryMax + "）。Go 项目可以分开编译各个包，其他程序减少并行"
 		}
 	} else if err != nil && cmd.ProcessState.ExitCode() == -1 {
 		return nil, fmt.Errorf("沙箱执行失败：%w", err)
@@ -525,7 +527,8 @@ func bwrapArgs(workspace, netDir, self, command string, env []string, writable b
 			args = append(args, "--ro-bind", g[0], "/opt/go", "--ro-bind", g[1], "/opt/gomod", "--bind", GoCache, "/opt/gocache")
 			path = "/opt/go/bin:" + path
 			extraEnv = []string{"GOROOT=/opt/go", "GOMODCACHE=/opt/gomod", "GOCACHE=/opt/gocache",
-				"GOTMPDIR=/opt/gocache/tmp", "GOPROXY=off", "GOTOOLCHAIN=local", "GOTELEMETRY=off", "GOFLAGS=-mod=readonly"}
+				// 沙箱只有 1 个 CPU（CPUQuota=100%），并行编译只会多占内存，一次编一个包。
+				"GOTMPDIR=/opt/gocache/tmp", "GOPROXY=off", "GOTOOLCHAIN=local", "GOTELEMETRY=off", "GOFLAGS=-mod=readonly -p=1"}
 		}
 	} else {
 		args = append(args, "--bind", workspace, "/workspace", "--chdir", "/workspace")

@@ -19,6 +19,7 @@ type Spec struct {
 	Outbound     bool          // 会把参数发到本机之外：读过私有数据后要确认
 	Irreversible bool          // 做了就撤不回：每次都要确认
 	Permission   string        // 规则里的类别：Bash、Edit、Read、WebFetch、WebSearch、Write；空表示按工具名
+	Poll         bool          // 查询后台任务的进度：用同样的参数反复调用是正常的，不算重复动作（见 react.go 的循环检测）
 	Timeout      time.Duration // 单次尝试的时限；0 表示用 -tool-timeout
 }
 
@@ -42,16 +43,16 @@ var specs = map[string]Spec{
 	"open_page":              {ReadOnly: true, Repeatable: true, Outbound: true, Permission: "WebFetch"},
 	"ds_search":              {ReadOnly: true, Repeatable: true, Outbound: true, Permission: "WebSearch"},
 	"ds_fetch":               {ReadOnly: true, Repeatable: true, Outbound: true, Permission: "WebFetch"},
-	"bash_output":            {ReadOnly: true, Repeatable: true, Private: "bash"},                              // 读后台命令的输出，和 bash 同样算私有
+	"bash_output":            {ReadOnly: true, Repeatable: true, Poll: true, Private: "bash"},                  // 读后台命令的输出，和 bash 同样算私有
 	"bash_kill":              {Repeatable: true},                                                               // 停掉已经停掉的命令什么也不做
 	"progress":               {Serial: true, Private: "workspace"},                                             // 进度文件只由 harness 写
 	"verify_feature":         {Serial: true, Repeatable: true, Private: "workspace", Timeout: 6 * time.Minute}, // 跑校验命令再请验证者判定
 	"spawn_agent":            {Repeatable: true, Private: "subagent"},                                          // 子任务ID是幂等键；只在子 agent 读过私有数据时才算，见 trackPrivate
 	"request_network_access": {Repeatable: true},
-	"ask_user":               {Serial: true, Repeatable: true},                                    // 一次问一个；中断后再问一遍无妨
-	"todo_write":             {Repeatable: true},                                                  // 每次写完整清单，重做一样
-	"agent_wait":             {Repeatable: true, Private: "subagent", Timeout: 330 * time.Second}, // 只读取后台子 agent 的结论
-	"agent_send":             {Serial: true},                                                      // 插两次话就是两句
+	"ask_user":               {Serial: true, Repeatable: true},                                                // 一次问一个；中断后再问一遍无妨
+	"todo_write":             {Repeatable: true},                                                              // 每次写完整清单，重做一样
+	"agent_wait":             {Repeatable: true, Poll: true, Private: "subagent", Timeout: 330 * time.Second}, // 只读取后台子 agent 的结论
+	"agent_send":             {Serial: true},                                                                  // 插两次话就是两句
 	"agent_stop":             {Repeatable: true, Timeout: time.Minute},
 }
 
@@ -68,8 +69,8 @@ func specOf(name string) Spec {
 	case "spawn_agent":
 		spec.Timeout = SubagentTimeout
 	case "bash":
-		// 命令时限由沙箱按 -tool-timeout 自己判，不算命令停在代理里等人批准联网的时间；执行器多留出一次审批的等待。
-		spec.Timeout = ToolTimeout + sandbox.ApprovalWait + 30*time.Second
+		// 命令时限由沙箱按 -bash-timeout 自己判，不算命令停在代理里等人批准联网的时间；执行器多留出一次审批的等待。
+		spec.Timeout = sandbox.Timeout + sandbox.ApprovalWait + 30*time.Second
 	case "request_network_access":
 		spec.Timeout = sandbox.ApprovalWait + 30*time.Second // 等人点按钮，工具自己会在 ApprovalWait 到时返回 pending
 	case "ask_user":

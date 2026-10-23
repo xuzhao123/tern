@@ -141,9 +141,9 @@ func FindProvider(name string) (Provider, bool) {
 }
 
 // 环境变量优先，其次是本地 .env，最后是路由表里的默认值。
-// 观测台启动 agent 时在进程环境里设 LLM_API_URL（本机代理）：它对任何供应商都生效；
-// 具体模型由观测台以 -model 参数传入（写进检查点参数，续跑与回放沿用），不走环境变量。
-// 其余变量各属一家：LLM_MODEL 只属于方舟，选 DeepSeek 时不会被误用。
+// 网页端启动 agent 时在进程环境里设 AGENT_PROXY_URL（本机代理）：它对任何供应商都生效，只改请求发往的地址，不动上游的真实地址；
+// 具体模型由网页端以 -model 参数传入（写进检查点参数，续跑与回放沿用），不走环境变量。
+// 其余变量各属一家：LLM_API_URL 只是方舟的地址，选 DeepSeek 时不会被误用。
 func LoadConfig(provider string) (Config, error) {
 	p, ok := FindProvider(provider)
 	if !ok {
@@ -187,15 +187,9 @@ func LoadConfig(provider string) (Config, error) {
 	}
 	config := Config{Provider: p.Name, Protocol: p.Protocol, Upstream: get(p.APIURL, p.URLVar), Model: get(p.Model, p.ModelVar), APIKey: get("", p.KeyVars...)}
 	config.APIURL = config.Upstream
-	if value := strings.TrimSpace(os.Getenv("LLM_API_URL")); value != "" {
+	// 网页端经本机代理发请求：只替换请求地址，上游仍按各家的变量算，日志里能看到真实上游。
+	if value := strings.TrimSpace(os.Getenv("AGENT_PROXY_URL")); value != "" {
 		config.APIURL = value
-		// 方舟的 URLVar 就是 LLM_API_URL：被观测台代理地址覆盖时，真实上游回到 .env 或默认值。
-		if p.URLVar == "LLM_API_URL" {
-			config.Upstream = values["LLM_API_URL"]
-			if config.Upstream == "" {
-				config.Upstream = p.APIURL
-			}
-		}
 	}
 	if config.Upstream == "" {
 		return config, fmt.Errorf("请在 .env 或环境变量配置 %s", p.URLVar)

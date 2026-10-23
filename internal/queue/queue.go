@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -181,6 +182,11 @@ func RunTask(ctx context.Context, t Task, extra []string, attempts int, child ag
 	}()
 	start := time.Now()
 	args := append(append([]string(nil), t.Args...), extra...)
+	// 队列和评测没人在旁边看着，而命令行默认不限请求次数：任务自己没给预算时补上 10，避免一个任务无限要请求。
+	limited := slices.ContainsFunc(args, func(a string) bool { return a == "-max-steps" || strings.HasPrefix(a, "-max-steps=") })
+	if !limited {
+		args = append([]string{"-max-steps", "10"}, args...)
+	}
 	for attempt := 1; attempt <= attempts; attempt++ {
 		result.Attempts = attempt
 		fmt.Printf("Queue start: id=%s attempt=%d/%d\n", t.ID, attempt, attempts)

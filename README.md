@@ -90,8 +90,8 @@ go build -o bin/tern .
 | `-question` | 交互输入 | 本轮任务 |
 | `-image` | 空 | 随问题附带的图片（PNG、JPEG、GIF、WebP），可写多次，每条消息最多 8 张；网页端输入框可附图 |
 | `-provider` | ark | 选择方舟或 DeepSeek |
-| `-model` | 空 | 这家下面的具体模型（如 `kimi-k3`）；空时用 `LLM_MODEL` / `DEEPSEEK_MODEL` 或路由表默认值；观测台是输入框旁的第二个下拉 |
-| `-max-steps` | 10 | 模型请求预算，含摘要与辅助调用；0 表示不限 |
+| `-model` | 空 | 这家下面的具体模型（如 `kimi-k3`）；空时用 `LLM_MODEL` / `DEEPSEEK_MODEL` 或路由表默认值；网页端是输入框旁的第二个下拉 |
+| `-max-steps` | 0 | 模型请求预算，含摘要与辅助调用；0 表示不限（靠重复动作/无进展熔断与 Ctrl-C 收住）；队列与评测任务没给预算时补 10 |
 | `-parallel` | 4 | 独立工具并发上限 |
 | `-rag` / `-memory` | false | 按需启用知识检索或长期记忆 |
 | `-resume` | 空 | 按检查点 ID 续跑，配置沿用检查点 |
@@ -107,9 +107,9 @@ go build -o bin/tern .
 | `-continues` | 空 | 续聊时上一轮的检查点ID：本轮用新ID并记下续接关系，子 agent 可按 task_id 引用之前各轮的子任务；网页端自动处理 |
 | `-app-server` | false | 以结构化协议与界面通信（JSON-RPC，一行一条）：stdout 只走协议，日志改走 stderr；网页端与父 agent 启动子进程时使用。网页端另给环境变量 `AGENT_APP_SOCKET`，协议与日志改走这个 Unix socket，网页端重启后能接管（） |
 | `-parallel` | 4 | 工具执行并发，1到16 |
-| `-max-steps` | 10 | 模型请求总预算，包含最终回答与上下文摘要；0 表示不限 |
+| `-max-steps` | 0 | 模型请求总预算，包含最终回答与上下文摘要；0 表示不限 |
 | `-retries` | 2 | 工具额外重试次数，0到5 |
-| `-context-window` | 12288 | 配置的总窗口；观测台默认按模型取路由表里核对过的输入上限 |
+| `-context-window` | 0 | 总窗口；0 表示按模型取路由表里核对过的输入上限（取不到时 262144），显式给值时才用给的值 |
 | `-max-output-tokens` | 0 | 0省略API输出上限；大于0才传max_completion_tokens（含推理） |
 | `-reasoning-reserve` | 1024 | 输入容量额外安全余量 |
 | `-tool-output-tokens` | 2000 | 工具结果进入View时的粗估上限；超过时完整内容存进 `.data/outputs/`，视图里放预览，模型用 `read_output` 读回 |
@@ -138,7 +138,8 @@ go build -o bin/tern .
 | `-skill` | 空 | 配合 `-skills`，只启用这个名字的 skill（可重复）；不给则启用全部 |
 | `-skills-list` | false | 只扫描 `skills/`，stdout 输出每个 skill 的元数据、正文与校验错误（JSON），不请求模型；须单独使用 |
 | `-timeout` | 0 | 整次运行的时限，如 `2m`；0 不限，仍可 Ctrl+C |
-| `-tool-timeout` | 30s | 单次工具尝试的时限；到时记为结果未知，只读工具才重试。bash 例外：沙箱终止整条命令，返回终止前的输出；时限写在 bash 的工具描述里 |
+| `-tool-timeout` | 30s | 其他工具单次尝试的时限；到时记为结果未知，只读工具才重试（bash 用 `-bash-timeout`） |
+| `-bash-timeout` | 2m | bash 单条命令的时限，大于 0、不超过 `10m`；到时沙箱终止整条命令，返回终止前的输出；写在 bash 的工具描述里 |
 | `-task-id` | 随机 UUID | 检查点ID（字母、数字和 `._-`）；已存在时拒绝启动，提示改用 `-resume` |
 | `-resume` | 空 | 从该ID的检查点续跑，配置取自检查点；须单独使用；已完成的直接返回存档答案 |
 | `-subagents` | false | 增加 spawn_agent：把独立子任务交给全新上下文的子 agent（子进程），每次运行最多4个 |

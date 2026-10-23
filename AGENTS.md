@@ -47,6 +47,7 @@ tern 是一个用 Go 实现的 agent harness，由 learning-agent 演变而来�
 - agent 以 `-app-server` 运行时 stdout 只走 JSON-RPC（一行一条），日志走 stderr。网页端、`chat` 和 `agent.RunChild` 是界面；界面需要的信息只读协议通知，不解析终端文本。
 - 网页端启动的 agent 经 `AGENT_APP_SOCKET` 走 `.data/[tenants/<租户>/]live/` 下的 Unix socket：网页端退出时 agent 照常运行，重启后接管；agent 已经不在时，从会话记录 `.data/[tenants/<租户>/]sessions/` 补读，已写的记录不改写。
 - 审批与提问（`network/requestApproval`、`tool/requestApproval`、`user/requestInput`）只能由界面上的人回答；没有界面时如实回答 unavailable。人的审批先写审计。
+- 网页端启动 agent 时用环境变量交代运行环境：`AGENT_PROXY_URL`（模型代理地址）、`AGENT_PROXY_TOKEN`（访问代理的令牌）、`AGENT_APP_SOCKET`（协议 socket）。`LLM_API_URL` 只是方舟的地址变量，不再兼作代理地址。
 
 **模型**
 - 请求一律 `stream: true` 并要 usage；拼接逻辑只有 `llm.Stream` 一份，agent 与网页端代理共用；截断等检查在流结束后对完整回复做。

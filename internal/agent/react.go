@@ -297,7 +297,7 @@ func Run(ctx context.Context, config llm.Config, question string, images []llm.I
 			}
 		}
 	}
-	fmt.Printf("Limits: max_steps=%s retries=%d repeat_limit=3 parallel=%d tool_timeout=%s\n", llm.LimitText(maxSteps), retries, parallel, ToolTimeout)
+	fmt.Printf("Limits: max_steps=%s retries=%d repeat_limit=3 parallel=%d tool_timeout=%s bash_timeout=%s\n", llm.LimitText(maxSteps), retries, parallel, ToolTimeout, sandbox.Timeout)
 	if err := save(); err != nil {
 		return err
 	}
@@ -407,6 +407,10 @@ func Run(ctx context.Context, config llm.Config, question string, images []llm.I
 					return stopRun("invalid_tool_calls", "模型返回了无效的工具调用", summary)
 				}
 				ids[call.ID] = true
+				// 轮询后台任务（Poll）用同样的参数反复问是正常的：不计数，也不放进窗口；有效性检查照做。
+				if specOf(call.Function.Name).Poll {
+					continue
+				}
 				key := actionKey(call)
 				var count int
 				loop.Recent, count = pushAction(loop.Recent, key)

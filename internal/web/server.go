@@ -628,7 +628,7 @@ func (s *server) launch(ctx context.Context, r *run, args []string, turn map[str
 	}
 	token := newToken()
 	cmd := s.agentCommand(context.Background(), append([]string{"-app-server"}, args...)...)
-	cmd.Env = append(os.Environ(), "LLM_API_URL=http://"+s.addr+"/llm/"+r.ID, "AGENT_CONVERSATION_ID="+r.ID, "AGENT_USER="+userName, "AGENT_PROXY_TOKEN="+token, "AGENT_APP_SOCKET="+livePath(r, ".sock"))
+	cmd.Env = append(os.Environ(), "AGENT_PROXY_URL=http://"+s.addr+"/llm/"+r.ID, "AGENT_CONVERSATION_ID="+r.ID, "AGENT_USER="+userName, "AGENT_PROXY_TOKEN="+token, "AGENT_APP_SOCKET="+livePath(r, ".sock"))
 	cmd.Env = append(cmd.Env, telemetry.Env(ctx)...)
 	os.MkdirAll(s.abs(filepath.Dir(livePath(r, ".sock"))), 0o700)
 	s.cleanLive(r)

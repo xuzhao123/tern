@@ -121,7 +121,7 @@ func run() error {
 	appServer := flag.Bool("app-server", false, "以结构化协议与界面通信（JSON-RPC，一行一条）：stdout 只走协议，日志改走 stderr；问题与续聊上下文由 turn/start 给出")
 	flag.StringVar(&agent.Continues, "continues", "", "续聊时上一轮的检查点ID：本轮用新ID，记下续接关系，子任务可按 task_id 引用之前各轮派出的子任务")
 	parallel := flag.Int("parallel", 4, "同时执行的工具数，1 到 16")
-	maxSteps := flag.Int("max-steps", 10, "模型请求总次数，包含最终回答和上下文摘要；0 表示不限（靠熔断与停止收住）")
+	maxSteps := flag.Int("max-steps", 0, "模型请求总次数，包含最终回答和上下文摘要；0 表示不限（靠熔断与停止收住）")
 	retries := flag.Int("retries", 2, "工具失败后额外重试次数，0 到 5")
 	provider := flag.String("provider", "ark", "模型路由：ark（豆包，方舟）、deepseek、deepseekanthropic（DeepSeek 的 Anthropic 接口）或 coconut（本机 Responses 服务）；地址、模型与密钥见 README")
 	check := flag.String("check", "", "不请求模型，只在沙箱里跑这条校验命令（工作区只读挂载，同 verify_feature），输出 JSON 的退出码与输出后退出；须配合 -workspace 与 -bash")
@@ -134,7 +134,7 @@ func run() error {
 	verifier := flag.String("verifier", "", "判定功能是否完成的验证者用哪家供应商；默认和主模型不同的一家（主模型是 DeepSeek 时用 ark，否则 deepseek）")
 	model := flag.String("model", "", "这家供应商下的具体模型，优先于 LLM_MODEL / DEEPSEEK_MODEL 与默认值；作为启动参数写进检查点，续跑、回放与子 agent 沿用")
 	effort := flag.String("reasoning-effort", "high", "所有请求统一的推理强度：minimal、low、medium或high")
-	window := flag.Int("context-window", 12288, "上下文总窗口（命令行默认值偏小，长任务按模型调大；观测台按模型取核对过的上限），输入容量扣除输出预算预留与推理余量")
+	window := flag.Int("context-window", 0, "上下文总窗口；0 表示按模型取核对过的上限（llm.WindowOf，取不到时 262144），输入容量扣除输出预算预留与推理余量")
 	output := flag.Int("max-output-tokens", 0, "可选输出上限（含推理）；0不向API传限制，输入预算仍预留4096")
 	reserve := flag.Int("reasoning-reserve", 1024, "输入容量额外预留的安全余量")
 	toolOutput := flag.Int("tool-output-tokens", 2000, "工具结果写入视图的估算token上限，至少64")
@@ -164,7 +164,8 @@ func run() error {
 	flag.Var(&skillNames, "skill", "配合-skills：只启用这个名字的skill（可重复）；不给则启用全部")
 	skillsList := flag.Bool("skills-list", false, "只扫描skills/并以JSON输出每个skill的元数据、正文与错误，不请求模型；须单独使用")
 	timeout := flag.Duration("timeout", 0, "整次运行的时限，如 2m；0 表示不限（仍可 Ctrl+C 取消）")
-	flag.DurationVar(&agent.ToolTimeout, "tool-timeout", agent.ToolTimeout, "单次工具尝试的时限；超时记为结果未知（bash 由沙箱终止，返回终止前的输出）")
+	flag.DurationVar(&agent.ToolTimeout, "tool-timeout", agent.ToolTimeout, "单次工具尝试的时限；超时记为结果未知（bash 用 -bash-timeout，由沙箱终止，返回终止前的输出）")
+	bashTimeout := flag.Duration("bash-timeout", 2*time.Minute, "bash 单条命令的时限，大于0、不超过10m；到时沙箱终止整条命令，返回终止前的输出")
 	taskID := flag.String("task-id", "", "检查点ID（字母、数字和 ._-）；不给则生成随机 UUID")
 	resume := flag.String("resume", "", "从这个ID的检查点续跑；配置取自检查点，须单独使用")
 	flag.BoolVar(&browser.Enabled, "browser", false, "增加 web_search 与 open_page，用无头 Chrome 查资料（CHROME_PATH 可指定浏览器）")
@@ -379,8 +380,8 @@ func run() error {
 	if (*taskID != "" || *subagents || browser.Enabled || websearch.Enabled || *timeout != 0) && (*searchQuery != "" || *memoryForget != "" || *memorySearch != "") {
 		return errors.New("task-id、subagents、browser、ds-search与timeout用于普通问答与续聊，不与search-docs、memory-search或memory-forget组合")
 	}
-	if *timeout < 0 || agent.ToolTimeout <= 0 || agent.SubagentSteps < 1 || agent.SubagentSteps > 20 {
-		return errors.New("timeout不能为负，tool-timeout须大于0，subagent-steps范围为1到20")
+	if *timeout < 0 || agent.ToolTimeout <= 0 || *bashTimeout <= 0 || *bashTimeout > 10*time.Minute || agent.SubagentSteps < 1 || agent.SubagentSteps > 20 {
+		return errors.New("timeout不能为负，tool-timeout须大于0，bash-timeout须大于0且不超过10m，subagent-steps范围为1到20")
 	}
 	if *memoryEnabled && (*searchQuery != "" || *memoryForget != "" || *memorySearch != "") {
 		return errors.New("memory用于普通问答与续聊，不与search-docs、memory-search或memory-forget组合")
@@ -425,6 +426,10 @@ func run() error {
 		encoder.SetIndent("", "  ")
 		encoder.SetEscapeHTML(false)
 		return encoder.Encode(result.Report())
+	}
+	// 0 表示按模型：和网页端 startRun 一样取核对过的窗口，取不到时给 262144。
+	if *window == 0 {
+		*window = cmp.Or(llm.WindowOf(*provider, *model), 262144)
 	}
 	options := agent.ContextOptions{Window: *window, Output: *output, ReasoningReserve: *reserve, ToolOutput: *toolOutput, KeepGroups: *keepGroups}
 	if *effort != "minimal" && *effort != "low" && *effort != "medium" && *effort != "high" {
@@ -551,9 +556,10 @@ func run() error {
 			workspace.BashMount = "/workspace"
 		}
 	}
-	// bash 的描述要等工作区定下来再写（/workspace 指的目录不同），时限就是单次工具时限。
+	// bash 的描述要等工作区定下来再写（/workspace 指的目录不同），时限就是单条命令的时限。
+	// 不开 bash 也照样设上：日志里的 bash_timeout 显示的是这次给的值，而不是沙箱包里的初始值。
+	sandbox.Timeout = *bashTimeout
 	if sandbox.Enabled {
-		sandbox.Timeout = agent.ToolTimeout
 		llm.Tools = append(llm.Tools, sandbox.Definitions()...)
 	}
 	// 评测的校验命令。和 verify_feature 一样在工作区只读的沙箱里跑：被测的代码是模型改过的，不在宿主机上直接执行。
@@ -648,8 +654,8 @@ func run() error {
 	if *subagents {
 		// 子 agent 继承工具开关和运行参数；不继承长期记忆（子 agent 的“用户”是父 agent，不是真人）、
 		// 不继承 -subagents（只允许一层）、不继承续聊与整次时限（由父进程的 ctx 管）。
-		share := map[string]bool{"parallel": true, "retries": true, "lab-tools": true, "reasoning-effort": true, "context-window": true, "max-output-tokens": true,
-			"reasoning-reserve": true, "tool-output-tokens": true, "keep-groups": true, "rag": true, "embedding": true, "min-score": true, "skills": true, "tool-timeout": true, "browser": true, "ds-search": true, "disallowed-tools": true, "provider": true, "model": true, "verifier": true, "bash": true, "bash-project-ro": true, "workspace": true, "permission-mode": true, "hooks": true}
+		share := map[string]bool{"parallel": true, "retries": true, "reasoning-effort": true, "context-window": true, "max-output-tokens": true,
+			"reasoning-reserve": true, "tool-output-tokens": true, "keep-groups": true, "rag": true, "embedding": true, "min-score": true, "skills": true, "tool-timeout": true, "bash-timeout": true, "browser": true, "ds-search": true, "disallowed-tools": true, "provider": true, "model": true, "verifier": true, "bash": true, "bash-project-ro": true, "workspace": true, "permission-mode": true, "hooks": true}
 		agent.SubagentArgs = []string{}
 		flag.Visit(func(f *flag.Flag) {
 			if share[f.Name] {
