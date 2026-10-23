@@ -18,13 +18,13 @@ import (
 	"github.com/xuzhao123/tern/internal/workspace"
 )
 
-// D29 按轮撤销：把某一轮以及它之后各轮改过的文件放回那一轮开始之前的样子，对话也退回到它的上一轮。
+// 按轮撤销：把某一轮以及它之后各轮改过的文件放回那一轮开始之前的样子，对话也退回到它的上一轮。
 // 文件和对话一起退：之后接着聊时，模型看到的历史（上一轮的检查点）和磁盘上的文件是同一个时刻的。
 // 只撤销文件、保留对话，模型会以为自己改过的东西还在；只退对话、不动文件，模型会对着一份它没见过的代码继续改。
 //
 // 被撤销的轮次不删除，在快照目录里留一个 rewound.json：检查点、调用链、审计都还在，只是不能再续跑或接着聊。
 //
-// D34 加了两种只退一半的做法（终端客户端的 /rewind … files|chat，命令行的 -mode）：
+// 加了两种只退一半的做法（终端客户端的 /rewind … files|chat，命令行的 -mode）：
 //   - files：只把文件放回去，对话不退；这几轮照常可以接着聊，不留 rewound.json。
 //   - chat：只退对话，文件不动；这几轮标成已撤销，对话接回上一轮。
 // 上面说的两种错位都由界面在下一轮用提醒告诉模型（turn/start 的 notes），模型不会对着一份它以为不是这样的代码继续改。
@@ -127,7 +127,7 @@ func Rewind(target string, dryRun bool, mode string) (*RewindResult, error) {
 	if len(plan.Conflicts) > 0 && mode != "chat" {
 		return result, plan.Apply()
 	}
-	// D21：撤销改的是用户的仓库，先记下谁要求的，写不进审计就不做；结局另记一条。
+	// 撤销改的是用户的仓库，先记下谁要求的，写不进审计就不做；结局另记一条。
 	ctx := context.Background()
 	detail := fmt.Sprintf("撤销 %d 轮：恢复 %d 个文件，删除 %d 个新建文件", len(turns), len(plan.Restore), len(plan.Delete))
 	switch mode {
@@ -174,7 +174,7 @@ func RewindCommand(args []string) error {
 	flags := flag.NewFlagSet("rewind", flag.ContinueOnError)
 	flags.StringVar(&tenant.Current, "tenant", "", "这一轮所属的租户；不给时是平台空间 .data/")
 	dryRun := flags.Bool("dry-run", false, "只列出会恢复、删除哪些文件以及冲突，不改动")
-	mode := flags.String("mode", "both", "D34：both 文件与对话一起退；files 只退文件、对话不退；chat 只退对话、文件不动")
+	mode := flags.String("mode", "both", "both 文件与对话一起退；files 只退文件、对话不退；chat 只退对话、文件不动")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}

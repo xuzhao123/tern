@@ -13,7 +13,7 @@ import (
 	"strings"
 )
 
-// D36：编码任务。题目带一份仓库快照：本仓库的某个提交（commit），或 eval/coding/ 下的一个小仓库（fixture）。
+// 编码任务。题目带一份仓库快照：本仓库的某个提交（commit），或 eval/coding/ 下的一个小仓库（fixture）。
 // 每个试次在 .data/eval/work/<任务ID>/ 里拿一份新的拷贝（git clone，不用 worktree：沙箱里 .git 要是完整的，git 命令才能用），
 // 作为 -workspace 交给 agent，并打开 -bash。跑完后：
 //   - 在工作区只读挂载的沙箱里执行校验命令（本程序的 -check 模式，和 verify_feature 同一种隔离）：被测的代码是模型改过的，不在宿主机上直接跑；

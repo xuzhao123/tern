@@ -37,7 +37,7 @@ type Usage struct {
 type Reply struct {
 	Message    Message
 	Usage      *Usage
-	FirstToken time.Duration // B1：从发出请求到收到第一段正文或推理的时间（首字延迟）；没有收到为0
+	FirstToken time.Duration // 从发出请求到收到第一段正文或推理的时间（首字延迟）；没有收到为0
 	Model      string        // 响应里的 model：请求 ark-code-latest 这类跟随控制台的名字时，实际是哪个模型回答的
 }
 
@@ -91,7 +91,7 @@ func LimitText(limit int) string {
 }
 
 // 普通请求和摘要共享模型、工具定义和推理配置；摘要额外通过tool_choice禁用工具。
-// B1：请求一律流式，onDelta 收到每一段正文与推理增量（可以为 nil）；返回的仍是拼好的完整回复，
+// 请求一律流式，onDelta 收到每一段正文与推理增量（可以为 nil）；返回的仍是拼好的完整回复，
 // 是否截断、有没有回答等检查都等流结束后对完整回复做，和非流式时一样。
 func callModel(ctx context.Context, config Config, history []Message, withTools bool, output int, purpose string, onDelta func(content, reasoning string)) (Reply, error) {
 	endpoint, err := url.Parse(config.APIURL)
@@ -102,7 +102,7 @@ func callModel(ctx context.Context, config Config, history []Message, withTools 
 		return Reply{}, errors.New("模型地址需要是完整的HTTPS URL；明文HTTP只用于本机观测代理和不要密钥的上游")
 	}
 	body := map[string]any{"model": config.Model, "messages": prepareHistory(history, config.Vision()), "stream": true, "reasoning_effort": config.Effort,
-		// 流式默认不返回用量；要了它，[DONE] 前会多一个只有 usage 的 chunk，检查点与 D15 的成本才有数据。
+		// 流式默认不返回用量；要了它，[DONE] 前会多一个只有 usage 的 chunk，检查点与成本才有数据。
 		"stream_options": map[string]bool{"include_usage": true}}
 	// 0表示使用供应商默认值，不在客户端把推理与回答一起截在4096。
 	if output > 0 {
@@ -150,7 +150,7 @@ func callModel(ctx context.Context, config Config, history []Message, withTools 
 		if token := os.Getenv("AGENT_PROXY_TOKEN"); token != "" {
 			request.Header.Set("X-Agent-Token", token)
 		}
-		// D13：W3C traceparent 头写着这次 chat span 的ID，观测台把截获的原始请求和 span 对上。
+		// W3C traceparent 头写着这次 chat span 的ID，观测台把截获的原始请求和 span 对上。
 		// 只发给本机代理，不发给供应商：第三方 API 用不上它（Claude Code 默认也只对自家 API 发送）。
 		otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(request.Header))
 	}
@@ -184,7 +184,7 @@ func callModel(ctx context.Context, config Config, history []Message, withTools 
 		if reason := strings.Join(strings.Fields(failure.Error.Code+" "+failure.Error.Message), " "); reason != "" {
 			err = fmt.Errorf("模型API返回HTTP %d：%s", response.StatusCode, telemetry.Clip(reason, 400))
 		}
-		// O1：限流与服务端错误退避重试；额度用完也是 429，但要等到额度重置，重试没有用。
+		// 限流与服务端错误退避重试；额度用完也是 429，但要等到额度重置，重试没有用。
 		quota := strings.Contains(code, "quota") || strings.Contains(detail, "quota")
 		if (response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= 500) && !quota {
 			return Reply{}, &transient{error: err, after: retryAfter(response.Header.Get("Retry-After"))}
@@ -294,15 +294,15 @@ func (c *Client) CallKeeping(ctx context.Context, history []Message, withTools b
 		config.Effort = MemoryEffort
 	}
 	fmt.Printf("Model request: %d/%s purpose=%s input_est=%d\n", n, LimitText(c.Limit), purpose, ContextTokens(history, withTools))
-	// D13：一次模型请求一个 chat span（CLIENT：调用进程外的服务）。用途区分主任务、摘要和记忆辅助调用。
+	// 一次模型请求一个 chat span（CLIENT：调用进程外的服务）。用途区分主任务、摘要和记忆辅助调用。
 	ctx, span := telemetry.Begin(ctx, "chat "+config.Model, trace.SpanKindClient, semconv.GenAIOperationNameChat, semconv.GenAIProviderNameKey.String(config.Provider),
 		semconv.GenAIRequestModel(config.Model), attribute.String("agent.purpose", purpose), attribute.Int("agent.request.number", n),
 		attribute.Int("agent.request.input_estimate", ContextTokens(history, withTools)), attribute.String("gen_ai.request.reasoning_effort", config.Effort))
 	telemetry.Content(span, semconv.GenAIInputMessagesKey, history)
-	// B0：一次模型调用是一个 modelCall Item。完整的请求与响应原文仍由观测台的代理记录，这里只给结构化摘要。
+	// 一次模型调用是一个 modelCall Item。完整的请求与响应原文仍由观测台的代理记录，这里只给结构化摘要。
 	item := protocol.Item{ID: fmt.Sprintf("model-%d", n), Type: "modelCall", Data: map[string]any{"purpose": purpose, "number": n, "input_estimate": ContextTokens(history, withTools)}}
 	protocol.ItemStarted(TaskID, item)
-	// B1：主任务与摘要的增量实时发给界面（item/delta，只用于显示，权威结果仍是 item/completed 与检查点）；
+	// 主任务与摘要的增量实时发给界面（item/delta，只用于显示，权威结果仍是 item/completed 与检查点）；
 	// 主任务的正文同时边收边打印到终端。记忆辅助、评审这类调用的输出是给程序读的，不发增量。
 	var onDelta func(content, reasoning string)
 	printed := false
@@ -320,7 +320,7 @@ func (c *Client) CallKeeping(ctx context.Context, history []Message, withTools b
 			}
 		}
 	}
-	// O1：暂时故障退避重试（1、2、4 秒，或服务端 Retry-After 要求的时间）；重试不另占请求预算，在 span 上记一个 retry 事件。
+	// 暂时故障退避重试（1、2、4 秒，或服务端 Retry-After 要求的时间）；重试不另占请求预算，在 span 上记一个 retry 事件。
 	// 流已经输出了一半再重试时，通知界面清掉这次请求已经显示的部分（item/delta 的 reset），免得同一段话出现两遍。
 	// 经观测台代理时，代理连不上说明观测台在重启：等它回来（最多 protocol.DetachGrace），不算重试次数。
 	var reply Reply

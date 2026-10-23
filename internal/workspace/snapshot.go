@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// D29 文件快照：edit_file、write_file 改动文件之前，先把它当时的内容存一份；按轮撤销时据此把文件放回去。
+// 文件快照：edit_file、write_file 改动文件之前，先把它当时的内容存一份；按轮撤销时据此把文件放回去。
 // 快照按“轮”存放：一轮就是对话里的一次提问（一个检查点ID），目录是 <检查点目录>/<轮次ID>.files/：
 //
 //	changes/<任务ID>.json   这一轮里这个进程改过哪些文件：改之前的内容、最近一次写入后的内容
@@ -23,7 +23,7 @@ import (
 // 子 agent 是另一个进程，但它的改动属于派出它的那一轮：它写在父 agent 这一轮的目录里，清单按自己的任务ID分开，两个进程不用抢同一个文件。
 // 只覆盖这两个工具：沙箱里的 bash 也能改工作区，那些改动没有快照，撤销时靠“当前内容对不上就拒绝”避免覆盖它们。
 var (
-	SnapshotDir  string // 本轮的快照目录；空表示不存快照（实验、没有检查点的运行）
+	SnapshotDir  string // 本轮的快照目录；空表示不存快照（没有检查点的运行）
 	SnapshotTask string // 本进程的任务ID：清单的文件名
 
 	changes *Changes // 本进程这一轮的清单，第一次写入时读出或新建
@@ -33,7 +33,7 @@ var (
 type Changes struct {
 	Workspace     string             `json:"workspace"`               // 工作区的绝对路径：撤销时在这里恢复
 	Files         map[string]*Change `json:"files"`                   // 相对路径 → 改动
-	Unsnapshotted []string           `json:"unsnapshotted,omitempty"` // O15：这一轮里 bash 改过的文件，没有快照，撤销时不会还原
+	Unsnapshotted []string           `json:"unsnapshotted,omitempty"` // 这一轮里 bash 改过的文件，没有快照，撤销时不会还原
 }
 
 // Change 记录一个文件在这一轮里的第一次改动之前和最后一次改动之后。中间改了几次不重要：撤销只需要“之前”，核对只需要“之后”。
@@ -135,7 +135,7 @@ func written(path string, content []byte) {
 	}
 }
 
-// O15：沙箱里的 bash 也能改工作区，但它的改动没有快照。每条 bash 前后各记一次文件的大小与修改时间，比出改了哪些文件：
+// 沙箱里的 bash 也能改工作区，但它的改动没有快照。每条 bash 前后各记一次文件的大小与修改时间，比出改了哪些文件：
 // 结果里告诉模型，再记进本轮清单的 Unsnapshotted，撤销时单独列出。只比大小和时间、不读内容：工作区可能很大。
 type Stamp struct {
 	size int64
@@ -188,7 +188,7 @@ func Changed(before, after map[string]Stamp) []string {
 	return paths
 }
 
-// Protected 是编辑工具不能改的文件（相对路径 → 拒绝时的说明）：由 harness 自己维护的文件，比如 D31 的进度文件。
+// Protected 是编辑工具不能改的文件（相对路径 → 拒绝时的说明）：由 harness 自己维护的文件，比如进度文件。
 // bash 仍然改得到它们，所以用的地方还要自己核对（见 agent 的 progress.go）。
 var Protected = map[string]string{}
 

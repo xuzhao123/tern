@@ -24,7 +24,7 @@ import (
 	"github.com/xuzhao123/tern/internal/workspace"
 )
 
-// D31 长任务接力与独立验证（参考 Anthropic 的 long-running agent harness）：
+// 长任务接力与独立验证（参考 Anthropic 的 long-running agent harness）：
 // 工作区里有一份进度文件 .agent/progress.json：目标、功能清单（每项一条离线就能跑的校验命令）、给下一个会话的交接说明。
 // 一项从“未通过”改成“通过”，只能经 verify_feature：harness 在工作区只读的沙箱里跑校验命令，再请另一家模型对照描述与输出判定，
 // 两者都过才算。写代码的模型改不了状态：编辑工具拒绝这个文件；bash 改了也没用，harness 在 .data 里留着权威副本，读的时候核对、恢复。

@@ -9,7 +9,7 @@ function isEmpty(v) {
   }
   return false;
 }
-// B0 的 turn/completed 带结局（max_steps 等）；进程退出码只说明“不是正常结束”，界面优先显示结局，看得出是没做完还是出错。
+// 的 turn/completed 带结局（max_steps 等）；进程退出码只说明“不是正常结束”，界面优先显示结局，看得出是没做完还是出错。
 const OUTCOME_LABEL = { max_steps: "请求预算用完", context_error: "上下文放不下", hook_blocked: "被 hook 拦下", no_progress: "无进展熔断", repeated_action: "重复动作熔断",
   invalid_tool_calls: "工具调用格式错误", checkpoint_error: "检查点写入失败", encoding_error: "编码错误", permanent: "不可重试的错误", permission: "权限拒绝", unknown_not_repeatable: "结果未知且不可重做", cancelled: "已取消", error: "出错" };
 export function endLabel(r, short) {

@@ -1,8 +1,8 @@
-// Package workspace 是 D23 的编码工具：在用户用 -workspace 指定的仓库里读、找、搜、改文件。
+// Package workspace 是编码工具：在用户用 -workspace 指定的仓库里读、找、搜、改文件。
 // 所有路径都经 os.Root 访问，../ 与指向目录外的符号链接都出不去；
 // 编辑与覆盖之前核对“上次读到的内容”，对不上就拒绝，让模型重新读，而不是覆盖别人（或自己并行的另一次编辑）的改动。
 // “读过哪些文件”本来只在进程内存里，续聊换进程就会丢，所以由 agent 随检查点保存、开局恢复（见 Seen、RestoreSeen）。
-// D29：每次写入之前先存快照，按轮撤销见 snapshot.go。
+// 每次写入之前先存快照，按轮撤销见 snapshot.go。
 package workspace
 
 import (
@@ -116,8 +116,8 @@ func Rules() string {
 	return base + guide
 }
 
-// D37 消融：编码提示词的三种写法。minimal 只说工作区在哪（减法：去掉用法指引）；default 是现在的；
-// extended 再加架构评估与复查里的候选（O14 的三句、R3 的“该问就问”、R12 的“没验证的不写成结论”）。
+// 消融：编码提示词的三种写法。minimal 只说工作区在哪（减法：去掉用法指引）；default 是现在的；
+// extended 再加架构评估与复查里的候选（三句、的“该问就问”、的“没验证的不写成结论”）。
 var PromptVariant = "default"
 
 const extendedRules = "互不依赖的读取（read_file、grep、glob）放在同一次回复里一起发出；找代码用 grep、glob，看代码用 read_file，可以一次读一大段。" +

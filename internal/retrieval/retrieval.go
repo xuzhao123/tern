@@ -31,7 +31,7 @@ var IndexLog io.Writer = os.Stdout
 
 var SearchDefinition = map[string]any{
 	"name":        "search_docs",
-	"description": "按语义检索本项目 Day 1–4 知识库。返回最多 k 条片段、来源、余弦相似度及 accepted 标记；只用 accepted=true 且正文支持结论的片段作证据，以 [D编号] 引用。无充分证据时说明资料不足。",
+	"description": "按语义检索本项目知识库。返回最多 k 条片段、来源、余弦相似度及 accepted 标记；只用 accepted=true 且正文支持结论的片段作证据，以 [D编号] 引用。无充分证据时说明资料不足。",
 	"parameters": map[string]any{
 		"type": "object", "required": []string{"query"},
 		"properties": map[string]any{
@@ -97,7 +97,7 @@ func New(ctx context.Context, provider string, threshold float64) (*Retriever, e
 }
 
 func Search(ctx context.Context, query string, k int) (result Result, err error) {
-	// D13：一次检索一个 retrieval span：查询向量化（embeddings）是它的子 span，打分排序在本进程内完成。
+	// 一次检索一个 retrieval span：查询向量化（embeddings）是它的子 span，打分排序在本进程内完成。
 	ctx, span := telemetry.Begin(ctx, "retrieval docs", trace.SpanKindInternal, semconv.GenAIOperationNameRetrieval, semconv.GenAIDataSourceID("docs"), attribute.Int("gen_ai.retrieval.top_k", k))
 	telemetry.Content(span, semconv.GenAIRetrievalQueryTextKey, query)
 	defer func() {

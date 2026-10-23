@@ -28,7 +28,7 @@ import (
 	"github.com/xuzhao123/tern/internal/telemetry"
 )
 
-// Day 11：用真实的无头 Chrome 查资料。整个进程共用一个浏览器，第一次调用时才启动；
+// 用真实的无头 Chrome 查资料。整个进程共用一个浏览器，第一次调用时才启动；
 // 每次工具调用开一个新标签页，调用结束（或被取消、超时）就关掉它。
 var Enabled bool
 
@@ -78,7 +78,7 @@ func start() (context.Context, error) {
 	if browser != nil {
 		return browser, nil
 	}
-	// 不改 User-Agent、不隐藏自动化标志：如实表明自己是无头浏览器，网站拒绝自动访问时就换一条路（笔记 6.4）。
+	// 不改 User-Agent、不隐藏自动化标志：如实表明自己是无头浏览器，网站拒绝自动访问时就换一条路。
 	opts := append(chromedp.DefaultExecAllocatorOptions[:], chromedp.WindowSize(1280, 900))
 	if path := os.Getenv("CHROME_PATH"); path != "" {
 		opts = append(opts, chromedp.ExecPath(path))
@@ -118,7 +118,7 @@ func Close() {
 // 浏览期间开启 screencast，画面帧写到 FrameDir/<callID>.jpg，观测台据此显示实时画面；结束时再存一张最终截图。
 func inTab[T any](ctx context.Context, callID, address, script string) (_ T, err error) {
 	var zero T
-	// D13：一个标签页一个 span（CLIENT：访问进程外的网站）；被拦截的内网请求数记在属性里。
+	// 一个标签页一个 span（CLIENT：访问进程外的网站）；被拦截的内网请求数记在属性里。
 	ctx, span := telemetry.Begin(ctx, "browser.tab", trace.SpanKindClient, attribute.String("url.full", telemetry.Clip(address, 500)))
 	defer func() { telemetry.End(span, err, "browser_error") }()
 	parent, err := start()
@@ -227,7 +227,7 @@ func search(ctx context.Context, callID, query string) (any, error) {
 	}
 	address := "https://www.bing.com/search?mkt=zh-CN&q=" + url.QueryEscape(query) // cn.bing.com 会再跳转到这里
 	fmt.Printf("Browser [%s]: search url=%s\n", callID, address)
-	// B0：界面按调用ID找这一步的画面与地址，不再解析这一行日志。
+	// 界面按调用ID找这一步的画面与地址，不再解析这一行日志。
 	protocol.Notify("browser/navigate", map[string]string{"call_id": callID, "action": "search", "url": address})
 	page, err := inTab[struct {
 		URL, Title, Text string

@@ -24,8 +24,8 @@ import (
 	"github.com/xuzhao123/tern/internal/tenant"
 )
 
-// Day 5 长期记忆：跨进程保存在 .data/memory.json。
-// Day 3 的上下文管理决定一次运行内模型读到什么；这里决定运行之间留下什么、下次取回什么、何时忘掉。
+// 长期记忆：跨进程保存在 .data/memory.json。
+// 上下文管理决定一次运行内模型读到什么；这里决定运行之间留下什么、下次取回什么、何时忘掉。
 // memory.json 只放依据：原始记忆与真实来源。背景说明、切块和向量是派生数据，在 memory_retrieval.go。
 type Memory struct {
 	ID         string        `json:"id"`
@@ -80,7 +80,7 @@ type Store struct {
 	contextLeft atomic.Int64  // 本次进程还能发起几次背景生成
 	Client      *llm.Client   // 背景生成与重排共用本轮的模型客户端，计入同一请求预算
 	Block       string        // 运行开头取回的记忆，写进 system；之后不变，压缩重建 system 时内容一致
-	Recalled    int           // D20：开头取回了几条记忆；大于 0 时本任务含有私有数据
+	Recalled    int           // 开头取回了几条记忆；大于 0 时本任务含有私有数据
 	failures    []Memory
 	requests    []Memory // 本轮模型通过 remember_memory 登记、已通过程序校验的写入，本轮结束时落盘
 	UserTexts   []string // 本次会话里用户的原话，remember_memory 的引文只能从这里来
@@ -185,7 +185,7 @@ func (s *Store) update(limit int, change func(file *memoryFile, now time.Time, l
 	if saved {
 		for _, e := range logs {
 			memLog(e.kind, "%s", e.text)
-			// D21：记忆的每次变更（写入、刷新、删除、过期、淘汰）写审计；只记编号和类型，不记内容。
+			// 记忆的每次变更（写入、刷新、删除、过期、淘汰）写审计；只记编号和类型，不记内容。
 			id, _, _ := strings.Cut(strings.TrimPrefix(e.text, "id="), " ")
 			audit.Log(context.Background(), audit.Record{Actor: "program", Event: "memory_" + e.kind, Target: id})
 		}

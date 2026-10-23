@@ -24,7 +24,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// D13 调用链追踪：用 OpenTelemetry Go SDK 创建 span，属性按 GenAI 语义约定（gen_ai.*）命名。
+// 调用链追踪：用 OpenTelemetry Go SDK 创建 span，属性按 GenAI 语义约定（gen_ai.*）命名。
 // 每个进程启动时调用 Start：span 结束时写进 .data/traces/<trace_id>.jsonl（观测台读它）；
 // 设置了 OTEL_EXPORTER_OTLP_ENDPOINT 时再批量发给 Jaeger、Langfuse 等兼容 OTLP 的平台。
 // 跨进程靠 W3C trace context：子进程用环境变量 TRACEPARENT，HTTP 用 traceparent 头，MCP 用 params._meta。

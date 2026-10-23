@@ -16,7 +16,7 @@ import (
 )
 
 // DeepSeek 的 Search / Fetch API：搜索和抓取都在 DeepSeek 服务端完成，本机只发一次 JSON 请求，
-// 不开浏览器、没有画面。和 Day 11 的浏览器工具并存，方便对照两种查资料方式。
+// 不开浏览器、没有画面。和浏览器工具并存，方便对照两种查资料方式。
 // 密钥沿用模型路由里的 DEEPSEEK_API_KEY（.env 或环境变量），与这次用哪家模型无关。
 var Enabled bool
 

@@ -36,13 +36,13 @@ type Trial struct {
 	Checks  []Check   `json:"checks"`
 	Score   float64   `json:"score"` // 通过的检查占比
 	Pass    bool      `json:"pass"`  // 全部检查通过
-	// D36 编码题：自称完成（这一轮正常结束）、校验命令的结果、改动的 diff 文件
+	// 编码题：自称完成（这一轮正常结束）、校验命令的结果、改动的 diff 文件
 	Claimed  bool            `json:"claimed,omitempty"`
 	Commands []CommandResult `json:"commands,omitempty"`
 	Diff     string          `json:"diff,omitempty"`
 }
 
-// ToolUse 来自 B0 事件流里的 toolCall Item：和检查点不同，它不受上下文压缩影响，是完整的过程记录。
+// ToolUse 来自事件流里的 toolCall Item：和检查点不同，它不受上下文压缩影响，是完整的过程记录。
 type ToolUse struct {
 	Round    int    `json:"round"` // 第几次主模型请求之后发起的
 	Name     string `json:"name"`

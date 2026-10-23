@@ -25,7 +25,7 @@ import (
 )
 
 // 子 agent：父 agent 在循环里调用 spawn_agent，把一个独立子任务交给全新上下文的 agent，只拿回结论。
-// 执行复用 D10 的 RunChild：子任务ID = 父检查点ID + task 文本的哈希。父进程续跑时重放这项调用，
+// 执行复用任务队列的 RunChild：子任务ID = 父检查点ID + task 文本的哈希。父进程续跑时重放这项调用，
 // 或者模型在续跑后用同样的 task 再派一次，都不会把子任务从头再跑，而是续跑它，或直接取回存档的答案。
 var (
 	SubagentArgs  []string // 传给子 agent 的启动参数（工具开关、推理强度等），由 main 设置；nil 表示未启用
@@ -51,7 +51,7 @@ const subagentRules = "\n可以用 spawn_agent 把子任务交给子 agent。适
 	"子任务要用到前面讨论过的内容时可以用 fork=true，让子 agent 带着当前对话开始，task 只写要它做什么。"
 
 // dispatchedNote 列出这条续接链上已经派出过的子任务（task_id、状态、任务摘要），续跑和续聊时作为提醒放进上下文：
-// 模型照着 task_id 续跑或取回结果，不必换个说法把同一件事从头再派一次（Q15）。没有开子 agent 或一个都没派过时为空。
+// 模型照着 task_id 续跑或取回结果，不必换个说法把同一件事从头再派一次。没有开子 agent 或一个都没派过时为空。
 func dispatchedNote() string {
 	if SubagentArgs == nil || CheckpointID == "" {
 		return ""
@@ -81,8 +81,8 @@ func spawnAgent(ctx context.Context, call llm.ToolCall) (any, error) {
 	var args struct {
 		Task       string `json:"task"`
 		TaskID     string `json:"task_id"`
-		Background bool   `json:"background"` // D39：不等它结束，立刻返回 task_id
-		Fork       bool   `json:"fork"`       // D39：带着当前对话开始，而不是全新的上下文
+		Background bool   `json:"background"` // 不等它结束，立刻返回 task_id
+		Fork       bool   `json:"fork"`       // 带着当前对话开始，而不是全新的上下文
 	}
 	if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil || (strings.TrimSpace(args.Task) == "") == (strings.TrimSpace(args.TaskID) == "") {
 		return nil, llm.Permanent(errors.New("task 与 task_id 需要且只能给一个非空字符串"))
@@ -131,7 +131,7 @@ func spawnAgent(ctx context.Context, call llm.ToolCall) (any, error) {
 func runSub(ctx context.Context, callID, id, task string, history *HistoryInput, started func(*protocol.Conn)) (any, error) {
 	call := llm.ToolCall{ID: callID}
 	fmt.Printf("Subagent start [%s]: task_id=%s max_steps=%d fork=%t\n", call.ID, id, SubagentSteps, history != nil)
-	// D13：子任务ID记在 spawn_agent 的 execute_tool span 上；子进程的 invoke_agent 是它的子 span。
+	// 子任务ID记在 spawn_agent 的 execute_tool span 上；子进程的 invoke_agent 是它的子 span。
 	span := trace.SpanFromContext(ctx)
 	span.SetAttributes(attribute.String("agent.subagent.task_id", id))
 	protocol.Notify("subagent/started", map[string]string{"call_id": call.ID, "task_id": id, "task": task})
@@ -141,7 +141,7 @@ func runSub(ctx context.Context, callID, id, task string, history *HistoryInput,
 	}
 	childArgs := append(slices.Clone(SubagentArgs), "-max-steps", strconv.Itoa(SubagentSteps))
 	if len(privateSources) > 0 {
-		// D20：task 是父 agent 写的，可能带着它读到的私有数据；子 agent 从一开始就按含私有数据处理，外发同样要确认。
+		// task 是父 agent 写的，可能带着它读到的私有数据；子 agent 从一开始就按含私有数据处理，外发同样要确认。
 		childArgs = append(childArgs, "-private-input")
 	}
 	cp, replayed, err := RunChild(ctx, id, task, childArgs, ChildIO{Out: out, Notify: relay, Tenant: tenant.Current, History: history, Started: started})

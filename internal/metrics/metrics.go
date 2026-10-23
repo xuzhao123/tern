@@ -17,9 +17,9 @@ import (
 	"github.com/xuzhao123/tern/internal/tenant"
 )
 
-// D15：5 个核心指标。结局、耗时、成本读检查点（kill -9 也不会丢）；工具指标读 trace，崩溃时可能少记（见 Q19）。
+// 5 个核心指标。结局、耗时、成本读检查点（kill -9 也不会丢）；工具指标读 trace，崩溃时可能少记。
 //
-//	1 任务完成率        完成的根任务 / 根任务总数（不含运行中的任务）；完成 ≠ 答对，答对率要 D16 的评测集打分
+//	1 任务完成率        完成的根任务 / 根任务总数（不含运行中的任务）；完成 ≠ 答对，答对率要看评测集的打分
 //	2 异常结局与可恢复  非正常结局按原因分布；进程消失（running 且锁已释放）单列；其中能续跑的比例
 //	3 端到端延迟        已结束任务的 P50 / P95（开始到最后一次写检查点，含中断的那段时间）；另列模型请求的首字延迟 P50 / P95
 //	4 成本              每个任务的 token 与模型请求；单次完成成本 = 全部任务的用量 / 完成数（失败的花费也算进去）
@@ -47,13 +47,13 @@ type Report struct {
 		Samples int     `json:"samples"`
 		P50     float64 `json:"p50_seconds"`
 		P95     float64 `json:"p95_seconds"`
-		Missing int     `json:"missing"` // D15 之前的检查点没有开始时间
+		Missing int     `json:"missing"` // 之前的检查点没有开始时间
 	} `json:"latency"`
 	FirstToken struct {
 		Samples int     `json:"samples"` // 一次模型请求一个样本
 		P50     float64 `json:"p50_ms"`
 		P95     float64 `json:"p95_ms"`
-		Missing int     `json:"missing"` // 没有这个属性的请求：只回了工具调用、出错，或 B1 之前的 span
+		Missing int     `json:"missing"` // 没有这个属性的请求：只回了工具调用、出错，或早期没有记首字延迟的 span
 	} `json:"first_token"`
 	Cost struct {
 		Input         int     `json:"input_tokens"`
@@ -64,7 +64,7 @@ type Report struct {
 		PerDoneTokens float64 `json:"per_done_tokens"`
 		PerTaskCalls  float64 `json:"per_task_calls"`
 		CacheHit      float64 `json:"cache_hit_rate"`
-		Missing       int     `json:"missing"` // D15 之前的检查点没有记用量
+		Missing       int     `json:"missing"` // 之前的检查点没有记用量
 	} `json:"cost"`
 	Tools []Tool `json:"tools"`
 	Spans struct {
@@ -88,7 +88,7 @@ func Run(args []string) error {
 	flags := flag.NewFlagSet("metrics", flag.ContinueOnError)
 	since := flags.Duration("since", 7*24*time.Hour, "统计最近这段时间内结束（最后写检查点）的任务")
 	asJSON := flags.Bool("json", false, "输出 JSON")
-	prefix := flags.String("prefix", "", "只统计任务ID以它开头的任务，如 D16 一次评测的 eval-<评测ID>-")
+	prefix := flags.String("prefix", "", "只统计任务ID以它开头的任务，如一次评测的 eval-<评测ID>-")
 	flags.StringVar(&tenant.Current, "tenant", "", "统计哪个租户的任务；不给时是平台空间")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -120,7 +120,7 @@ func Compute(since time.Duration, prefix string) (*Report, error) {
 	}
 	r := &Report{Window: since.String()}
 	r.Reliability.Outcomes = map[string]int{}
-	r.Completion.Unconfirmed = "完成表示模型给出了最终回答，不代表答对；答对率需要 D16 的评测集与打分"
+	r.Completion.Unconfirmed = "完成表示模型给出了最终回答，不代表答对；答对率要看评测集的打分"
 	cutoff := time.Now().Add(-since)
 	var latencies []float64
 	traces := map[string]bool{}
@@ -206,8 +206,8 @@ func Compute(since time.Duration, prefix string) (*Report, error) {
 	return r, nil
 }
 
-// B1 首字延迟：一次模型请求一个样本，取 chat span 上的 agent.response.first_token_ms（毫秒）。
-// 只回了工具调用、出错或 B1 之前的请求没有这个属性，单列 missing；崩溃时未结束的 span 不落盘，样本会偏少。
+// 首字延迟：一次模型请求一个样本，取 chat span 上的 agent.response.first_token_ms（毫秒）。
+// 只回了工具调用、出错或早期的请求没有这个属性，单列 missing；崩溃时未结束的 span 不落盘，样本会偏少。
 func firstTokens(traces map[string]bool) (durations []float64, missing int) {
 	for id := range traces {
 		data, err := os.ReadFile(telemetry.Path(id))
@@ -300,7 +300,7 @@ func ratioF(a, b int) float64 {
 
 func print(r *Report) {
 	pct := func(v float64) string { return fmt.Sprintf("%.1f%%", v*100) }
-	fmt.Printf("D15 核心指标（最近 %s 结束的任务；根任务 %d 个，运行中 %d 个不计入，子 agent 任务 %d 个）\n\n", r.Window, r.Tasks, r.Running, r.Subtasks)
+	fmt.Printf("核心指标（最近 %s 结束的任务；根任务 %d 个，运行中 %d 个不计入，子 agent 任务 %d 个）\n\n", r.Window, r.Tasks, r.Running, r.Subtasks)
 	fmt.Printf("1 任务完成率   %s（%d/%d）；子 agent %s（%d/%d）\n  注：%s\n", pct(r.Completion.Rate), r.Completion.Done, r.Tasks, pct(r.Completion.SubRate), r.Completion.SubDone, r.Subtasks, r.Completion.Unconfirmed)
 	outcomes := []string{}
 	for k, v := range r.Reliability.Outcomes {

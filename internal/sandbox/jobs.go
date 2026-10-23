@@ -12,7 +12,7 @@ import (
 	"github.com/xuzhao123/tern/internal/llm"
 )
 
-// D32：后台命令。bash 带 background=true 时不等它结束：在同样的沙箱里启动（同样的 cgroup 限制、断网与代理），
+// 后台命令。bash 带 background=true 时不等它结束：在同样的沙箱里启动（同样的 cgroup 限制、断网与代理），
 // 立刻返回 job_id；之后用 bash_output 读新输出、看结束没有，用 bash_kill 停掉。适合监视文件、跑很久的构建。
 // 每条命令都在自己的沙箱里（自己的进程与网络），后台起的服务，之后的命令看不到也连不上；同 Claude Code 在 Linux 上的沙箱，
 // 启动结果照它的说法告诉模型：要测服务，在同一条命令里起服务再访问；查看和停止只经 bash_output、bash_kill。

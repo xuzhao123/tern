@@ -1,4 +1,4 @@
-// Package commands 是 D26 的自定义斜杠命令：用户输入 /名字 参数，harness 把对应的 Markdown 模板展开成本轮的提示词。
+// Package commands 是自定义斜杠命令：用户输入 /名字参数，harness 把对应的 Markdown 模板展开成本轮的提示词。
 // 和 skill 的区别在于谁来触发：skill 由模型看索引后决定加载，斜杠命令由用户明确输入；内容都只是文字，不执行任何东西。
 //
 //	个人级  commands/<名字>.md（harness 目录，所有工作区都能用）

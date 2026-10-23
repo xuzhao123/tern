@@ -1,5 +1,5 @@
-# D16 评测集：每行一道题。固定的是题目、参考答案和打分器，不是模型的回答或工具顺序。格式见 docs/day-16/day-16-lab.md。
-# suite=regression 是 D15 跑过、调试时看过的题；holdout=true 的题调试时不跑，只在最后报告时运行（-set all）。
+# 评测集：每行一道题。固定的是题目、参考答案和打分器，不是模型的回答或工具顺序。。
+# suite=regression 是跑过、调试时看过的题；holdout=true 的题调试时不跑，只在最后报告时运行（-set all）。
 {"id": "calc-sqrt", "suite": "regression", "group": "计算", "question": "计算 (1234×5678) 开根号取整。", "reference": "1234×5678=7006652，开根号约 2647.0，取整为 2647", "graders": [{"type": "number", "value": 2647}, {"type": "tool_used", "tool": "calculator"}]}
 {"id": "weekday", "suite": "regression", "group": "时间", "question": "现在是星期几？", "reference": "以 get_current_datetime 返回的日期为准", "graders": [{"type": "weekday"}, {"type": "tool_used", "tool": "get_current_datetime"}]}
 {"id": "calc-div", "suite": "regression", "group": "计算", "question": "1048576 除以 1024 等于多少？用计算器算。", "reference": "1024", "graders": [{"type": "number", "value": 1024}, {"type": "tool_used", "tool": "calculator"}]}

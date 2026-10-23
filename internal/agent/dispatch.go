@@ -40,7 +40,7 @@ func runTool(ctx context.Context, call llm.ToolCall) (result any, err error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	// D19：tools 不只是给模型看的菜单，也必须是执行器的允许列表。ExecuteBatch 一开始就查过；续跑补齐中断批次时
+	// tools 不只是给模型看的菜单，也必须是执行器的允许列表。ExecuteBatch 一开始就查过；续跑补齐中断批次时
 	// 不经过它，这里再守一次。外部文字、模型输出和旧检查点都不能给未提供的工具增加执行权限。
 	if !offered(call.Function.Name) {
 		return nil, llm.Permanent(fmt.Errorf("工具 %s 未列入本轮允许列表，已拒绝执行；请按用户任务使用本轮提供的工具", call.Function.Name))
@@ -98,7 +98,7 @@ func runTool(ctx context.Context, call llm.ToolCall) (result any, err error) {
 		if !sandbox.ProjectWrite {
 			return sandbox.Run(ctx, call.ID, call.Function.Name, call.Function.Arguments)
 		}
-		// O15：工作区可写地挂在沙箱里时，前后比一次文件，bash 改了哪些如实告诉模型并记进本轮清单。
+		// 工作区可写地挂在沙箱里时，前后比一次文件，bash 改了哪些如实告诉模型并记进本轮清单。
 		before := workspace.Stamps()
 		result, err := sandbox.Run(ctx, call.ID, call.Function.Name, call.Function.Arguments)
 		changed := workspace.Changed(before, workspace.Stamps())

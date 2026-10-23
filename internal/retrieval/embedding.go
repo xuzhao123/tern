@@ -36,7 +36,7 @@ type Embedder struct {
 	Dimensions int
 	Encode     func(context.Context, string, bool) ([]float32, error) // bool区分query和入库文档。
 	Close      func()
-	// Day 5 切块用：Count 按该模型的输入单位计数，Limit 是单条输入上限。
+	// 切块用：Count 按该模型的输入单位计数，Limit 是单条输入上限。
 	Count func(string) int
 	Limit int
 }
@@ -192,7 +192,7 @@ func arkEmbedding(ctx context.Context, key, text string, query bool) ([]float32,
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(&result); err != nil {
 		return nil, fmt.Errorf("无法解析方舟embedding响应")
 	}
-	// 当前课程只用data.embedding稠密向量；请求开启的多向量/稀疏向量不冒充已做混合检索。
+	// 目前只用data.embedding稠密向量；请求开启的多向量/稀疏向量不冒充已做混合检索。
 	return normalize(result.Data.Embedding, 1024)
 }
 

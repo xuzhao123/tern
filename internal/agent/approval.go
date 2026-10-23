@@ -23,7 +23,7 @@ import (
 	"github.com/xuzhao123/tern/internal/tenant"
 )
 
-// D20：高风险操作的人工确认。执行器在执行前按程序规则判断风险，命中就经协议向界面上的人发 tool/requestApproval，
+// 高风险操作的人工确认。执行器在执行前按程序规则判断风险，命中就经协议向界面上的人发 tool/requestApproval，
 // 在这里暂停等待；只有人点了“允许”才执行。规则写在程序里，模型、工具结果和网页文字都改不了它。
 // 没有界面（命令行、队列、评测）时没有人能确认，按拒绝处理：宁可少做一步，也不替用户做不可撤回或外发的决定。
 // 例外是用户选了 full 模式：和 Claude Code 的 bypassPermissions、Codex 的完全访问一样不再询问，风险照常判断、写审计，由程序放行。
@@ -89,7 +89,7 @@ func risk(call llm.ToolCall) (kind, reason string) {
 }
 
 // approve 向界面上的人请求确认，返回 allow、deny、unavailable、timeout 或 audit_error。
-// D21：请求与答复都写审计。请求写不进审计就不发出、不执行：没有记录的高风险动作事后无法追责。
+// 请求与答复都写审计。请求写不进审计就不发出、不执行：没有记录的高风险动作事后无法追责。
 // 外发类调用的范围本对话已经被允许过，就不再问人，但同样先写审计（写不进去就不执行）。
 func approve(ctx context.Context, call llm.ToolCall, kind, reason string) string {
 	// full 模式不问人（kind 为 permission 的是用户写的 ask 规则或 hook 要求的确认，照样问）。放行也先写审计，写不进去就不执行。

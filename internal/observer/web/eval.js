@@ -3,7 +3,7 @@ import { md } from "./md.js";
 import { openHubPage } from "./pages.js";
 import { attribute } from "./shell.js";
 import { $, clip, el, fold, kfmt, ui } from "./util.js";
-// ---------- D16 评测 · D17 归因 ----------
+// ---------- 评测 · 归因 ----------
 // 评测记录在 .data/eval/<ID>.json（与 go run . eval 共用）；每个试次是一条普通对话，点击即可看轨迹与调用链。
 const pctf = (v) => (v * 100).toFixed(0) + "%";
 const ARM = { with: "", without: "对照", replay: "回放" };
@@ -179,7 +179,7 @@ async function evalDetail(panel, id) {
     for (const [label, ids, cls] of [["回归（基线全对，这次没有全对）", c.regressed, "err"], ["修复（基线全错，这次全对）", c.fixed, "meta"], ["其他变化", c.changed, "meta"]])
       body.append(el("div", cls, `${label}：${ids.length ? ids.join("、") : "无"}`));
   }
-  // D36：编码题里“模型自称完成”和“校验命令通过”的对照。
+  // 编码题里“模型自称完成”和“校验命令通过”的对照。
   if (sum.coding) {
     const cd = sum.coding;
     body.append(el("h3", "", "编码题：自评与校验"), el("div", "sub", `${cd.trials} 个试次：模型自称完成 ${cd.claimed} 次，校验全部通过 ${cd.verified} 次；自称完成但校验没过（误报）${cd.false_claims} 次，没正常结束但校验通过 ${cd.silent_success} 次`));
@@ -209,8 +209,8 @@ async function evalDetail(panel, id) {
     if (open) { const row = el("tr"), cell = el("td"); cell.colSpan = 5; cell.append(trialView(open, info)); row.append(cell); table.append(row); }
   }
   const scroll = el("div", "eval-scroll"); scroll.append(table); body.append(scroll);
-  // D17：归因卡片 → 人工开放编码（只记第一个上游错误）→ 归类计数 → 回放验证。
-  body.append(el("h3", "", `D17 归因 · ${cards.length} 个未通过的尝试`), el("div", "sub", "卡片只给线索：第一个异常信号与工具序列。读轨迹后写下第一个上游错误（开放编码），再归到一个类别（轴心编码）；对怀疑的那一步做回放验证，结局翻转才算确认。"));
+  // 归因卡片 → 人工开放编码（只记第一个上游错误）→ 归类计数 → 回放验证。
+  body.append(el("h3", "", `归因 · ${cards.length} 个未通过的尝试`), el("div", "sub", "卡片只给线索：第一个异常信号与工具序列。读轨迹后写下第一个上游错误（开放编码），再归到一个类别（轴心编码）；对怀疑的那一步做回放验证，结局翻转才算确认。"));
   if (sum.labels?.length) body.append(el("div", "meta", "归类计数：" + sum.labels.map((l) => `${l.label} ${l.n}`).join(" · ")));
   const labels = [...new Set(Object.values(rec.notes || {}).map((n) => n.label).filter(Boolean))];
   const datalist = el("datalist"); datalist.id = "eval-labels";

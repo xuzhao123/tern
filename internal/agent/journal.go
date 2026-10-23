@@ -14,7 +14,7 @@ import (
 	"github.com/xuzhao123/tern/internal/tenant"
 )
 
-// D40（O9 的第一步）：只追加的会话记录。agent 发出的每条通知与请求（界面看到的那些：Turn、Item、审批、子 agent……，
+// 只追加的会话记录。agent 发出的每条通知与请求（界面看到的那些：Turn、Item、审批、子 agent……，
 // 不含 item/delta、终端日志行与响应）按发出的顺序追加到 .data/[tenants/<租户>/]sessions/<对话第一轮的检查点ID>.jsonl，
 // 一行一条：对话内的序号（各轮接着编）、所属的轮次（检查点ID）、协议序号（可以脱离的连接上才有）、方法与参数。
 // 检查点记下写到了第几条（log_seq）：检查点是“记录到第 N 条时的状态快照”。命令行、队列、评测里没有界面也照写。
@@ -39,7 +39,7 @@ var journal struct {
 // JournalPath 是一段对话的会话记录。
 func JournalPath(space, root string) string { return tenant.Path(space, "sessions", root+".jsonl") }
 
-// OpenJournal 打开本对话的会话记录（在发出 turn/started 之前调用）。子 agent 与不写检查点的实验不写。
+// OpenJournal 打开本对话的会话记录（在发出 turn/started 之前调用）。子 agent 与不写检查点的运行不写。
 // 同一段对话被两个进程同时接着聊（命令行上分叉）时序号可能重复：按时间与轮次区分，不加锁。
 func OpenJournal() {
 	if CheckpointID == "" || strings.Contains(CheckpointID, "-sub-") {

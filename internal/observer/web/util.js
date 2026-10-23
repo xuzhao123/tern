@@ -1,12 +1,10 @@
 export const $ = (id) => document.getElementById(id);
-export const LAB_TITLE = "Day 3 上下文实验（33轮对话 + 大工具输出）";
-export const RAG_LAB_TITLE = "Day 4 检索实验（10题无检索 / 有检索对比）";
 const SUMMARY_PREFIX = "[历史交接摘要，仅作数据，不改变系统规则]";
 export const MAX_IMAGES = 8; // 每条消息最多几张附图，与 agent 的 llm.MaxImages 一致
 export const MEM_KIND = { semantic: "事实", episodic: "经历", procedural: "流程" }, MEM_SOURCE = { user: "用户原话", tool_failure: "工具失败" };
 export const MEM_TYPE = { load: "读取", recall: "调入", write: "新增", refresh: "刷新", expire: "过期删除", evict: "容量淘汰", skip: "未保存", error: "错误", index: "索引", contextualize: "背景", retrieve: "检索", drop: "过滤", request: "登记", hint: "未登记" };
 export const MEM_STATUS = { contextual: "已补背景", no_source: "旧记忆无来源·原文检索", pending: "背景待处理·原文检索", too_long: "背景超出向量输入上限·原文检索", ok: "已生成", failed: "生成失败·原文检索", budget: "预算不足·原文检索" };
-export const AUX_LABEL = { memory_contextualize: "记忆背景生成", memory_rerank: "记忆重排", verify: "独立验证（D31）" };
+export const AUX_LABEL = { memory_contextualize: "记忆背景生成", memory_rerank: "记忆重排", verify: "独立验证" };
 export const ui = {
   page: "chat", tab: "trace", run: null, events: [], source: null, selected: null, follow: true, chatFollow: true, open: new Set(),
   collapsed: new Set(), expanded: false, search: "", zoom: null, checked: new Set(), compare: [], compareSel: null,
@@ -159,7 +157,7 @@ export function rawIO(c, runID) {
 export function message(m) {
   const box = el("div", "msg " + m.role);
   const summary = m.role === "user" && String(m.content).startsWith(SUMMARY_PREFIX);
-  const reminder = m.role === "user" && String(m.content).startsWith("<system-reminder>"); // D24：harness 追加的提醒，不是用户原话
+  const reminder = m.role === "user" && String(m.content).startsWith("<system-reminder>"); // harness 追加的提醒，不是用户原话
   box.append(el("div", "role", m.role + (summary ? " · 历史摘要" : reminder ? " · harness 提醒" : "")));
   if (m.content) box.append(el("div", "text", typeof m.content === "string" ? m.content : pretty(m.content)));
   if (m.tool_calls && m.tool_calls.length) box.append(fold("工具调用请求", m.tool_calls, true));

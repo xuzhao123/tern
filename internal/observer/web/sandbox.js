@@ -1,14 +1,14 @@
 import { renderChat, step } from "./chat.js";
 import { bashExit } from "./explore.js";
 import { clip, el, ico, parse, pretty, sec, ui } from "./util.js";
-// ---------- Day 12 bash 沙箱 ----------
+// ---------- bash 沙箱 ----------
 export function bashCard(r, c, t) {
   const args = parse(t.args) || {}, res = parse(t.result), out = res?.result || {};
   const running = !t.done && !r.exit;
   const icon = running ? el("span", "ico") : ico(res?.status === "ok" ? "ok" : "bad", res?.status === "ok" ? "ok" : "bad");
   if (running) icon.append(el("span", "spin"));
   const head = [icon, el("span", "hub-chip", "bash"), el("span", "targs", clip(args.command || t.args, 90))];
-  // D32：background=true 的命令立刻返回 job_id，没有退出码；之后用 bash_output 读输出。
+  // background=true 的命令立刻返回 job_id，没有退出码；之后用 bash_output 读输出。
   const code = bashExit(out);
   if (out.job_id) head.push(el("span", "exit-chip", "后台 " + out.job_id));
   else if (res?.status === "ok" && (out.signal || (code !== undefined && code !== 0))) head.push(el("span", "exit-chip bad", out.signal ? out.signal : "exit " + code));
@@ -30,7 +30,7 @@ export function bashCard(r, c, t) {
   for (const n of notes) body.push(el("div", "meta", n));
   return step(`t${c.n}-${t.index}`, head, body);
 }
-// 模型只能发起请求；“允许 / 拒绝”只有人在页面上点。B0 起 agent 在这里暂停等待：页面上点了，观测台当场回复，本轮接着执行；
+// 模型只能发起请求；“允许 / 拒绝”只有人在页面上点。起 agent 在这里暂停等待：页面上点了，观测台当场回复，本轮接着执行；
 // 决定同时记进对话记录，之后的续聊作为 -net-allow 传给 agent。
 export function netCard(r, t) {
   const args = parse(t.args) || {}, res = parse(t.result), domain = res?.result?.domain || args.domain || "";
@@ -76,7 +76,7 @@ function netBox(domain, head, why, { done, open, idle, waitText }) {
   card.append(acts);
   return card;
 }
-// D20：高风险操作确认。规则在 agent 的执行器里，命中后 agent 暂停等这里的答复；“允许”只对这一项调用有效。
+// 高风险操作确认。规则在 agent 的执行器里，命中后 agent 暂停等这里的答复；“允许”只对这一项调用有效。
 // 外发类另有“本对话内都允许”：范围由 agent 给出（搜索按工具，读网页按工具和主机），之后同一范围不再询问，续聊沿用，审计照记。
 const RISK_LABEL = { irreversible: "不可撤回", destructive: "破坏性操作", outbound: "可能外发私有数据", redo: "重做中断的操作", permission: "权限设置要求确认" };
 export function approvalCard(root, callID) {
@@ -105,7 +105,7 @@ export function approvalCard(root, callID) {
   card.append(acts);
   return card;
 }
-// D34：模型向你提问（ask_user）。agent 在这里等：点一个选项或写一句话，回答作为这次工具调用的结果交给模型。
+// 模型向你提问（ask_user）。agent 在这里等：点一个选项或写一句话，回答作为这次工具调用的结果交给模型。
 // 页面随新事件整页重画，输入到一半的草稿记在提问上，重画后放回去、保持焦点。
 export function askCard(root, t) {
   const args = parse(t.args) || {}, a = root.asks[t.id], res = parse(t.result);

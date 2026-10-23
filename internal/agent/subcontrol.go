@@ -14,11 +14,11 @@ import (
 	"github.com/xuzhao123/tern/internal/protocol"
 )
 
-// D39：子 agent 的控制面。原来 spawn_agent 只有一种用法：派出去、等它做完、拿回结论，父 agent 这段时间什么也做不了。
+// 子 agent 的控制面。原来 spawn_agent 只有一种用法：派出去、等它做完、拿回结论，父 agent 这段时间什么也做不了。
 // 现在多了：
 //   - 后台：spawn_agent 带 background=true，立刻返回 task_id，子 agent 在后台跑，父 agent 接着做别的；
 //   - agent_wait：等某个（或任意一个）后台子 agent 做完，拿回它的结论；
-//   - agent_send：给还在跑的子 agent 插一句话（它的协议连接上发 turn/steer，D34 的插话）；
+//   - agent_send：给还在跑的子 agent 插一句话（它的协议连接上发 turn/steer，插话）；
 //   - agent_stop：停掉它（turn/interrupt），它回填结果、写好检查点，之后可以用 task_id 续跑；
 //   - 分叉：spawn_agent 带 fork=true，子 agent 从当前对话接着做（同样的上下文，换成它自己的系统提示词和工具），
 //     适合“基于我们刚才讨论的这些，去试一种方案”；默认仍是全新的上下文。

@@ -32,7 +32,7 @@ const (
 	maxListFiles = 1000
 )
 
-// 最近一次 turn/started 报告的沙箱目录名；没开 bash 或 B0 之前的存档没有。调用方持有 r.mu。
+// 最近一次 turn/started 报告的沙箱目录名；没开 bash 或早期的存档没有。调用方持有 r.mu。
 func (r *run) sandboxID() string {
 	for i := len(r.events) - 1; i >= 0; i-- {
 		e := r.events[i]

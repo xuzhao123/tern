@@ -45,17 +45,17 @@ func serverEnv() []string {
 	return env
 }
 
-// Day 6：-mcp-server 启动的 MCP 连接，每个 server 一个；空表示未启用。
+// -mcp-server 启动的 MCP 连接，每个 server 一个；空表示未启用。
 var Conns []*Connection
 
 type Connection struct {
 	client    *client.Client
 	tools     map[string]string // agent 侧工具名 → server 上的原名
-	transport string            // D13：network.transport，stdio 为 pipe，Streamable HTTP 为 tcp
-	// D20：server 明确声明 destructiveHint=true 的工具，执行前要用户确认。
+	transport string            // network.transport，stdio 为 pipe，Streamable HTTP 为 tcp
+	// server 明确声明 destructiveHint=true 的工具，执行前要用户确认。
 	// 注解是 server 自己说的，只用来收紧：声明了破坏性就确认；没声明或自称只读不因此免检（外发检查照常）。
 	destructive map[string]bool
-	hints       map[string]Hints // D32：server 声明的只读、幂等，用于调度和续跑
+	hints       map[string]Hints // server 声明的只读、幂等，用于调度和续跑
 }
 
 // Hints 是 server 对一个工具的标注里调度要用的两项；没有标注时都是 false（按规范的默认值：可能写、不幂等）。
@@ -96,7 +96,7 @@ func Connect(ctx context.Context, command string) (conn *Connection, listed []sd
 	if IsURL(command) {
 		transportName = "tcp"
 	}
-	// D13：连接（握手 + tools/list）一个 span，挂在本次运行的根 span 下。
+	// 连接（握手 + tools/list）一个 span，挂在本次运行的根 span 下。
 	ctx, span := telemetry.Begin(ctx, "initialize", trace.SpanKindClient, attribute.String("mcp.method.name", "initialize"), attribute.String("network.transport", transportName))
 	defer func() {
 		span.SetAttributes(attribute.Int("mcp.tools.count", len(listed)))
@@ -202,7 +202,7 @@ func (m *Connection) Call(ctx context.Context, name, arguments string) (output a
 	}
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
-	// D13：client 一侧的 tools/call span。errorType 区分协议错误与 server 明确返回的工具执行错误。
+	// client 一侧的 tools/call span。errorType 区分协议错误与 server 明确返回的工具执行错误。
 	ctx, span := telemetry.Begin(ctx, "tools/call "+m.tools[name], trace.SpanKindClient, attribute.String("mcp.method.name", "tools/call"),
 		semconv.GenAIToolName(m.tools[name]), attribute.String("network.transport", m.transport))
 	errorType := "tool_error"
@@ -250,7 +250,7 @@ func (m *Connection) Close() {
 	}
 }
 
-// Day 6 第2步：只用 SDK 走 连接 → tools/list →（可选）tools/call，不请求模型。
+// 第2步：只用 SDK 走连接 → tools/list →（可选）tools/call，不请求模型。
 func Inspect(ctx context.Context, command, callName, callArgs string) error {
 	conn, tools, err := Connect(ctx, command)
 	if err != nil {
@@ -279,7 +279,7 @@ func Inspect(ctx context.Context, command, callName, callArgs string) error {
 	return nil
 }
 
-// Day 6 进阶：不用 SDK，自己拼 JSON-RPC 写进子进程 stdin、逐行读 stdout，看清线上的每一条消息。
+// 进阶：不用 SDK，自己拼 JSON-RPC 写进子进程 stdin、逐行读 stdout，看清线上的每一条消息。
 // legacy：initialize → notifications/initialized → 请求不带 _meta；
 // modern：server/discover，之后每个请求的 _meta 都带协议版本、客户端身份与 capabilities。
 func Raw(ctx context.Context, command, era, callName, callArgs string) error {
@@ -402,7 +402,7 @@ func Raw(ctx context.Context, command, era, callName, callArgs string) error {
 	return nil
 }
 
-// Day 7：把 calculate 暴露成 calculator 的 MCP server。server 与传输分开：
+// 把 calculate 暴露成 calculator 的 MCP server。server 与传输分开：
 // Serve 用 stdio 或独立 HTTP 端口运行；Handler 让观测台在自己的 /mcp 上直接提供（同一进程，不转发）。
 func newServer(logger *log.Logger) *server.MCPServer {
 	s := server.NewMCPServer("tern-calculator", "0.7.0",
@@ -414,12 +414,12 @@ func newServer(logger *log.Logger) *server.MCPServer {
 	)
 	tool := sdk.NewTool("calculator",
 		sdk.WithDescription(tools.Definitions[0]["description"].(string)), // 和内置 calculator 同一份描述
-		// D20：如实声明只读、无破坏性、不访问外部（mcp-go 的默认值按规范是“可能破坏、会访问外部”）。
+		// 如实声明只读、无破坏性、不访问外部（mcp-go 的默认值按规范是“可能破坏、会访问外部”）。
 		sdk.WithReadOnlyHintAnnotation(true), sdk.WithDestructiveHintAnnotation(false), sdk.WithIdempotentHintAnnotation(true), sdk.WithOpenWorldHintAnnotation(false),
 		sdk.WithString("expression", sdk.Required(), sdk.MaxLength(1024), sdk.Description("数学表达式，例如 (1234*5678) 或 floor(sqrt(2))")),
 	)
 	s.AddTool(tool, func(ctx context.Context, request sdk.CallToolRequest) (*sdk.CallToolResult, error) {
-		// D13：server 一侧的 span。父 span 来自 client 放在 _meta 里的 traceparent；没有时是一个新的 trace。
+		// server 一侧的 span。父 span 来自 client 放在 _meta 里的 traceparent；没有时是一个新的 trace。
 		if request.Params.Meta != nil {
 			ctx = telemetry.Extract(ctx, request.Params.Meta.AdditionalFields)
 		}

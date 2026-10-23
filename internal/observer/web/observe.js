@@ -37,7 +37,6 @@ export function renderTrace(r, a, list) {
       const open = query || ui.expanded || !ui.collapsed.has(turn);
       const t = el("div", "turn");
       t.append(ico("tchev" + (open ? " open" : ""), "chev"), el("span", "", `Turn ${turn}`));
-      if (info?.caseLabel) t.append(el("span", "meta", info.caseLabel));
       t.append(el("span", "meta", `${info?.steps || 0} 个 Step · ${kfmt(calls.reduce((s, c) => s + (c.usage.total_tokens || 0), 0))} tokens · 模型 ${sec(calls.reduce((s, c) => s + (c.ms || 0), 0))}`));
       const n = turn;
       t.onclick = () => { ui.expanded = false; ui.collapsed.has(n) ? ui.collapsed.delete(n) : ui.collapsed.add(n); render(); };
@@ -99,7 +98,7 @@ function bindRuler(ruler, from, span) {
   ruler.ondblclick = () => { ui.zoom = null; render(); };
 }
 
-// ---------- 视图：D13 调用链（OpenTelemetry span）----------
+// ---------- 视图：调用链（OpenTelemetry span）----------
 // 数据来自 /traces/<trace_id>：各进程的 SDK 在 span 结束时写入的记录。运行中每隔一会儿重新读取。
 const spanCache = {}, metricCache = {};
 function fetchCached(cache, key, url, live) {
@@ -131,7 +130,7 @@ export function renderSpans(r) {
   const metrics = fetchCached(metricCache, (ui.metricsAll ? "*" : r.id) + (live ? "" : ":done"), "/trace-metrics" + (ui.metricsAll ? "" : "?conversation=" + encodeURIComponent(r.id)), live);
   box.append(renderSpanMetrics(metrics));
   if (!r.traces.length) {
-    box.append(el("div", "empty", "这条对话产生于 D13 之前，没有调用链记录；新提问或续聊后会出现。"));
+    box.append(el("div", "empty", "这条对话产生于调用链功能之前，没有调用链记录；新提问或续聊后会出现。"));
     return renderSpanInspector(r, null);
   }
   let selected = null;
@@ -202,7 +201,7 @@ function renderSpanMetrics(m) {
 function renderSpanInspector(r, s) {
   const box = $("inspector");
   box.replaceChildren();
-  if (!s) return box.append(el("div", "empty", "点击 span 查看属性与事件。内容（提示词、工具参数与结果）默认不采集，见 README 的 D13 配置。"));
+  if (!s) return box.append(el("div", "empty", "点击 span 查看属性与事件。内容（提示词、工具参数与结果）默认不采集，见 README 的调用链追踪配置。"));
   const top = el("div", "top");
   top.append(el("strong", "", s.name), el("div", "meta", `${s.kind} · ${s.service} · ${sec(spanMs(s))}${s.status === "error" ? " · 失败：" + s.error : ""}`));
   box.append(top);

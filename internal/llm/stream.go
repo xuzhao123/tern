@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// B1：流式响应（"stream": true）是 SSE：一个 chunk 一行 "data: {...}"，事件之间空一行，最后是 "data: [DONE]"。
+// 流式响应（"stream": true）是 SSE：一个 chunk 一行 "data: {...}"，事件之间空一行，最后是 "data: [DONE]"。
 // 每个 chunk 只带一小段增量（delta）：
 //
 //	正文、推理     字符串片段，按到达顺序拼接

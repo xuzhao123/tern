@@ -20,17 +20,17 @@ import (
 	"github.com/xuzhao123/tern/internal/telemetry"
 )
 
-// RunChild 保证一个任务ID对应的任务最终只完成一次，D10 队列和子 agent 共用：
+// RunChild 保证一个任务ID对应的任务最终只完成一次，队列和子 agent 共用：
 //   - 已有 done 检查点：不启动进程，直接返回存档的答案，重复提交、重复派发都不会重复执行；
 //   - 检查点可以续跑：用 -resume 接着跑，已完成的轮次不重做；
 //   - 没有检查点：全新启动。
 //
 // 每个任务一个子进程：功能开关是包级变量、一个进程只跑一个任务；子进程崩溃也拖不垮调度方。
-// D23：子 agent 因此也是新进程，读后才能改的账本从它自己的检查点恢复，不继承父 agent 读过哪些文件——
+// 子 agent 因此也是新进程，读后才能改的账本从它自己的检查点恢复，不继承父 agent 读过哪些文件——
 // 父 agent 的上下文它看不到，凭父的记录改文件等于改一个自己没看过的版本；它要改就先自己读。
 // 返回的错误按能否再试分类：llm.IsPermanent 为真时再跑也一样，否则可以稍后续跑。
 //
-// B0：子进程以 -app-server 启动，父进程就是它的界面：子进程的通知交给 child.Notify（子 agent 包一层转给上级界面，
+// 子进程以 -app-server 启动，父进程就是它的界面：子进程的通知交给 child.Notify（子 agent 包一层转给上级界面，
 // 评测收下来打分，队列不要）；子进程的请求（联网审批）转给上级界面，没有上级界面时如实回答“没人能批准”。
 //
 // 多租户：child.Tenant 决定任务在哪个空间里（检查点、记忆、沙箱目录都在那里），子进程带 -tenant 启动。
@@ -41,7 +41,7 @@ func RunChild(ctx context.Context, id, question string, args []string, child Chi
 	case errors.Is(err, fs.ErrNotExist):
 		fresh = true
 		if child.History != nil {
-			args = append([]string{"-task-id", id}, args...) // D39 分叉：问题和父对话经 turn/start 交给它
+			args = append([]string{"-task-id", id}, args...) // 分叉：问题和父对话经 turn/start 交给它
 		} else {
 			args = append([]string{"-task-id", id, "-question", question}, args...)
 		}
@@ -93,7 +93,7 @@ func RunChild(ctx context.Context, id, question string, args []string, child Chi
 			child.Notify(m)
 		}
 	})
-	// D13：TRACEPARENT 指向调用方当前的 span（spawn_agent 的 execute_tool，或队列的 queue_task），
+	// TRACEPARENT 指向调用方当前的 span（spawn_agent 的 execute_tool，或队列的 queue_task），
 	// 子进程的 invoke_agent 就挂在它下面。同名变量以后面的为准，覆盖从父进程继承来的那个。
 	cmd.Env = append(append(os.Environ(), child.Env...), telemetry.Env(ctx)...)
 	// 子进程放进自己的进程组：终端的 Ctrl+C 只发给调度方，再由调度方通过 ctx 把取消传下去，每个子进程只收到一次。
@@ -142,16 +142,16 @@ func RunChild(ctx context.Context, id, question string, args []string, child Chi
 }
 
 // ChildAttr 是启动 agent 子进程用的进程属性：自己的进程组；Linux 上父进程死了内核给它发 SIGINT（见 childAttr）。
-// 终端客户端（D34）每一轮也这样启动 agent，调用方要在 Start 到 Wait 之间锁住线程。
+// 终端客户端每一轮也这样启动 agent，调用方要在 Start 到 Wait 之间锁住线程。
 func ChildAttr() *syscall.SysProcAttr { return childAttr() }
 
 // ChildIO 是调用方给子进程接的“界面”。
 type ChildIO struct {
 	Out    io.Writer              // 子进程 stderr：给人看的日志
 	Notify func(protocol.Message) // 子进程发来的通知；nil 表示不要
-	Env    []string               // 额外的环境变量，如观测台的代理地址（D16 评测在观测台里运行时）
+	Env    []string               // 额外的环境变量，如观测台的代理地址（评测在观测台里运行时）
 	Tenant string                 // 任务所属的租户；空表示平台空间
-	// D39：分叉的子 agent 从父对话接着做（新任务时经 turn/start 交给它；续跑用自己的检查点）；
+	// 分叉的子 agent 从父对话接着做（新任务时经 turn/start 交给它；续跑用自己的检查点）；
 	// Started 在子进程启动后拿到它的协议连接，后台子 agent 经它插话、停止。
 	History *HistoryInput
 	Started func(*protocol.Conn)
@@ -162,7 +162,7 @@ func firstLine(s string) string {
 	return line
 }
 
-// 子 agent 发来的请求转给上级界面：联网审批与 D20 高风险操作确认。都只能由界面上的人回答；
+// 子 agent 发来的请求转给上级界面：联网审批与高风险操作确认。都只能由界面上的人回答；
 // 父进程没有界面时如实回答 unavailable。联网批准后，父进程自己的白名单也加上这个域名。
 func relayRequest(ctx context.Context, conn *protocol.Conn, taskID string, m protocol.Message) {
 	if m.Method != "network/requestApproval" && m.Method != "tool/requestApproval" {

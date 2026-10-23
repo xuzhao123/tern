@@ -8,7 +8,7 @@ import { openMCP, openMemory, openSkills } from "./pages.js";
 import { render } from "./render.js";
 import { approvalCard, askCard, bashCard, netCard, proxyNetCards } from "./sandbox.js";
 import { loadRuns, rewindTurn, syncComposer, toolOn } from "./shell.js";
-import { $, AUX_LABEL, LAB_TITLE, MEM_KIND, MEM_STATUS, MEM_TYPE, RAG_LAB_TITLE, callPosition, clip, compact, el, fold, ico, idleText, kfmt, parse, pretty, rawIO, sec, textOf, ui, userPictures } from "./util.js";
+import { $, AUX_LABEL, MEM_KIND, MEM_STATUS, MEM_TYPE, callPosition, clip, compact, el, fold, ico, idleText, kfmt, parse, pretty, rawIO, sec, textOf, ui, userPictures } from "./util.js";
 // agent 终端行形如 "Memory recall: id=M1 kind=semantic score=0.48 content=…"；content 放在最后，可含空格。
 export function memFields(text) {
   const out = {}, at = text.indexOf("content=");
@@ -79,7 +79,7 @@ function capsCard(r, turn) {
   links.append(sk, mc);
   return step(`caps-${turn}`, [ico("cap" + (errors ? " bad" : ""), "caps"), el("span", "", parts.join(" · ") || "能力")], [...rows, links]);
 }
-// D26：hook 运行记录。结局 ok（放行或补充上下文）、block（拦截，原因交给模型或用户）、error（hook 自己出错，照常继续）。
+// hook 运行记录。结局 ok（放行或补充上下文）、block（拦截，原因交给模型或用户）、error（hook 自己出错，照常继续）。
 const HOOK_OUTCOME = { ok: "通过", block: "拦截", error: "出错（照常继续）" };
 // 同 Claude Code：hook 安静通过就不占一行，只有拦截、出错或者给了反馈（输出会交给模型）时才显示。
 const hooksWorthShowing = (hooks) => hooks?.some((h) => h.outcome !== "ok" || h.output);
@@ -103,7 +103,6 @@ function chatFlow(r) {
   const flow = [], shown = new Set();
   [...r.calls, ...r.aux].sort((x, y) => x.n - y.n).forEach((c) => {
     if (c.aux) { if (shown.has(c.turn)) flow.push({ kind: "aux", call: c }); return; } // 开场的辅助调用在记忆卡片里显示
-    if (c.caseStart) flow.push({ kind: "case", text: c.caseLabel });
     if (c.userMessage) { flow.push({ kind: "user", text: textOf(c.userMessage), turn: c.turn }, { kind: "caps", turn: c.turn }, { kind: "memory", turn: c.turn, phase: "start" }); shown.add(c.turn); }
     for (const s of r.steers) if (s.call === c.i) flow.push({ kind: "steer", text: s.text, turn: c.turn });
     if (c.compact) flow.push({ kind: "compact", call: c });
@@ -164,7 +163,7 @@ export function renderCall(outer, r, c, last) {
   raw.button.title = `${callPosition(c)} · 请求 #${c.n}`;
   box.append(raw.button, raw.panel); outer.append(box);
   if (!c.end) {
-    // B1：流式输出进行中：推理与正文边收边显示，完整响应到达后换成下面的正式渲染。
+    // 流式输出进行中：推理与正文边收边显示，完整响应到达后换成下面的正式渲染。
     const live = c.live || {}, slot = { box, call: c, reasoning: live.reasoning?.length || 0, content: live.content || "" };
     if (live.reasoning) {
       slot.count = el("span", "", `思考中 · ${slot.reasoning} 字`); slot.text = el("div", "reason", live.reasoning);
@@ -211,9 +210,8 @@ export function renderCall(outer, r, c, last) {
   if (!commentary && m.content) {
     const answer = md(m.content, true);
     // 只把本题实际取回且过阈值的编号变成可点击引用；其他 [Dxx] 标红，提示它不是有效来源。
-    const caseStart = r.calls.filter((x) => x.caseStart && x.n <= c.n).at(-1)?.n || 1;
     const sources = new Map();
-    for (const earlier of r.calls.filter((x) => x.n >= caseStart && x.n <= c.n)) for (const t of earlier.tools) {
+    for (const earlier of r.calls.filter((x) => x.n <= c.n)) for (const t of earlier.tools) {
       const result = parse(t.result)?.result;
       if (t.name === "search_docs") for (const h of result?.hits || []) if (h.accepted) sources.set(h.id, t);
       if (t.name === "search_memory") for (const m of result?.memories || []) sources.set(m.id, `t${t.call.n}-${t.index}`);
@@ -270,7 +268,7 @@ export function renderCompact(c) {
   const body = el("div", "body");
   body.append(c.choice && m.content ? md(m.content) : el("pre", "err", c.errorText || pretty(c.res || "")));
   if (c.end) box.append(body);
-  else if (c.live?.content) box.append(md(c.live.content)); // B1：摘要边生成边显示
+  else if (c.live?.content) box.append(md(c.live.content)); // 摘要边生成边显示
   return box;
 }
 function welcome() {
@@ -303,12 +301,9 @@ function drawChat() {
   const r = ui.run;
   if (!r) { renderSubPanel(); return box.append(welcome()); }
   analyze(r);
-  if (r.query === LAB_TITLE) box.append(el("div", "banner", "Day 3 上下文实验：程序自动发出33轮真实对话，再触发一次大工具输出。下面的用户消息由实验程序发送。"));
-  if (r.query === RAG_LAB_TITLE) box.append(el("div", "banner", "Day 4：10个问题，每题分别运行无检索与有检索。每组使用独立上下文；问题由实验程序发送。检索评分见终端，引用可点击核对。"));
   let group = null;
   const flow = exploreRuns(r, chatFlow(r));
   flow.forEach((f, i) => {
-    if (f.kind === "case") { box.append(el("div", "banner", f.text)); group = null; return; }
     if (f.kind === "user" && r.interrupted?.[f.turn]) box.append(el("div", "banner", r.interrupted[f.turn]));
     if (f.kind === "user" && r.rewindNotes[f.turn]) box.append(el("div", "banner", r.rewindNotes[f.turn]));
     const turn = r.turns[(f.turn ?? f.call?.turn) - 1];
@@ -318,7 +313,7 @@ function drawChat() {
       u.append(bubble); box.append(u); group = null;
       const tools = el("div", "utools");
       // 问题下面的信息与操作悬停时才出现（同 claude.ai 用户消息下的操作，见 app.css）。
-      // D30：续聊的代价：闲置时长与第一次请求的缓存命中，未命中的 token 数在悬停提示里。
+      // 续聊的代价：闲置时长与第一次请求的缓存命中，未命中的 token 数在悬停提示里。
       const first = turn?.firstUsage;
       if (first && first.prompt_tokens && turn.idle) {
         const cached = (first.prompt_tokens_details && first.prompt_tokens_details.cached_tokens) || 0, hit = Math.round(100 * cached / first.prompt_tokens);
@@ -326,7 +321,7 @@ function drawChat() {
         info.title = `这一轮第一次请求的输入 ${hit}% 命中提示词缓存，${kfmt(first.prompt_tokens - cached)} token 没命中，按全价重新处理`;
         tools.append(info);
       }
-      // D29：有工作区的对话，每一轮都可以撤销（连同之后各轮）；正在运行、回放中、导入的对话不行。
+      // 有工作区的对话，每一轮都可以撤销（连同之后各轮）；正在运行、回放中、导入的对话不行。
       if (turn?.checkpoint && !turn.rewound && r.workspace && r.exit && !r.source && !ui.replay && !ui.loading) {
         const b = el("button", "link", "撤销");
         b.title = "撤销到这一轮之前：把这一轮及之后用 edit_file / write_file 改过的文件放回去，对话退回上一轮";
@@ -368,7 +363,7 @@ function drawChat() {
   if (r.exit && (r.exit !== "exit 0" || !answered)) {
     const card = el("div", "stopcard");
     card.append(el("div", "err", r.source && r.exit === "exit 0" ? "记录在这里结束：最后一次请求之后没有回答" : (r.stopRequested ? "已按停止按钮中断：" : "agent 已停止：") + endLabel(r)));
-    // O12：不正常结束时 harness 自己跑的收尾检查（Stop hook 的命令），告诉人留下的状态能不能用。
+    // 不正常结束时 harness 自己跑的收尾检查（Stop hook 的命令），告诉人留下的状态能不能用。
     if (r.finalCheck) card.append(r.finalCheck.passed ? el("div", "meta", "收尾检查通过（Stop hook）") : fold("收尾检查没通过（Stop hook）", r.finalCheck.detail || "", true));
     if (r.checkpoint) card.append(el("div", "meta", "检查点已保存，可以直接继续提问"));
     const tail = r.logs.filter((l) => !(l.text || "").startsWith("用户续聊：")).slice(-6);
@@ -378,7 +373,7 @@ function drawChat() {
     card.append(link);
     box.append(card);
   }
-  // D34：计划模式下的一轮正常结束：一键批准，切到 edit 并让 agent 按计划执行（D27 的“下一轮切到 edit”）。
+  // 计划模式下的一轮正常结束：一键批准，切到 edit 并让 agent 按计划执行（的“下一轮切到 edit”）。
   if (r.exit === "exit 0" && answered && r.permission === "plan" && !r.source && !ui.replay) {
     const bar = el("div", "utools"), b = el("button", "", "批准计划并切到 edit");
     b.type = "button";
@@ -419,7 +414,7 @@ $("jump").onclick = () => {
   ui.chatFollow = true; ui.unseen = false; syncJump();
   s.scrollTo({ top: s.scrollHeight, behavior: "smooth" });
 };
-// B1 的增量只改最后一次请求的思考与正文：就地追加，不重建整个对话，页面其余部分的点击、选中文字和滚动都不受打扰。
+// 增量只改最后一次请求的思考与正文：就地追加，不重建整个对话，页面其余部分的点击、选中文字和滚动都不受打扰。
 // 结构有变化（第一次出现思考或正文、含可视化块）时返回 false，交给整体重建。
 export function patchLive(r) {
   const s = ui.live, c = r.calls.at(-1), live = c?.live || {};

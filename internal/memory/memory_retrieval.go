@@ -26,7 +26,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// Day 5 Contextual Retrieval（参考 Anthropic《Introducing Contextual Retrieval》）：
+// Contextual Retrieval（参考 Anthropic《Introducing Contextual Retrieval》）：
 // 入库：来源上下文 + 记忆片段 → 模型生成背景说明 → "背景 + 原文"同时建向量索引和 BM25 索引。
 // 查询：向量召回 + BM25 召回 → 按记忆去重、RRF 融合 → LLM 重排 → 过滤 → 按条数和 token 预算注入。
 // memory.json 是依据；这里的背景、切块和向量都是派生数据，删掉 .data/memory-index/ 可以重建。
@@ -121,7 +121,7 @@ func hashText(parts ...string) string {
 
 func (s *Store) Retrieve(ctx context.Context, phase, query, mode string) (_ *Retrieval, err error) {
 	r := &Retrieval{Phase: phase, Mode: mode, Query: query, Rerank: "skipped", Degraded: []string{}}
-	// D13：一次记忆检索一个 search_memory span；背景生成、重排（chat）与向量化（embeddings）都是它的子 span。
+	// 一次记忆检索一个 search_memory span；背景生成、重排（chat）与向量化（embeddings）都是它的子 span。
 	ctx, span := telemetry.Begin(ctx, "search_memory", trace.SpanKindInternal, semconv.GenAIOperationNameKey.String("search_memory"),
 		attribute.String("agent.memory.phase", phase), attribute.String("agent.memory.mode", mode))
 	defer func() {

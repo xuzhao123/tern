@@ -9,8 +9,8 @@ import (
 	"github.com/xuzhao123/tern/internal/llm"
 )
 
-// D37 消融候选：上下文内的 todo 清单（Claude Code 的 TodoWrite 一类）。模型自己写、自己更新，harness 只存最新的一份并原样交回。
-// D27 决定默认不做，由消融看它有没有用：-todo 打开，同时在系统提示词里加一句用法。
+// 消融候选：上下文内的 todo 清单（Claude Code 的 TodoWrite 一类）。模型自己写、自己更新，harness 只存最新的一份并原样交回。
+// 决定默认不做，由消融看它有没有用：-todo 打开，同时在系统提示词里加一句用法。
 var Todo bool
 
 const todoRules = "\n多步任务先用 todo_write 列出步骤，做完一项就更新状态；一两步就能做完的不用。"

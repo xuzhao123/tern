@@ -25,7 +25,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// Day 12：bash 工具与沙箱。每次调用起一个全新的沙箱，里面跑一次 /bin/bash -c：
+// bash 工具与沙箱。每次调用起一个全新的沙箱，里面跑一次 /bin/bash -c：
 //
 //	systemd-run --user --scope   cgroup：内存、CPU、进程数上限
 //	  └ bwrap                    namespace：只读系统目录、可写 /workspace、断网、看不到家目录与项目
@@ -39,7 +39,7 @@ var (
 	ProjectRO bool   // -bash-project-ro：把项目目录只读挂到 /project（.env、.data、.git 除外）
 	Dir       string // 本对话的工作目录 .data/sandbox/<对话第一轮的检查点ID>，由 main 设置
 
-	// D25：对话选了工作区（-workspace）时，/workspace 挂的是那个仓库，本对话的目录改挂到 /scratch。
+	// 对话选了工作区（-workspace）时，/workspace 挂的是那个仓库，本对话的目录改挂到 /scratch。
 	// 工作区按权限模式挂成可写或只读（plan 模式只读）；.git 只读，.env、.data 等看不到。
 	Project      string
 	ProjectWrite bool
@@ -98,7 +98,7 @@ const (
 	tasksMax    = "256"
 	cpuQuota    = "100%"
 	tmpSize     = "67108864" // /tmp 是内存盘，最多 64MB
-	outputLimit = 128 << 10  // 输出保留开头和结尾各 128KB：过长的结果由上下文存成文件（D30），这里只防内存被撑爆
+	outputLimit = 128 << 10  // 输出保留开头和结尾各 128KB：过长的结果由上下文存成文件，这里只防内存被撑爆
 )
 
 // Timeout 是一条命令最多跑多久：就是执行器的单次工具时限（-tool-timeout），由 main 设置，写进工具描述与提示词。
@@ -146,7 +146,7 @@ func Definitions() []map[string]any {
 }
 
 // SeesUserFiles 报告 bash 能不能读到用户的文件：挂了工作区或项目目录，或本对话目录里已经有文件
-// （用户上传的，或之前的命令留下的）。D20 据此判断 bash 的输出算不算私有数据。目录读不了时按读得到算。
+// （用户上传的，或之前的命令留下的）。据此判断 bash 的输出算不算私有数据。目录读不了时按读得到算。
 func SeesUserFiles() bool {
 	if Project != "" || ProjectRO {
 		return true
@@ -244,8 +244,8 @@ func Run(ctx context.Context, callID, name, arguments string) (any, error) {
 			return map[string]string{"domain": domain, "status": "already_allowed"}, nil
 		}
 		reason := strings.ReplaceAll(strings.TrimSpace(args.Reason), "\n", " ")
-		// D21：联网审批同样写审计。理由是模型写的，可能很长或带数据，只记哈希。
-		// B0：向界面发起请求，在这里暂停，等用户点“允许 / 拒绝”。模型不能替用户回答：请求只走界面连接，模型碰不到。
+		// 联网审批同样写审计。理由是模型写的，可能很长或带数据，只记哈希。
+		// 向界面发起请求，在这里暂停，等用户点“允许 / 拒绝”。模型不能替用户回答：请求只走界面连接，模型碰不到。
 		record := audit.Record{Actor: "model", CallID: callID, Tool: name, Target: domain}
 		record.Args(reason)
 		decision, err := askUser(ctx, record, reason)
@@ -278,7 +278,7 @@ func Run(ctx context.Context, callID, name, arguments string) (any, error) {
 	return execute(ctx, callID, command, ProjectWrite, Timeout)
 }
 
-// Check 在工作区只读挂载的沙箱里跑一条校验命令（D31 独立验证）：验证命令自己改不了被验证的代码。
+// Check 在工作区只读挂载的沙箱里跑一条校验命令（独立验证）：验证命令自己改不了被验证的代码。
 func Check(ctx context.Context, callID, command string) (map[string]any, error) {
 	result, err := execute(ctx, callID, command, false, 0)
 	if err != nil {
@@ -290,7 +290,7 @@ func Check(ctx context.Context, callID, command string) (map[string]any, error) 
 // writable 决定工作区（Project）挂成可写还是只读：普通 bash 跟着权限模式（ProjectWrite），校验命令一律只读。
 // limit 是命令的时限，不算等人批准联网的时间；0 表示只由 ctx 决定（校验命令由调用方给时限）。
 func execute(ctx context.Context, callID, command string, writable bool, limit time.Duration) (_ any, err error) {
-	// D13：一次沙箱执行一个 span，等锁的时间也算在内（同一进程的 bash 调用串行）。
+	// 一次沙箱执行一个 span，等锁的时间也算在内（同一进程的 bash 调用串行）。
 	ctx, span := telemetry.Begin(ctx, "sandbox.exec", trace.SpanKindInternal, attribute.Int("sandbox.command_bytes", len(command)))
 	telemetry.Content(span, "sandbox.command", command)
 	errorType := "sandbox_error"
@@ -422,7 +422,7 @@ func launch(ctx context.Context, callID, command string, out io.Writer, writable
 		return nil, "", llm.Permanent(err)
 	}
 	// seccomp 程序通过文件描述符交给 bwrap（--seccomp 3）。
-	filter, err := os.CreateTemp("", "la-seccomp-")
+	filter, err := os.CreateTemp("", "tern-seccomp-")
 	if err != nil {
 		return nil, "", llm.Permanent(err)
 	}
@@ -439,7 +439,7 @@ func launch(ctx context.Context, callID, command string, out io.Writer, writable
 	if cgroupOK() {
 		// 每次执行一个有名字的 scope（一个 cgroup）：超时时按 cgroup 整体杀掉。
 		// 不能只杀进程组：bwrap 的 --new-session 让沙箱里的进程进了新的会话，进程组信号打不到它们。
-		unit = fmt.Sprintf("la-sandbox-%d-%d", os.Getpid(), time.Now().UnixNano())
+		unit = fmt.Sprintf("tern-sandbox-%d-%d", os.Getpid(), time.Now().UnixNano())
 		opts := []string{"--user", "--scope", "--quiet", "--collect", "--unit", unit}
 		if noExpandEnv() {
 			// 不让 systemd 替换命令行里的 ${...}：命令要原样交给沙箱里的 shell，否则模型写的 `${x}`、`${PIPESTATUS[0]}` 都变成空。
@@ -564,7 +564,7 @@ func bwrapArgs(workspace, netDir, self, command string, env []string, writable b
 
 func minimalEtc() string {
 	etcOnce.Do(func() {
-		dir, err := os.MkdirTemp("", "la-sandbox-etc-")
+		dir, err := os.MkdirTemp("", "tern-sandbox-etc-")
 		if err != nil {
 			return
 		}

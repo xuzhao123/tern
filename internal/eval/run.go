@@ -49,7 +49,7 @@ type Record struct {
 	Regraded  []string        `json:"regraded,omitempty"` // 用改过的题目文件重新打过分：何时、从哪一版到哪一版
 	Trials    []*Trial        `json:"trials"`
 	Replays   []*Replay       `json:"replays,omitempty"`
-	Notes     map[string]Note `json:"notes,omitempty"` // D17 人工开放编码：试次任务ID → 备注与归类
+	Notes     map[string]Note `json:"notes,omitempty"` // 人工开放编码：试次任务ID → 备注与归类
 	// 对话归因没有题目文件：题目与评分标准由诊断现写，存在记录里。
 	Inline      []Case       `json:"inline_cases,omitempty"`
 	Attribution *Attribution `json:"attribution,omitempty"`
@@ -61,7 +61,7 @@ type JudgeUse struct {
 	Output int `json:"output_tokens"`
 }
 
-// Replay 是 D17 的回放验证：保留一个失败试次的前 Rounds 轮，插入 Note，再跑几次，看结局会不会翻转。
+// Replay 是回放验证：保留一个失败试次的前 Rounds 轮，插入 Note，再跑几次，看结局会不会翻转。
 type Replay struct {
 	ID      string    `json:"id"`
 	From    string    `json:"from"` // 原试次的任务ID
@@ -333,7 +333,7 @@ func (r *Runner) execute(ctx context.Context, t *Trial, common []string) {
 	if t.Arm == "replay" {
 		args = nil // 回放的检查点已存好启动参数，RunChild 用 -resume 接着跑
 	}
-	// D36：编码题每个试次一份新的仓库拷贝，作为工作区；bash 用来构建、运行和检查。
+	// 编码题每个试次一份新的仓库拷贝，作为工作区；bash 用来构建、运行和检查。
 	var work string
 	if c.Repo != nil && t.Arm != "replay" {
 		work = workDir(t.TaskID)

@@ -38,7 +38,7 @@ function bashKind(command) {
   }
   return { kind, names };
 }
-// bash 的退出码。D30 起太长的结果存成文件，模型（和页面）拿到的是带行号的预览，退出码在预览的 result.exit_code 一行里。
+// bash 的退出码。太长的结果存成文件，模型（和页面）拿到的是带行号的预览，退出码在预览的 result.exit_code 一行里。
 export function bashExit(out) {
   if (!out || out.exit_code !== undefined || !out.saved_output) return out?.exit_code;
   const m = /result\.exit_code: (-?\d+)/.exec(out.preview || "");

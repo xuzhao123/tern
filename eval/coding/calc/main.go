@@ -1,4 +1,4 @@
-// calc 是 D36 编码评测用的小程序：一个只有 add 子命令的命令行计算器。
+// calc 是编码评测用的小程序：一个只有 add 子命令的命令行计算器。
 package main
 
 import (

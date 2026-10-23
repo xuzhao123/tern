@@ -6,7 +6,7 @@ import { show, startReplay, stopReplay, syncRunURL } from "./follow.js";
 import { openCompare, select } from "./observe.js";
 import { render } from "./render.js";
 import { apply, newRun } from "./runs.js";
-import { $, LAB_TITLE, MAX_IMAGES, RAG_LAB_TITLE, el, ui } from "./util.js";
+import { $, MAX_IMAGES, el, ui } from "./util.js";
 // ---------- 外壳：顶栏、输入框与对话列表 ----------
 export function renderShell() {
   const r = ui.run, chat = ui.page === "chat";
@@ -36,7 +36,7 @@ export function renderShell() {
 export const TOOL_INFO = {
   calculator: ["计算器", "calculator：四则运算、括号、sqrt 和 floor，只解析数学表达式"],
   get_current_datetime: ["当前时间", "get_current_datetime：Asia/Shanghai 的日期、时间和星期"],
-  rag:["知识库检索", "search_docs：检索项目学习文档。打开后系统提示词要求知识问题先查资料，所以默认关"],
+  rag:["知识库检索", "search_docs：检索项目知识库（retrieval/corpus.md）。打开后系统提示词要求知识问题先查资料，所以默认关"],
   memory: ["长期记忆", "remember / search / forget_memory：新对话开头先召回，要多发几次模型请求，所以默认关；按租户各自一份"],
   skills: ["Skills", "Skills 中心里启用的 skill：常驻名字和用途，用到时再加载正文"],
   mcp: ["MCP", "MCP 中心里启用的 server，工具注册为 mcp_<名字>"],
@@ -87,7 +87,7 @@ export function modelVision(provider, model) {
   const found = (spec.models || []).find((m) => m.name === name);
   return { name, vision: found ? !!found.vision : true };
 }
-// D30：输入框右侧的上下文用量环（参考 Codex 客户端）。口径与轨迹页“上下文压力”一致：
+// 输入框右侧的上下文用量环（参考 Codex 客户端）。口径与轨迹页“上下文压力”一致：
 // 最近一次主请求的服务端输入 tokens（system、工具定义与历史消息都在里面）占可用输入容量的比例。
 // 压缩请求的输入同样是满上下文，不能拿它当用量：刚压缩完，环反而会显得更满。
 const ctxRingLen = 2 * Math.PI * 11.5;
@@ -131,7 +131,7 @@ function updateCtxRing(r) {
 }
 export function syncComposer() {
   const r = ui.run, busy = r && (ui.loading || !r.exit), broken = r && ((r.exit && r.exit !== "exit 0" && !r.checkpoint) || r.rewoundAll);
-  const lab = r?.query === RAG_LAB_TITLE, s = ui.settings?.effective;
+  const s = ui.settings?.effective;
   ui.picked ||= {};
   // 供应商同样来自 /models（显示名在路由表里）；本机没配好的（缺密钥或地址）灰掉，悬停看原因。
   const ps = $("provider"), plist = [...(ui.models?.values() || [])], psig = plist.map((p) => p.name + (p.error ? "!" : "")).join(",");
@@ -192,10 +192,10 @@ export function syncComposer() {
   $("send").title = running ? (r.stopRequested ? "强制结束（SIGKILL）" : "停止（SIGINT：先回填结果、保存检查点）") : "发送";
   $("send").setAttribute("aria-label", running ? (r.stopRequested ? "强制结束" : "停止") : "发送");
   const imported = SOURCE_LABEL[r?.source];
-  // 附图：一条对话的模型固定，能不能看图也固定。不能看图的模型、实验、导入的对话与回放都不给附图；
+  // 附图：一条对话的模型固定，能不能看图也固定。不能看图的模型、导入的对话与回放都不给附图；
   // 已经附了图又切到不能看图的模型时，发送前拦下，不自动删图。
   const vis = modelVision(prov, r ? r.model || "" : pv.value || settingsModel(prov));
-  $("attach").disabled = !vis.vision || lab || !!imported || !!ui.replay;
+  $("attach").disabled = !vis.vision || !!imported || !!ui.replay;
   $("attach").title = vis.vision ? `附图：PNG、JPEG、GIF、WebP，每条消息最多 ${MAX_IMAGES} 张；也可以粘贴或拖放`
     : `当前模型 ${vis.name} 不能看图，换一个能看图的模型再附图`;
   // 导入的对话只读：模型、工作区、权限与工具都是对方 agent 的，这里不给选择。
@@ -203,12 +203,12 @@ export function syncComposer() {
   // 模型与工作区上面已按清单和对话决定是否显示，这里只在导入的对话里再藏起来，不能把它们重新显示出来。
   if (imported) $("model").hidden = $("workspace").hidden = true;
   $("query").disabled = !!imported;
-  $("send").disabled = running ? false : ui.sending || !!busy || !!broken || !!ui.replay || lab || !!imported || !$("query").value.trim();
+  $("send").disabled = running ? false : ui.sending || !!busy || !!broken || !!ui.replay || !!imported || !$("query").value.trim();
   $("query").placeholder = imported ? "导入的对话只能查看" : running ? "运行中：输入的话会排进 agent 的下一次请求（插话）" : r ? "继续提问" : "给 agent 布置一个任务，/ 选命令";
   // 输入框只放这一轮要选的（同 Claude Code）：工具、请求预算在设置页里看，这里只给导入的对话标出来源。
   $("mode-chip").textContent = imported ? `${imported} · ${r.calls.find((c) => c.res?.model)?.res.model || ""}` : "";
   // 只在需要人注意时提示；常规操作说明不放在输入框下面。
-  $("hint").textContent = !r ? "" : imported ? `从 ${imported} 导入的记录，只能查看；系统提示词、工具定义与耗时以记录里有的为准` : lab ? "对比实验使用独立问题；自行提问请新建对话" : ui.replay ? "回放中，结束后可继续提问" :
+  $("hint").textContent = !r ? "" : imported ? `从 ${imported} 导入的记录，只能查看；系统提示词、工具定义与耗时以记录里有的为准` : ui.replay ? "回放中，结束后可继续提问" :
     busy ? (r.stopRequested ? "正在停止：agent 回填结果、保存检查点后退出；再点一次强制结束" : "") : broken ? "上次运行未正常结束、也没有检查点，请新建对话" : "";
   updateCtxRing(r);
 }
@@ -223,7 +223,7 @@ function relTime(r) {
 export async function loadRuns() {
   const runs = await (await fetch("/runs")).json();
   const observe = ui.page === "observe";
-  // 评测发起的试次不进对话列表，从“D16 评测”页面打开。
+  // 评测发起的试次不进对话列表，从“评测”页面打开。
   $("runs").replaceChildren(...runs.filter((r) => !r.eval).reverse().map((r) => {
     const row = el("div", "runitem" + (ui.run && r.id === ui.run.id && !(observe && ui.tab === "compare") ? " active" : ""));
     if (observe) {
@@ -242,7 +242,7 @@ export async function loadRuns() {
     const b = el("button"), q = el("span", "q");
     if (!r.done) q.append(el("span", "live"));
     if (SOURCE_LABEL[r.source]) q.append(el("span", "src", SOURCE_LABEL[r.source]));
-    q.append(r.query === LAB_TITLE ? "上下文实验" : r.query === RAG_LAB_TITLE ? "检索对比" : r.query || "（无问题）");
+    q.append(r.query || "（无问题）");
     b.title = `${r.query}\n对话 ID：${r.id}`;
     b.append(q, el("small", "", relTime(r)));
     b.onclick = () => { document.body.classList.remove("nav-open"); if (ui.tab === "compare") ui.tab = "trace"; show(r.id); };
@@ -280,7 +280,7 @@ $("replay").onclick = () => {
   render();
 };
 $("terminal").onclick = () => select("end", ui.run);
-// D17：对这段对话自动归因。已有归因就直接打开（详情页里可以重新归因）。
+// 对这段对话自动归因。已有归因就直接打开（详情页里可以重新归因）。
 $("attribute").onclick = async () => {
   const r = ui.run;
   if (!r) return;
@@ -290,7 +290,7 @@ $("attribute").onclick = async () => {
   } catch {}
   attribute(r.id);
 };
-// D29：先预览（dry_run）列出会恢复、删除的文件；有冲突就不做，没有冲突再由人确认执行。
+// 先预览（dry_run）列出会恢复、删除的文件；有冲突就不做，没有冲突再由人确认执行。
 export async function rewindTurn(r, t) {
   const call = async (dryRun) => {
     const res = await fetch(`/runs/${encodeURIComponent(r.id)}/rewind`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ turn: t.checkpoint, dry_run: dryRun }) });

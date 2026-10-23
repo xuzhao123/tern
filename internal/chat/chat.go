@@ -23,7 +23,7 @@ import (
 	"github.com/xuzhao123/tern/internal/tenant"
 )
 
-// D34：终端客户端 go run . chat。它和观测台一样只是 app-server 协议的一个界面：每一轮启动一个 agent 子进程（-app-server，stdio），
+// 终端客户端 go run . chat。它和观测台一样只是 app-server 协议的一个界面：每一轮启动一个 agent 子进程（-app-server，stdio），
 // 用 turn/start 交问题和上一轮的检查点，读通知显示过程，回答 agent 发来的请求（联网审批、高风险确认、ask_user 的提问）。
 // 页面能做的这里都能做，说明协议本身够用；另外加了运行中插话和几条会话命令（见 help）。
 //
@@ -183,7 +183,7 @@ func (s *session) command(line string) (quit bool) {
 			fmt.Println("还没有计划可以批准")
 			break
 		}
-		// 计划模式的批准就是下一轮切到 edit（D27）；这句话是用户按下“批准”的意思，作为这一轮的问题交给模型。
+		// 计划模式的批准就是下一轮切到 edit；这句话是用户按下“批准”的意思，作为这一轮的问题交给模型。
 		s.mode = "edit"
 		question := "计划已批准，切到 edit 模式，按计划开始执行。"
 		if extra := strings.TrimSpace(strings.TrimPrefix(line, "/approve")); extra != "" {
@@ -498,7 +498,7 @@ func (s *session) turn(question string) {
 	}
 }
 
-// answer 把一行输入当作对 asks[0] 的回答；看不懂时再问一遍（返回 false）。人的决定先写审计，写不进去就不回答（D21）。
+// answer 把一行输入当作对 asks[0] 的回答；看不懂时再问一遍（返回 false）。人的决定先写审计，写不进去就不回答。
 func (s *session) answer(conn *protocol.Conn, m protocol.Message, line string) bool {
 	var p struct {
 		CallID    string   `json:"call_id"`

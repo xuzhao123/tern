@@ -63,7 +63,7 @@ func allowed(host string) bool {
 
 // askUser 经协议请界面上的人批准访问 record.Target，在这里等答复，返回 allow、deny、
 // unavailable（没有界面，或界面上没有能答复的人）、timeout；整轮被中断时返回 ctx 的错误。
-// 请求先写审计（D21），写不进就不问；批准后加进白名单，本轮接下来的命令立即可以访问。
+// 请求先写审计，写不进就不问；批准后加进白名单，本轮接下来的命令立即可以访问。
 // request_network_access（模型发起）与代理（程序发起）共用这一份。
 func askUser(ctx context.Context, record audit.Record, reason string) (_ string, err error) {
 	fmt.Printf("Network request [%s]: domain=%s reason=%s\n", record.CallID, record.Target, reason)
@@ -255,7 +255,7 @@ func dialChecked(ctx context.Context, network, addr string) (net.Conn, error) {
 // 代理在 agent 进程里，监听一个临时目录里的 unix socket；目录挂进沙箱的 /.sandbox/net。
 func startProxy() (string, error) {
 	proxyOnce.Do(func() {
-		proxyDir, proxyErr = os.MkdirTemp("", "la-sandbox-net-")
+		proxyDir, proxyErr = os.MkdirTemp("", "tern-sandbox-net-")
 		if proxyErr != nil {
 			return
 		}

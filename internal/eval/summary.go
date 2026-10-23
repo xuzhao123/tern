@@ -14,8 +14,8 @@ type Summary struct {
 	Cases    []CaseScore `json:"cases"`              // 逐题
 	Ablation []Delta     `json:"ablation,omitempty"` // 消融：有 / 无某个能力的分差
 	Compare  *Compare    `json:"compare,omitempty"`  // 与基线逐题对比
-	Labels   []Count     `json:"labels,omitempty"`   // D17 人工归类的计数
-	Coding   *Coding     `json:"coding,omitempty"`   // D36：编码题的自评与校验
+	Labels   []Count     `json:"labels,omitempty"`   // 人工归类的计数
+	Coding   *Coding     `json:"coding,omitempty"`   // 编码题的自评与校验
 	Progress struct {
 		Done  int `json:"done"`
 		Total int `json:"total"`

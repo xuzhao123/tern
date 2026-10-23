@@ -29,7 +29,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// D10 任务队列：任务文件 → channel → 固定数量的 worker → 每个任务一个 agent 子进程（agent.RunChild）。
+// 任务队列：任务文件 → channel → 固定数量的 worker → 每个任务一个 agent 子进程（agent.RunChild）。
 // 幂等靠任务ID：任务ID就是检查点ID，任务状态全在检查点文件里，队列自己不另存一份状态。
 // 所以重复提交、重跑整个队列、队列进程中途被杀，都不会让已完成的任务再执行一次。
 type Task struct {
@@ -69,7 +69,7 @@ func Run(arguments []string) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	// D13：跑一次队列是一个 trace：根 span invoke_workflow，每个任务一个 queue_task，任务的 agent 子进程挂在 queue_task 下。
+	// 跑一次队列是一个 trace：根 span invoke_workflow，每个任务一个 queue_task，任务的 agent 子进程挂在 queue_task 下。
 	ctx, span := telemetry.Begin(ctx, "invoke_workflow queue", trace.SpanKindInternal, semconv.GenAIOperationNameInvokeWorkflow,
 		attribute.String("gen_ai.workflow.name", "queue"), attribute.Int("queue.tasks", len(tasks)), attribute.Int("queue.workers", *workers))
 	defer span.End()
@@ -168,7 +168,7 @@ func runTask(ctx context.Context, t Task, extra []string, attempts int) Outcome 
 	return RunTask(ctx, t, extra, attempts, agent.ChildIO{Out: log, Tenant: t.Tenant})
 }
 
-// RunTask 执行一个任务：暂时性失败退避后续跑，最多启动 attempts 次子进程。队列与 D16 评测共用。
+// RunTask 执行一个任务：暂时性失败退避后续跑，最多启动 attempts 次子进程。队列与评测共用。
 func RunTask(ctx context.Context, t Task, extra []string, attempts int, child agent.ChildIO) (result Outcome) {
 	ctx, span := telemetry.Begin(ctx, "queue_task "+t.ID, trace.SpanKindInternal, attribute.String("queue.task.id", t.ID))
 	defer func() {

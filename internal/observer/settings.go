@@ -47,7 +47,7 @@ var builtin = map[string]string{
 	"hooks": "",
 }
 
-// D26：hooks 在宿主机上以观测台的身份运行命令，只能由平台设置；值是配置原文（以 { 开头）或相对 agent 目录的文件路径，
+// hooks 在宿主机上以观测台的身份运行命令，只能由平台设置；值是配置原文（以 { 开头）或相对 agent 目录的文件路径，
 // 对话开始时读成原文拍进快照，之后改文件不影响已经开始的对话。
 var hooksBase string
 
@@ -193,7 +193,7 @@ func valid(key, value string, f settingsFile) error {
 		}
 	case "max_steps", "context_window", "tool_output":
 		limits := map[string][2]int{"max_steps": {0, 1000}, "context_window": {4096, 1048576}, "tool_output": {64, 32768}}[key]
-		// context_window 为 0 表示按模型（R5）：开对话时取路由表里这个模型的窗口。
+		// context_window 为 0 表示按模型：开对话时取路由表里这个模型的窗口。
 		if n, err := strconv.Atoi(value); err != nil || (n < limits[0] && !(key == "context_window" && n == 0)) || n > limits[1] {
 			return fmt.Errorf("%s 范围为 %d 到 %d", key, limits[0], limits[1])
 		}
@@ -500,7 +500,7 @@ func (s *server) deleteWorkspace(w http.ResponseWriter, req *http.Request) {
 	w.Write([]byte("ok"))
 }
 
-// D26：斜杠命令列表，输入框打 / 时显示。个人级来自 agent 目录的 commands/，项目级来自所选工作区的 .agents/commands/；
+// 斜杠命令列表，输入框打 / 时显示。个人级来自 agent 目录的 commands/，项目级来自所选工作区的 .agents/commands/；
 // 展开由 agent 做，这里只列名字和说明。
 func (s *server) listCommands(w http.ResponseWriter, req *http.Request) {
 	e, _, err := s.effectiveFor(current(req))

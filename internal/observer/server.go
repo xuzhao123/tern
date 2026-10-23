@@ -62,7 +62,7 @@ type event struct {
 	Skills     []string        `json:"skills,omitempty"` // 本对话启用的 skill 与 MCP server 快照，续聊沿用
 	MCP        []mcpServer     `json:"mcp,omitempty"`
 	Subagents  bool            `json:"subagents,omitempty"`        // 本对话允许 spawn_agent，续聊沿用
-	AskUser    bool            `json:"ask_user,omitempty"`         // D34：本对话提供 ask_user，模型可以在运行中向人提问，续聊沿用
+	AskUser    bool            `json:"ask_user,omitempty"`         // 本对话提供 ask_user，模型可以在运行中向人提问，续聊沿用
 	Browser    bool            `json:"browser,omitempty"`          // 本对话启用浏览器工具，续聊沿用
 	DSSearch   bool            `json:"ds_search,omitempty"`        // 本对话启用 DeepSeek 搜索工具，续聊沿用
 	Disallowed []string        `json:"disallowed_tools,omitempty"` // 设置快照：关掉的单个工具（内置工具、web_search、open_page），续聊沿用；旧存档没有，表示都开
@@ -75,33 +75,33 @@ type event struct {
 	MaxSteps   int             `json:"max_steps,omitempty"`        // 设置快照：模型请求预算（-1 不限）、上下文窗口与工具输出上限；旧存档没有，按 agent 默认值
 	Window     int             `json:"context_window,omitempty"`   //
 	ToolOutput int             `json:"tool_output,omitempty"`      //
-	Permission string          `json:"permission,omitempty"`       // D25：本轮的权限模式（续聊可以换）与权限规则快照
+	Permission string          `json:"permission,omitempty"`       // 本轮的权限模式（续聊可以换）与权限规则快照
 	Rules      []string        `json:"permission_rules,omitempty"`
-	Hooks      string          `json:"hooks,omitempty"`          // D26：平台设置里的 hooks 配置原文快照，续聊沿用
+	Hooks      string          `json:"hooks,omitempty"`          // 平台设置里的 hooks 配置原文快照，续聊沿用
 	NetAllow   []string        `json:"net_allow,omitempty"`      // 本轮沙箱可访问的域名，记在 start/continue 上：start 上是设置里的白名单，continue 上再加上本对话批准过的
 	Task       string          `json:"task,omitempty"`           // 发出这次请求的 agent 任务ID（X-Agent-Task）
 	Sub        bool            `json:"sub,omitempty"`            // 请求来自子 agent：不进入父对话流、不参与续聊恢复
-	Trace      string          `json:"trace,omitempty"`          // D13：start/continue 上记这次交互的 trace_id
-	Span       string          `json:"span,omitempty"`           // D13：request 上记 agent 的 chat span ID（来自 traceparent 头）
-	Method     string          `json:"method,omitempty"`         // B0：notify / approval 事件的协议方法名，参数在 Body
-	RPC        int64           `json:"rpc,omitempty"`            // B0：agent 发来的请求ID（approval），回复时带回
-	ASeq       int64           `json:"aseq,omitempty"`           // B0 接管：这条事件对应的协议消息在 agent 一侧的序号；重启后从最大的序号之后补齐
-	Chunks     int             `json:"chunks,omitempty"`         // B1：流式响应的 chunk 数；Body 是按 chunk 拼回的完整响应
-	FirstToken int64           `json:"first_token_ms,omitempty"` // B1：从转发请求到收到第一段正文或推理的毫秒数
-	Protocol   bool            `json:"protocol,omitempty"`       // B0：start/continue 上标记这一轮经协议运行；之前的存档没有，页面据此启用旧存档兼容
-	Eval       string          `json:"eval,omitempty"`           // D16：由评测发起的试次（评测ID · 用例 #序号），对话列表里不显示
+	Trace      string          `json:"trace,omitempty"`          // start/continue 上记这次交互的 trace_id
+	Span       string          `json:"span,omitempty"`           // request 上记 agent 的 chat span ID（来自 traceparent 头）
+	Method     string          `json:"method,omitempty"`         // notify / approval 事件的协议方法名，参数在 Body
+	RPC        int64           `json:"rpc,omitempty"`            // agent 发来的请求ID（approval），回复时带回
+	ASeq       int64           `json:"aseq,omitempty"`           // 接管：这条事件对应的协议消息在 agent 一侧的序号；重启后从最大的序号之后补齐
+	Chunks     int             `json:"chunks,omitempty"`         // 流式响应的 chunk 数；Body 是按 chunk 拼回的完整响应
+	FirstToken int64           `json:"first_token_ms,omitempty"` // 从转发请求到收到第一段正文或推理的毫秒数
+	Protocol   bool            `json:"protocol,omitempty"`       // start/continue 上标记这一轮经协议运行；之前的存档没有，页面据此启用旧存档兼容
+	Eval       string          `json:"eval,omitempty"`           // 由评测发起的试次（评测ID · 用例 #序号），对话列表里不显示
 	Source     string          `json:"source,omitempty"`         // 导入的对话：codex 或 claude-code，记在 start 上；只读，不能续聊
 }
 
 type run struct {
 	ID, Query string
 	Tenant    string // 对话所属的租户；空是平台。只有同一租户的账号能看到和操作它
-	Eval      string // D16：评测发起的试次，见 event.Eval
+	Eval      string // 评测发起的试次，见 event.Eval
 	Source    string // 从 Codex / Claude Code 导入的对话，见 event.Source
 	Done      bool
 
 	mu         sync.Mutex
-	chains     map[string]*chain // O20：每个任务最近一次主请求，代理据此把存档写成增量
+	chains     map[string]*chain // 每个任务最近一次主请求，代理据此把存档写成增量
 	calls      int
 	seq        int // 最后一个事件的序号：只增不减。delta 只在内存里也占序号，所以重启后要从存档里最大的序号接着编
 	events     []event
@@ -113,11 +113,11 @@ type run struct {
 	token      string      // 本次启动的 agent 进程访问模型代理用的令牌（AGENT_PROXY_TOKEN），每次启动重新生成
 	after      int64       // 接管时已经存下的最后一条协议消息的序号：补发里不超过它的不再记一遍（见 live.go）
 	exitStatus string      // agent 退出前用 process/exit 报的状态；接管的进程拿不到退出码，靠它
-	// B0：与正在运行的 agent 之间的协议连接，以及它在等待答复的联网审批（域名 → 请求ID）。
+	// 与正在运行的 agent 之间的协议连接，以及它在等待答复的联网审批（域名 → 请求ID）。
 	conn      *protocol.Conn
 	approvals map[string][]int64
-	toolWaits map[string]toolWait // D20：等待确认的高风险操作（调用ID → 请求）
-	asks      map[string]int64    // D34：模型在等人回答的提问（ask_user 的调用ID → 请求ID）
+	toolWaits map[string]toolWait // 等待确认的高风险操作（调用ID → 请求）
+	asks      map[string]int64    // 模型在等人回答的提问（ask_user 的调用ID → 请求ID）
 }
 
 type toolWait struct {
@@ -132,7 +132,7 @@ type server struct {
 	agentBin       string     // 为空表示 -dev（go run .）
 	auth           *auth      // 账号与会话（见 auth.go）
 	hubMu          sync.Mutex // 保护 .data/hub.json 的读改写
-	evals          evals      // D16/D17 评测记录（见 eval.go）
+	evals          evals      // 评测记录（见 eval.go）
 }
 
 // Run 启动观测台：go run . observe [-addr …] [-dev]，须在项目根目录运行。
@@ -155,7 +155,7 @@ func Run(args []string, mcpHandler http.Handler) error {
 	if *addUserName != "" {
 		return addUser(*addUserName, *userTenant, *features, *maxRunning)
 	}
-	// agent 读 .env、skills/、docs/、.data/ 都相对项目根目录，所以观测台以当前目录为准。
+	// agent 读 .env、skills/、.data/ 都相对项目根目录，所以观测台以当前目录为准。
 	dir, err := os.Getwd()
 	if err != nil {
 		return err
@@ -258,7 +258,7 @@ func Run(args []string, mcpHandler http.Handler) error {
 
 // agent 子进程：默认执行当前程序本身，与观测台同一份代码、不需要编译、在哪台机器运行就是哪台机器的格式；
 // -dev 时改用 go run .，读取最新源码。
-// Day 11：agent 浏览时把画面写到 .data/browser/<任务ID>/<调用ID>.jpg（screencast 帧不断覆盖，结束时是最终截图）。
+// agent 浏览时把画面写到 .data/browser/<任务ID>/<调用ID>.jpg（screencast 帧不断覆盖，结束时是最终截图）。
 // 页面运行中反复来取这张图，就是实时画面；调用结束后它就是这一步的快照。
 var providerPattern = regexp.MustCompile(`^[a-z]{1,32}$`)
 
@@ -396,7 +396,7 @@ func (s *server) startRun(w http.ResponseWriter, req *http.Request) {
 	}
 	snap.Window, _ = strconv.Atoi(settings.Values["context_window"])
 	if snap.Window == 0 {
-		// R5：设置里是“按模型”，取路由表里这个模型核对过的输入上限；不知道时用 262144（改成按模型之前的默认值）。
+		// 设置里是“按模型”，取路由表里这个模型核对过的输入上限；不知道时用 262144（改成按模型之前的默认值）。
 		snap.Window = cmp.Or(llm.WindowOf(input.Provider, input.Model), 262144)
 	}
 	snap.ToolOutput, _ = strconv.Atoi(settings.Values["tool_output"])
@@ -521,7 +521,7 @@ func (s *server) continueRun(w http.ResponseWriter, req *http.Request) {
 	}
 	var input struct {
 		Query      string      `json:"query"`
-		Permission string      `json:"permission"` // D25：权限模式可以每轮换（和 Codex 的 /approvals、Claude Code 的 Shift+Tab 一样）；工具与规则沿用快照
+		Permission string      `json:"permission"` // 权限模式可以每轮换（和 Codex 的 /approvals、Claude Code 的 Shift+Tab 一样）；工具与规则沿用快照
 		Images     []attachRef `json:"images"`     // 附图：同新对话，只带 POST /attachments 得到的引用
 	}
 	if json.NewDecoder(req.Body).Decode(&input) != nil || strings.TrimSpace(input.Query) == "" {
@@ -564,7 +564,7 @@ func (s *server) continueRun(w http.ResponseWriter, req *http.Request) {
 	if input.Permission != "" {
 		snap.Permission = input.Permission
 	}
-	snap.RAG = snap.RAG || history.RAG // B0 之前的存档没有 rag 字段，按上一次请求里有没有 search_docs 判断
+	snap.RAG = snap.RAG || history.RAG // 之前的存档没有 rag 字段，按上一次请求里有没有 search_docs 判断
 	// 模型跟着检查点走：续聊用上一轮实际用的模型（agent 的 history.Model），换模型要新建对话。
 	if history.Model != "" {
 		snap.Model = history.Model
@@ -600,7 +600,7 @@ func (s *server) continueRun(w http.ResponseWriter, req *http.Request) {
 	json.NewEncoder(w).Encode(r.summary())
 }
 
-// D13：每次交互（首问或续聊）一个 trace，根 span 是观测台的 interaction；agent 进程的 invoke_agent 挂在它下面。
+// 每次交互（首问或续聊）一个 trace，根 span 是观测台的 interaction；agent 进程的 invoke_agent 挂在它下面。
 // 同一个对话的多个 trace 用 gen_ai.conversation.id（对话ID）归到一起。
 func (r *run) beginTurn(query string) (context.Context, trace.Span) {
 	r.mu.Lock()
@@ -616,8 +616,8 @@ func (r *run) beginTurn(query string) (context.Context, trace.Span) {
 	return ctx, span
 }
 
-// B0：agent 以 -app-server 启动，协议走 .data/[tenants/<租户>/]live/ 下的 Unix socket（见 live.go），给人看的终端输出也经协议的 log 通知送来。
-// 观测台退出时 agent 照常运行，观测台重启后重新接管（adopt）。turn 为 nil 时（上下文、检索实验）由命令行参数决定要做什么，不发 turn/start。
+// agent 以 -app-server 启动，协议走 .data/[tenants/<租户>/]live/ 下的 Unix socket（见 live.go），给人看的终端输出也经协议的 log 通知送来。
+// 观测台退出时 agent 照常运行，观测台重启后重新接管（adopt）。turn 为 nil 时由命令行参数决定要做什么，不发 turn/start。
 //
 // 多租户：租户对话的 agent 带 -tenant 启动，读写都落在租户目录下；发起人的用户名经 AGENT_USER 进审计。
 // 每次启动生成一个代理令牌：模型代理只接受带着本对话当前令牌的请求，别的进程不能往这条对话里塞记录；重新接管时 agent 也要出示它。
@@ -804,7 +804,7 @@ func (s *server) forgetMemory(w http.ResponseWriter, req *http.Request) {
 	w.Write(output)
 }
 
-// D29：撤销某一轮及之后各轮的文件改动，对话退回到它的上一轮。文件由 agent 的 rewind 命令恢复（和记忆删除一样，
+// 撤销某一轮及之后各轮的文件改动，对话退回到它的上一轮。文件由 agent 的 rewind 命令恢复（和记忆删除一样，
 // 改动用户数据的事交给 agent，观测台不自己写工作区）；这里核对这一轮属于这条对话、对话没有在运行，再把结果记进对话记录。
 // dry_run 只预览：页面先列出会恢复、删除的文件和冲突，人确认后再真正执行。
 func (s *server) rewindRun(w http.ResponseWriter, req *http.Request) {
@@ -900,7 +900,7 @@ type resumeInput struct {
 
 // 调用方持有r.mu。请求里的View已经包含摘要，直接延续它，不重新拼接所有旧请求。
 // 上一轮中途停下（停止按钮、超时、出错）时，改从 agent 的检查点接着聊；
-// D29 撤销之后同样走检查点：接着的是撤销点的上一轮，它的检查点就是那时模型看到的上下文，和恢复后的文件同一时刻。
+// 撤销之后同样走检查点：接着的是撤销点的上一轮，它的检查点就是那时模型看到的上下文，和恢复后的文件同一时刻。
 func (r *run) resumeHistory() (*resumeInput, error) {
 	if id := r.lastCheckpoint(); id != "" && r.events[len(r.events)-1].Text != "exit 0" {
 		result, err := r.checkpointHistory(id)
@@ -924,7 +924,7 @@ func (r *run) resumeHistory() (*resumeInput, error) {
 	}
 	call, compact := 0, false
 	var result *resumeInput
-	bodies := requestBodies(r.events) // O20：存档里的请求可能是增量，先还原成整份
+	bodies := requestBodies(r.events) // 存档里的请求可能是增量，先还原成整份
 	for i, e := range r.events[start:end] {
 		// 记忆背景生成、重排与独立验证是辅助调用：它们的输入不是对话，输出也不是 assistant 的回答，续聊不能从它们恢复。
 		// 子 agent 的请求属于另一个上下文，同样跳过。
@@ -1022,8 +1022,8 @@ func (r *run) checkpointHistory(id string) (*resumeInput, error) {
 }
 
 // 最近一轮 agent 的检查点ID：来自它的 turn/started 通知（子 agent 的通知包在 subagent/message 里，不会混进来）。
-// B0 之前的存档没有通知，退回到当时打印的 “Checkpoint: id=…” 行。
-// D29：最近一次是撤销时，返回撤销后对话接着的那一轮（空表示连第一轮也撤销了）。
+// 之前的存档没有通知，退回到当时打印的 “Checkpoint: id=…” 行。
+// 最近一次是撤销时，返回撤销后对话接着的那一轮（空表示连第一轮也撤销了）。
 func (r *run) lastCheckpoint() string {
 	for i := len(r.events) - 1; i >= 0; i-- {
 		e := r.events[i]
@@ -1092,7 +1092,7 @@ func (r *run) canContinue() bool {
 	if r.Source != "" || !r.Done || i < 0 || r.events[i].Kind != "exit" {
 		return false
 	}
-	// D29：撤销之后从撤销点的上一轮接着聊；连第一轮也撤销了，就没有可以接着的对话。
+	// 撤销之后从撤销点的上一轮接着聊；连第一轮也撤销了，就没有可以接着的对话。
 	if rewound {
 		return r.lastCheckpoint() != ""
 	}
@@ -1275,7 +1275,7 @@ func (s *server) proxy(w http.ResponseWriter, req *http.Request) {
 	http.Error(w, err.Error(), http.StatusBadGateway)
 }
 
-// B1：流式响应边收边转发，每行原样写给 agent 并立刻 flush；整段缓冲再转发，agent 就看不到流式了。
+// 流式响应边收边转发，每行原样写给 agent 并立刻 flush；整段缓冲再转发，agent 就看不到流式了。
 // 转发的同时用 agent 的同一份拼接逻辑（llm.Stream）还原完整响应：存档仍是 choices[0].message 的结构，
 // 页面、续聊恢复和归因不必区分流式与非流式。逐个 chunk 的原文不留档，只记 chunk 数与首字延迟。
 func (s *server) relayStream(w http.ResponseWriter, req *http.Request, r *run, response *http.Response, e event, start time.Time) {
@@ -1374,9 +1374,9 @@ func (s *server) streamEvents(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-// 停止按钮：第一次向 agent 进程组发 SIGINT，agent 回填结果、写好检查点再退出（Day 8 的优雅停止）；
+// 停止按钮：第一次向 agent 进程组发 SIGINT，agent 回填结果、写好检查点再退出（优雅停止）；
 // 第二次发 SIGKILL 强制结束。子 agent 在各自的进程组里，由父 agent 收到 SIGINT 后转发。
-// Day 12：沙箱网络白名单由用户审批。请求来自 agent 的 request_network_access（模型发起）或沙箱代理（命令连到不在白名单的域名）；
+// 沙箱网络白名单由用户审批。请求来自 agent 的 request_network_access（模型发起）或沙箱代理（命令连到不在白名单的域名）；
 // 用户在页面上点“允许 / 拒绝”，这里记一条 allow/deny 事件（存进对话记录），下一轮续聊时作为 -net-allow 传给 agent。
 // “始终允许”另外把域名加进这个账号的个人设置（net_allow），之后新开的对话都带上（同 Claude Code 的“Yes, and don't ask again”）。
 // 模型自己无法调用这个接口：它在断网的沙箱里，也没有访问观测台的工具。
@@ -1418,7 +1418,7 @@ func (s *server) decideNetwork(w http.ResponseWriter, req *http.Request) {
 	if always {
 		detail += "；始终允许：写入个人设置"
 	}
-	// D21：联网批准同样先写审计；之后的续聊会把它作为 -net-allow 传给 agent，agent 那边再记一条。
+	// 联网批准同样先写审计；之后的续聊会把它作为 -net-allow 传给 agent，agent 那边再记一条。
 	if err := audit.Write(req.Context(), audit.Record{Actor: "user", User: current(req).Name, Tenant: r.Tenant, Event: "user_network_decision", Task: r.rootTask, Conversation: r.ID, Target: input.Domain, Risk: "network", Decision: kind, Detail: detail}); err != nil {
 		http.Error(w, "审计日志写入失败："+err.Error(), http.StatusInternalServerError)
 		return
@@ -1432,7 +1432,7 @@ func (s *server) decideNetwork(w http.ResponseWriter, req *http.Request) {
 		body = json.RawMessage(`{"always":true}`)
 	}
 	r.add(event{Kind: kind, Text: input.Domain, Body: body})
-	// B0：如果 agent 正在等这个域名的审批，当场回复；它会在本轮接着执行。否则只记下来，下一轮续聊时作为 -net-allow 传入。
+	// 如果 agent 正在等这个域名的审批，当场回复；它会在本轮接着执行。否则只记下来，下一轮续聊时作为 -net-allow 传入。
 	r.mu.Lock()
 	conn, waiting := r.conn, r.approvals[input.Domain]
 	delete(r.approvals, input.Domain)
@@ -1445,10 +1445,10 @@ func (s *server) decideNetwork(w http.ResponseWriter, req *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{"net_allow": r.netAllow(), "answered": len(waiting)})
 }
 
-// D20：高风险操作确认。agent 发来 tool/requestApproval 后暂停；用户在页面上点“允许 / 拒绝”，这里当场回复。
+// 高风险操作确认。agent 发来 tool/requestApproval 后暂停；用户在页面上点“允许 / 拒绝”，这里当场回复。
 // 只对正在等待的调用有效：下一项操作要重新确认。外发类的请求带范围时，用户可以选“本对话内都允许”（allow_session），
 // 由 agent 记下范围，之后同一范围不再询问。决定记进对话记录，页面重开后仍能看到。
-// D34：回答模型的提问（ask_user）。回答是人在对话里说的话，和续聊的问题一样记进存档，不写审计（不是授权）。
+// 回答模型的提问（ask_user）。回答是人在对话里说的话，和续聊的问题一样记进存档，不写审计（不是授权）。
 func (s *server) answerQuestion(w http.ResponseWriter, req *http.Request) {
 	r := s.runOf(w, req)
 	if r == nil {
@@ -1477,7 +1477,7 @@ func (s *server) answerQuestion(w http.ResponseWriter, req *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// D34：运行中插话。agent 把它排进下一次模型请求；这一轮已经结束时返回 409，页面提示用户在结束后照常发送。
+// 运行中插话。agent 把它排进下一次模型请求；这一轮已经结束时返回 409，页面提示用户在结束后照常发送。
 // 插话真正送进模型时 agent 会发 userMessage（steer=true）的通知，存档里以那条为准。
 func (s *server) steerRun(w http.ResponseWriter, req *http.Request) {
 	r := s.runOf(w, req)
@@ -1543,7 +1543,7 @@ func (s *server) decideTool(w http.ResponseWriter, req *http.Request) {
 		}
 		decision, detail = "allow_session", "观测台页面；本对话内都允许："+wait.Scope
 	}
-	// D21：观测台记下“人点了什么”，与 agent 那边的 approval_decision 互相对照；参数哈希应与 agent 的请求记录一致。
+	// 观测台记下“人点了什么”，与 agent 那边的 approval_decision 互相对照；参数哈希应与 agent 的请求记录一致。
 	// 先写审计再回复：审计写不进去，就不把“允许”交给 agent。
 	record := audit.Record{Actor: "user", User: current(req).Name, Tenant: r.Tenant, Event: "user_decision", Task: wait.Task, Conversation: r.ID, CallID: input.CallID, Tool: wait.Tool, Risk: wait.Risk, Decision: decision, Detail: detail}
 	record.Args(wait.Arguments)
@@ -1559,7 +1559,7 @@ func (s *server) decideTool(w http.ResponseWriter, req *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"decision": decision})
 }
 
-// D21：审计页只读。每次都从头校验整条哈希链，返回最近的 500 条（可按任务过滤）。
+// 审计页只读。每次都从头校验整条哈希链，返回最近的 500 条（可按任务过滤）。
 func (s *server) listAudit(w http.ResponseWriter, req *http.Request) {
 	result, err := audit.Read(current(req).Tenant, strings.TrimSpace(req.URL.Query().Get("task")))
 	if err != nil {
@@ -1660,7 +1660,7 @@ func (s *server) find(id string) *run {
 
 var spanPattern = regexp.MustCompile(`^[0-9a-f]{16}$`)
 
-// D13：读一个 trace 的全部 span（.data/traces/<trace_id>.jsonl，由各进程的 SDK 导出器写入）。
+// 读一个 trace 的全部 span（.data/traces/<trace_id>.jsonl，由各进程的 SDK 导出器写入）。
 // 运行中也可以读：span 结束一个写一行，还没结束的 span（包括根 span）暂时不在文件里。
 func (s *server) traceSpans(w http.ResponseWriter, req *http.Request) {
 	id := req.PathValue("id")
@@ -1708,7 +1708,7 @@ func readSpans(path string) ([]telemetry.Record, error) {
 	return spans, err
 }
 
-// D13 指标：不另起一套采集，从已结束的 span 汇总。名字沿用 GenAI 约定的指标：
+// 指标：不另起一套采集，从已结束的 span 汇总。名字沿用 GenAI 约定的指标：
 // gen_ai.client.operation.duration（模型、向量化）、gen_ai.client.token.usage、execute_tool 的耗时与失败率，以及任务结局。
 // conversation 参数只统计这个对话的 trace；不给时统计全部。
 func (s *server) traceMetrics(w http.ResponseWriter, req *http.Request) {
@@ -1796,7 +1796,7 @@ func (s *server) traceMetrics(w http.ResponseWriter, req *http.Request) {
 	json.NewEncoder(w).Encode(result)
 }
 
-// B0：agent 发来的协议消息。通知原样存成 notify 事件（页面按方法名还原过程）；
+// agent 发来的协议消息。通知原样存成 notify 事件（页面按方法名还原过程）；
 // 联网审批请求存成 approval 事件，并记下请求ID，等用户在页面上点“允许 / 拒绝”时回复。
 func (r *run) handle(m protocol.Message) {
 	// 接管时补发的消息里，序号不超过 after 的已经存过：请求只重新登记等待，不再记一遍。
@@ -1817,7 +1817,7 @@ func (r *run) handle(m protocol.Message) {
 			}
 			return
 		}
-		// D34：模型的提问（ask_user）：记下等待，页面上的人回答后经 answerQuestion 答复。
+		// 模型的提问（ask_user）：记下等待，页面上的人回答后经 answerQuestion 答复。
 		if m.Method == "user/requestInput" {
 			var p struct {
 				CallID string `json:"call_id"`
@@ -1890,7 +1890,7 @@ func (r *run) handle(m protocol.Message) {
 		r.add(event{Kind: "stdout", Text: p.Text, ASeq: m.Seq})
 		return
 	}
-	// B1：item/delta 只给正在看的页面实时显示，不写进运行记录：一次回答会有成百上千条，完整内容已在 response 事件里。
+	// item/delta 只给正在看的页面实时显示，不写进运行记录：一次回答会有成百上千条，完整内容已在 response 事件里。
 	kind := "notify"
 	if protocol.IsDelta(m) {
 		kind = "delta"

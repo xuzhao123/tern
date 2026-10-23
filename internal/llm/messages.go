@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// D33：Anthropic Messages 协议（DeepSeek 在 /anthropic 提供）与 chat/completions 的对应：
+// Anthropic Messages 协议（DeepSeek 在 /anthropic 提供）与 chat/completions 的对应：
 //
 //	chat/completions                 Messages
 //	messages[0]（system）             顶层 system

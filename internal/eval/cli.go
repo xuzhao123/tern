@@ -16,11 +16,11 @@ const usage = `用法：
   go run . eval list
   go run . eval report <评测ID> [-baseline 评测ID] [-regrade]
   go run . eval resume <评测ID>                       续跑中途停下的试次
-  go run . eval triage <评测ID>                       D17 归因卡片
+  go run . eval triage <评测ID>                       归因卡片
   go run . eval note <评测ID> <任务ID> -text '…' -label '类别'
   go run . eval replay <评测ID> <任务ID> -rounds N -note '纠正' [-n 3]`
 
-// Run 是 go run . eval 的入口。评测记录写在 .data/eval/，观测台的“D16 评测”页面读同一份记录。
+// Run 是 go run . eval 的入口。评测记录写在 .data/eval/，观测台的“评测”页面读同一份记录。
 func Run(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

@@ -1,6 +1,6 @@
 import { renderChat } from "./chat.js";
 import { $, clip, el, parse, pretty, ui } from "./util.js";
-// ---------- Day 11 浏览器 ----------
+// ---------- 浏览器 ----------
 // agent 把 screencast 帧不断覆盖写到 .data/browser/<任务ID>/<调用ID>.jpg，结束时写入最终截图。
 // 运行中的调用每 700ms 取一次（实时画面），结束后再取一次就固定下来。取回的图存成 blob URL，
 // 对话流重绘时直接复用，不会闪烁。

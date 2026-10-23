@@ -68,7 +68,7 @@ go build -o bin/tern .
 | --- | --- | --- |
 | 入口 | [main.go](main.go) | 参数、工具开关、agent / observe / queue / metrics / eval / audit 的入口 |
 | 模型协议 | [internal/llm](internal/llm/) | messages、tools、tool_calls、请求预算与用量 |
-| 执行循环 | [internal/agent/react.go](internal/agent/react.go)、[工具分发](internal/agent/dispatch.go)、[确认与循环检测](internal/agent/approval.go) | 结果回填、并发、分类重试与终止；D20 高风险确认、私有数据标记、结果日志与无进展检测 |
+| 执行循环 | [internal/agent/react.go](internal/agent/react.go)、[工具分发](internal/agent/dispatch.go)、[确认与循环检测](internal/agent/approval.go) | 结果回填、并发、分类重试与终止；高风险确认、私有数据标记、结果日志与无进展检测 |
 | 上下文与恢复 | [上下文管理](internal/agent/context_manager.go)、[检查点](internal/agent/checkpoint.go) | Transcript/View、压缩、写前日志、续跑 |
 | 知识与记忆 | [retrieval](internal/retrieval/)、[memory](internal/memory/) | 向量检索、规则写入、两路召回与重排 |
 | 工具扩展 | [tools](internal/tools/)、[mcp](internal/mcp/)、[skills](internal/skills/) | 本地工具、协议服务、按需加载知识 |
@@ -105,7 +105,7 @@ go build -o bin/tern .
 | `-image` | 空 | 图片输入：随问题附带的图片路径，可写多次。按文件头只收 PNG、JPEG、GIF、WebP；长边超过 2048 或 32×32 块超过 2500 时等比缩小；按内容寻址存进 `.data/[tenants/<租户>/]attachments/`，消息与检查点里只放 `attachment://` 引用；处理不了的图以提醒说明，不让这一轮失败；每条消息最多 8 张；所选模型不能看图时发请求前换成说明文字。能看图的模型在有工作区或 bash 时另有 `view_image`，看工作区或沙箱里的图片 |
 | `-history-stdin` | false | 从stdin接收上次上下文JSON，配合-question续聊（命令行用；观测台改经 `turn/start` 传入） |
 | `-continues` | 空 | 续聊时上一轮的检查点ID：本轮用新ID并记下续接关系，子 agent 可按 task_id 引用之前各轮的子任务；观测台自动处理 |
-| `-app-server` | false | B0：以结构化协议与界面通信（JSON-RPC，一行一条）：stdout 只走协议，日志改走 stderr；观测台与父 agent 启动子进程时使用。观测台另给环境变量 `AGENT_APP_SOCKET`，协议与日志改走这个 Unix socket，观测台重启后能接管（） |
+| `-app-server` | false | 以结构化协议与界面通信（JSON-RPC，一行一条）：stdout 只走协议，日志改走 stderr；观测台与父 agent 启动子进程时使用。观测台另给环境变量 `AGENT_APP_SOCKET`，协议与日志改走这个 Unix socket，观测台重启后能接管（） |
 | `-parallel` | 4 | 工具执行并发，1到16 |
 | `-max-steps` | 10 | 模型请求总预算，包含最终回答与上下文摘要；0 表示不限 |
 | `-retries` | 2 | 工具额外重试次数，0到5 |

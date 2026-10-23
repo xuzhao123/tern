@@ -1,13 +1,13 @@
 import { endLabel } from "./analysis.js";
 import { memFields } from "./chat.js";
-import { LAB_TITLE, RAG_LAB_TITLE, compact, incomingUsers, parse, textOf, toolText } from "./util.js";
+import { compact, incomingUsers, parse, textOf, toolText } from "./util.js";
 // ---------- 事件 → 运行模型：只依赖 Chat Completions 协议字段 ----------
 export function newRun(id) { return { id, query: "", t0: null, last: null, tEnd: null, exit: "", logs: [], calls: [], aux: [], turns: [], prevMessages: [], lastMainMessages: [], inputCapacity: 0, mem: [], memTurn: 0, memPhase: "start", skills: [], mcp: [], caps: [], hookCalls: {}, hookAfter: {}, subs: {}, subCalls: {}, subagents: false, browser: false, dsSearch: false, disallowedTools: [], provider: "", model: "", bash: false, sandbox: "", netDecision: {}, web: {}, stopRequested: false, traces: [], spanCalls: {}, protocol: false, netPending: {}, netAsks: {}, approvals: {}, source: "", lastBody: null, openTools: new Map(), rewindNotes: {}, rewoundAll: false, userImages: [], asks: {}, steers: [], askUser: false }; }
 export function apply(r, e) {
   const time = Date.parse(e.time);
   if (r.t0 === null) r.t0 = time;
   r.last = time;
-  // D13：traceparent 里的 span ID → 这条原始请求，调用链里的 chat span 据此跳到轨迹视图。
+  // traceparent 里的 span ID → 这条原始请求，调用链里的 chat span 据此跳到轨迹视图。
   if (e.kind === "request" && e.span) r.spanCalls[e.span] = { call: e.call, sub: !!e.sub };
   // 子 agent 的模型请求按任务ID放进各自的 run：不进父对话流、不占父 Turn/Step，在右侧面板里单独还原。
   if (e.sub && e.task) {
@@ -18,7 +18,7 @@ export function apply(r, e) {
   // 上一轮中途停下：记在新一轮之前，对话流里显示一条中断标记（先记，再重置停止状态）。
   if (e.kind === "continue" && r.exit && r.exit !== "exit 0") (r.interrupted ??= {})[r.turns.length + 1] = r.stopRequested ? "上一轮已按停止按钮中断" : "上一轮未正常结束（" + endLabel(r) + "）";
   if (e.kind === "start" || e.kind === "continue") { r.memory = !!e.memory; r.memoryTTL = e.memory_ttl || ""; r.memTurn++; r.memPhase = "start"; r.skills = e.skills || []; r.mcp = e.mcp || []; r.subagents = !!e.subagents; r.askUser = !!e.ask_user; r.browser = !!e.browser; r.dsSearch = !!e.ds_search; r.disallowedTools = e.disallowed_tools || []; r.provider = e.provider || "ark"; r.model = e.model || ""; r.bash = !!e.bash; r.rag = !!e.rag; r.workspace = e.workspace || ""; r.maxSteps = e.max_steps || 0; r.permission = e.permission || ""; r.stopRequested = false; r.checkpoint = ""; r.protocol = !!e.protocol; r.source = e.source || ""; if (e.trace) r.traces.push({ turn: r.memTurn, id: e.trace }); }
-  if (e.kind === "start") { r.query = e.text; r.embedding = e.embedding; r.embeddingExplicit = !!e.embedding; r.pending = [LAB_TITLE, RAG_LAB_TITLE].includes(e.text) ? "" : e.text; r.turnPending = true; r.pendingTime = time; }
+  if (e.kind === "start") { r.query = e.text; r.embedding = e.embedding; r.embeddingExplicit = !!e.embedding; r.pending = e.text; r.turnPending = true; r.pendingTime = time; }
   else if (e.kind === "continue") {
     r.exit = ""; r.termination = ""; r.finalCheck = null; r.tEnd = null; r.pending = e.text; r.turnPending = true; r.pendingTime = time;
     if (e.embedding) { r.embedding = e.embedding; r.embeddingExplicit = true; }
@@ -42,12 +42,12 @@ export function apply(r, e) {
     const isCompact = e.purpose === "compact" || (!!lastMessage && lastMessage.role === "user" && String(lastMessage.content).startsWith("[上下文压缩请求]"));
     const users = isCompact ? [] : incomingUsers(messages), lastMain = r.calls.findLast((c) => !c.compact);
     let turn = r.turns.at(-1);
-    // start/continue是明确的回合边界；实验与旧存档依据新user和上次最终响应恢复边界。
+    // start/continue是明确的回合边界；旧存档依据新user和上次最终响应恢复边界。
     // 工具结果、失败后的同请求重试、摘要都不另开用户回合。
-    const opensTurn = !turn || r.turnPending || r.caseStart || (users.length > 0 && lastMain?.turn === turn.n && lastMain.choice && !lastMain.tools.length);
+    const opensTurn = !turn || r.turnPending || (users.length > 0 && lastMain?.turn === turn.n && lastMain.choice && !lastMain.tools.length);
     const userMessage = opensTurn ? (r.pending ? { role: "user", content: r.pending } : users.at(-1)) : null;
     if (opensTurn) {
-      turn = { n: r.turns.length + 1, steps: 0, question: userMessage ? textOf(userMessage) : "", start: r.pendingTime || time, caseLabel: r.caseLabel, checkpoint: r.checkpoint, idle: r.lastReply ? time - r.lastReply : 0, images: r.userImages[r.turns.length] || [] };
+      turn = { n: r.turns.length + 1, steps: 0, question: userMessage ? textOf(userMessage) : "", start: r.pendingTime || time, checkpoint: r.checkpoint, idle: r.lastReply ? time - r.lastReply : 0, images: r.userImages[r.turns.length] || [] };
       r.turns.push(turn);
     }
     const step = isCompact ? 0 : ++turn.steps;
@@ -67,9 +67,8 @@ export function apply(r, e) {
     if (!isCompact) r.lastMainMessages = messages;
     if (!r.query) { const u = messages.find((m) => m.role === "user"); if (u) r.query = u.content; }
     r.prevMessages = messages;
-    r.calls.push({ i: r.calls.length + 1, compact: isCompact, rebuilt, shared, caseLabel: r.caseLabel, caseStart: r.caseStart, turn: turn.n, step, userMessage, promptChanged,
+    r.calls.push({ i: r.calls.length + 1, compact: isCompact, rebuilt, shared, turn: turn.n, step, userMessage, promptChanged,
       n: e.call, req: e.body || {}, start: time, tools: [], usage: {} });
-    r.caseStart = false;
   } else if (e.kind === "response") {
     // 请求编号包含辅助调用，不能再当作 r.calls 的下标。
     const c = r.calls.find((x) => x.n === e.call) || r.aux.find((x) => x.n === e.call);
@@ -80,7 +79,7 @@ export function apply(r, e) {
     const m = (c.choice && c.choice.message) || {};
     c.invalidSummary = c.compact && (m.tool_calls || []).length > 0;
     if (c.aux) return;
-    // D30：续聊那一轮的第一次请求：距上一轮闲置了多久、缓存还剩多少。隔得越久，缓存越可能已经过期，整段上下文要按全价重新处理。
+    // 续聊那一轮的第一次请求：距上一轮闲置了多久、缓存还剩多少。隔得越久，缓存越可能已经过期，整段上下文要按全价重新处理。
     if (c.choice) r.lastReply = time;
     const t = r.turns[c.turn - 1];
     if (t && t.n > 1 && c.step === 1 && !t.firstUsage && body.usage) t.firstUsage = body.usage;
@@ -94,7 +93,7 @@ export function apply(r, e) {
   else if (e.kind === "approval") {
     const p = e.body || {};
     if (e.method === "tool/requestApproval") r.approvals[p.call_id] = { ...p, state: "waiting" };
-    else if (e.method === "user/requestInput") r.asks[p.call_id] = { ...p, state: "waiting" }; // D34：模型的提问，等人回答
+    else if (e.method === "user/requestInput") r.asks[p.call_id] = { ...p, state: "waiting" }; // 模型的提问，等人回答
     else if (p.domain) {
       r.netPending[p.domain] = true;
       if (p.call_id) (r.netAsks[p.call_id] ||= {})[p.domain] = p.reason || ""; // 代理发起的挂在发起它的 bash 下面（见 proxyNetCards）
@@ -104,7 +103,7 @@ export function apply(r, e) {
   else if (e.kind === "decision") { const a = r.approvals[e.text]; if (a) a.state = (e.body || {}).decision; }
   else if (e.kind === "allow" || e.kind === "deny") { r.netDecision[e.text] = e.kind === "allow" && e.body?.always ? "always" : e.kind; delete r.netPending[e.text]; }
   else if (e.kind === "rewind") {
-    // D29：撤销了这一轮及之后各轮的文件改动；对话从撤销点的上一轮接着聊（它的检查点），这几轮留着、淡化显示。
+    // 撤销了这一轮及之后各轮的文件改动；对话从撤销点的上一轮接着聊（它的检查点），这几轮留着、淡化显示。
     const b = e.body || {}, hit = r.turns.filter((t) => (b.turns || []).includes(t.checkpoint));
     for (const t of hit) t.rewound = true;
     const range = hit.length > 1 ? `第 ${hit[0].n}–${hit.at(-1).n} 轮` : hit.length ? `第 ${hit[0].n} 轮` : `${(b.turns || []).length} 轮`;
@@ -118,16 +117,16 @@ export function apply(r, e) {
   }
 }
 
-// B0：agent 经协议发来的结构化通知。页面需要的信息（任务ID、输入容量、记忆与能力事件、浏览器地址、子 agent 的起止和输出、
-// 实验分组）都从这里来，不再解析终端文本。方法名见 internal/protocol 与 docs/bonus-protocol。
+// agent 经协议发来的结构化通知。页面需要的信息（任务ID、输入容量、记忆与能力事件、浏览器地址、子 agent 的起止和输出）
+// 都从这里来，不再解析终端文本。方法名见 internal/protocol。
 function applyNotify(r, method, p, time) {
   if (method === "turn/started") { if (p.turn_id) r.checkpoint = p.turn_id; if (p.input_capacity) r.inputCapacity = p.input_capacity; if (p.sandbox) r.sandbox = p.sandbox; if (p.model) r.model = p.model; }
   // 附图：用户消息带了哪几张图由 agent 在协议里报（引用、编号、尺寸），页面据此画缩略图。
   // 这条通知在本次交互的第一次请求之前发出，所以此刻的轮次数就是这条消息所属轮的序号。
-  // D34：运行中插话（steer=true）排进了下一次模型请求：记下它在哪次请求之前，对话流里显示在那里。
+  // 运行中插话（steer=true）排进了下一次模型请求：记下它在哪次请求之前，对话流里显示在那里。
   else if (method === "item/completed" && p.item?.type === "userMessage" && p.item.data?.steer) r.steers.push({ call: r.calls.length + 1, text: p.item.data.text || "" });
   else if (method === "item/completed" && p.item?.type === "userMessage") r.userImages[r.turns.length] = p.item.data?.images || [];
-  // D33：agent 标明的回复分段，挂在产生它的那次模型请求上（响应先于这条通知记录）。旧存档没有，按有没有工具调用判断。
+  // agent 标明的回复分段，挂在产生它的那次模型请求上（响应先于这条通知记录）。旧存档没有，按有没有工具调用判断。
   else if (method === "item/completed" && p.item?.type === "agentMessage") { const c = r.calls.filter((x) => !x.compact && x.end).at(-1); if (c) c.phase = p.item.data?.phase; }
   else if (method === "memory/event") {
     // 长期记忆只在开头调入、结尾写入；工具里的 search/forget 已作为工具步骤显示。
@@ -135,7 +134,7 @@ function applyNotify(r, method, p, time) {
   }
   // skill 索引与 MCP 连接在 agent 启动时发生，归到本轮开头的“能力”卡片。
   else if (method === "capability/event") r.caps.push({ turn: r.memTurn, kind: p.kind, text: p.text, count: p.count });
-  // D26：工具前后的 hook 挂在那次工具调用上；Stop 挂在被拦下的那次回答后面；UserPromptSubmit 归到本轮开头的能力卡片。
+  // 工具前后的 hook 挂在那次工具调用上；Stop 挂在被拦下的那次回答后面；UserPromptSubmit 归到本轮开头的能力卡片。
   else if (method === "hook/completed") {
     const h = { event: p.event, outcome: p.kind, command: p.command, output: p.output || "", text: p.text };
     if (p.call_id) (r.hookCalls[p.call_id] ||= []).push(h);
@@ -150,24 +149,18 @@ function applyNotify(r, method, p, time) {
   else if (method === "subagent/log") subRun(r, p.task_id).logs.push({ kind: "stdout", text: p.text, time });
   // 子 agent 转发上来的通知，原样应用到它自己的运行状态上（任务ID、浏览器地址、结局……），和父 agent 走同一套处理。
   else if (method === "subagent/message" && p.message?.method) applyNotify(subRun(r, p.task_id), p.message.method, p.message.params || {}, time);
-  // B1：流式增量只拼到正在进行的这次请求上做实时显示；响应到达后以完整响应为准（live 清空）。
+  // 流式增量只拼到正在进行的这次请求上做实时显示；响应到达后以完整响应为准（live 清空）。
   // 主任务的模型请求一次只有一个在进行，增量一定属于最后一次请求；晚到的增量直接丢弃。
-  // O1：模型请求重试前 agent 发 reset，清掉这次请求已经显示的半段，免得同一段话出现两遍。
+  // 模型请求重试前 agent 发 reset，清掉这次请求已经显示的半段，免得同一段话出现两遍。
   else if (method === "item/delta") { const c = r.calls.at(-1); if (c && !c.end) { if (p.field === "reset") c.live = {}; else { const live = c.live ??= {}; live[p.field] = (live[p.field] || "") + p.delta; } } }
   else if (method === "turn/completed") { r.termination = p.outcome === "no_tool_calls" ? "" : p.outcome + (p.error ? "：" + p.error : ""); r.finalCheck = p.final_check || null; }
-  else if (method === "lab/case") {
-    r.caseLabel = p.id + (p.mode === "rag" ? " · 有检索" : " · 无检索");
-    r.caseStart = true;
-    r.prevMessages = []; r.lastMainMessages = []; // 对比实验每题独立，不能误标为压缩。
-  }
 }
 function subRun(r, task) { return r.subs[task] ??= Object.assign(newRun(task), { isSub: true }); }
 
-// B0 之前的存档没有协议通知，只有终端文本：把当时的日志行换算成同样的通知。新的运行不经过这里。
+// 之前的存档没有协议通知，只有终端文本：把当时的日志行换算成同样的通知。新的运行不经过这里。
 function legacyLine(r, e, time) {
   const t = e.text || "";
   let m;
-  if ((m = /^RAG case: (Q\d+) mode=(baseline|rag) /.exec(t))) applyNotify(r, "lab/case", { id: m[1], mode: m[2] }, time);
   if ((m = /^Memory (\w+): (.*)$/.exec(t))) applyNotify(r, "memory/event", { kind: m[1], text: m[2] }, time);
   if (/^(Skills?|MCP) (loaded|error|connect|initialize|tools\/list|register|skip)\b|^Skills: /.test(t)) {
     const kind = t.startsWith("Skills: ") ? "skills_loaded" : t.startsWith("MCP register:") ? "mcp_register" : /^(Skill|MCP) error/.test(t) ? (t.startsWith("MCP") ? "mcp_error" : "skill_error") : t.startsWith("MCP skip") ? "mcp_skip" : "mcp";

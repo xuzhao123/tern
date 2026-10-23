@@ -3,12 +3,12 @@ name: code-review
 description: 按“先构建、再看逻辑”的固定顺序评审 Go 代码，输出分级问题清单。用于用户请求代码评审、review、检查一段 Go 代码或补丁有没有问题、能不能合并时；不用于解释概念或写新功能。
 license: MIT
 metadata:
-  origin: learning-agent Day 5 procedural memory
+  origin: learning-agent procedural memory
 ---
 
 # Go 代码评审
 
-来源：用户在 Day 5 要求记住的流程“代码评审先跑构建，再看逻辑”。这里把它展开成可执行的步骤。
+来源：用户要求记住的流程“代码评审先跑构建，再看逻辑”。这里把它展开成可执行的步骤。
 
 ## 第一步：构建与静态检查（必须先做）
 

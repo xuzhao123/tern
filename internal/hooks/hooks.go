@@ -1,4 +1,4 @@
-// Package hooks 是 D26 的生命周期 hooks：harness 在固定的时刻运行用户配置的外部命令，
+// Package hooks 是生命周期 hooks：harness 在固定的时刻运行用户配置的外部命令，
 // 把当时的情况以 JSON 写进命令的 stdin，按退出码和 stdout 的 JSON 决定放行、拦截还是改写。
 // 配置格式沿用 Claude Code 的 settings.json 里的 hooks 段：
 //

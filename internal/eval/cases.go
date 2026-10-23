@@ -14,10 +14,10 @@ import (
 	"github.com/xuzhao123/tern/internal/agent"
 )
 
-// D16：一道评测题。固定的是题目、参考答案和判定标准，不是模型的回答或工具调用顺序。
+// 一道评测题。固定的是题目、参考答案和判定标准，不是模型的回答或工具调用顺序。
 type Case struct {
 	ID        string   `json:"id"`
-	Suite     string   `json:"suite"`   // regression：D15 用过、调试时看过的题；capability：新写的题；coding：D36 编码任务
+	Suite     string   `json:"suite"`   // regression：用过、调试时看过的题；capability：新写的题；coding：编码任务
 	Holdout   bool     `json:"holdout"` // 留出：调试时不跑，只在最后报告时运行（-set holdout|all）
 	Group     string   `json:"group"`
 	Tags      []string `json:"tags"` // env:network：依赖外网，单独统计，不计入主分
@@ -25,7 +25,7 @@ type Case struct {
 	Args      []string `json:"args"`
 	Reference string   `json:"reference"` // 参考答案：证明题目可解、打分器配对，也给评审模型参照
 	Ablation  string   `json:"ablation"`  // 消融：再跑一组去掉这个参数的对照，如 -rag
-	Repo      *Repo    `json:"repo"`      // D36：编码任务的仓库快照，见 coding.go
+	Repo      *Repo    `json:"repo"`      // 编码任务的仓库快照，见 coding.go
 	Graders   []Grader `json:"graders"`
 }
 
@@ -44,7 +44,7 @@ type Grader struct {
 	Outcomes []string `json:"outcomes,omitempty"`
 	Rubric   string   `json:"rubric,omitempty"` // judge：写成具体的 PASS / FAIL 条件
 	WithOnly bool     `json:"with_only,omitempty"`
-	Run      string   `json:"run,omitempty"`   // command：在只读挂载工作区的沙箱里跑的校验命令，退出码 0 为通过（D36）
+	Run      string   `json:"run,omitempty"`   // command：在只读挂载工作区的沙箱里跑的校验命令，退出码 0 为通过
 	Label    string   `json:"label,omitempty"` // command：给人看的一句话，说明这条命令检查什么
 }
 

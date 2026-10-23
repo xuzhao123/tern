@@ -10,13 +10,13 @@ import (
 	"sync"
 )
 
-// B0：agent 与界面之间的结构化协议，参考 Codex app-server。
+// agent 与界面之间的结构化协议，参考 Codex app-server。
 // 一行一条 JSON-RPC 2.0 消息，双向：
 //
 //	界面 → agent   请求  turn/start（问题、续聊上下文）、turn/interrupt
 //	agent → 界面   通知  turn/started、item/started、item/completed、turn/completed 等
 //	agent → 界面   请求  network/requestApproval：agent 暂停，等界面回复允许或拒绝再继续
-//	agent → 界面   请求  tool/requestApproval（D20）：高风险操作执行前同样暂停，等界面上的人确认；
+//	agent → 界面   请求  tool/requestApproval：高风险操作执行前同样暂停，等界面上的人确认；
 //	                     外发类带 scope，人可以回 allow_session（本对话内同一范围都允许）
 //
 // agent 以 -app-server 运行时，stdout 只承载协议，给人看的日志改走 stderr。
@@ -111,7 +111,7 @@ func (c *Conn) send(m Message) (_ Message, err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	defer func() {
-		// D40：agent 一侧发出的通知与请求另写一份进只追加的会话记录（Journal），和发给界面的同序。
+		// agent 一侧发出的通知与请求另写一份进只追加的会话记录（Journal），和发给界面的同序。
 		if c == Client && Journal != nil && !(m.ID != nil && m.Method == "") && !IsDelta(m) && m.Method != "log" {
 			Journal(m)
 		}
@@ -216,7 +216,7 @@ func Notify(method string, params any) {
 	}
 }
 
-// Journal 由 agent 设置（D40，见 agent/journal.go）：发出的每条通知与请求（item/delta、日志行与响应除外）交给它一份。
+// Journal 由 agent 设置（见 agent/journal.go）：发出的每条通知与请求（item/delta、日志行与响应除外）交给它一份。
 var Journal func(m Message)
 
 // ErrNoClient：命令行直接运行或队列里的任务，没有可以回答请求的人。
@@ -230,7 +230,7 @@ func Call(ctx context.Context, method string, params any, result any) error {
 }
 
 // Item 是一轮里的一个工作单元，有 started、completed 两个阶段。
-// B1：模型调用进行中还会发 item/delta（item_id、field 为 content 或 reasoning、delta 文本片段），
+// 模型调用进行中还会发 item/delta（item_id、field 为 content 或 reasoning、delta 文本片段），
 // 只用于实时显示；完整内容以 item/completed、检查点和观测台留档的响应为准，界面漏收几条 delta 也不影响结果。
 type Item struct {
 	ID   string `json:"id"`

@@ -3,7 +3,7 @@ import { md } from "./md.js";
 import { TOOL_INFO, loadModels, loadSettings, newChat, syncComposer } from "./shell.js";
 import { $, MEM_KIND, MEM_SOURCE, MEM_STATUS, el, fold, ui } from "./util.js";
 $("memory").onclick = () => openMemory();
-// D21：审计日志只读。服务端每次从头校验哈希链；页面只展示，不提供修改或删除。
+// 审计日志只读。服务端每次从头校验哈希链；页面只展示，不提供修改或删除。
 const AUDIT_ACTOR = { user: "人", model: "模型", program: "程序" };
 $("audit").onclick = () => openAudit();
 async function openAudit(task = "") {
@@ -185,8 +185,8 @@ export async function openSettings() {
   nets.oninput = () => { values.net_allow = nets.value; };
   const netsWrap = el("span"); netsWrap.append(nets, tag("net_allow"));
   grid.append(el("span", "meta", "沙箱联网白名单"), netsWrap);
-  panel.append(grid, el("p", "meta", "沙箱里的命令只能经代理访问白名单里的域名；连到别的域名时代理当场问你，命令等你答复。审批时点“始终允许”会把域名加进你的个人设置。"), el("p", "meta","权限模式在每条对话的输入框旁边还能换（每轮生效）；规则在对话开始时拍进快照。D20 的高风险确认（删除记忆、破坏性 MCP、含私有数据后的外发、续跑重做）在全权以外的模式下都询问；全权模式同 Claude Code、Codex，不再询问，由程序放行并写审计（续跑重做不自动做，回填结果未知）。"));
-  // D26：hooks 在本机以观测台的身份运行命令，不在沙箱里，所以只有平台账号能改；个人设置里不生效。
+  panel.append(grid, el("p", "meta", "沙箱里的命令只能经代理访问白名单里的域名；连到别的域名时代理当场问你，命令等你答复。审批时点“始终允许”会把域名加进你的个人设置。"), el("p", "meta","权限模式在每条对话的输入框旁边还能换（每轮生效）；规则在对话开始时拍进快照。高风险确认（删除记忆、破坏性 MCP、含私有数据后的外发、续跑重做）在全权以外的模式下都询问；全权模式同 Claude Code、Codex，不再询问，由程序放行并写审计（续跑重做不自动做，回填结果未知）。"));
+  // hooks 在本机以观测台的身份运行命令，不在沙箱里，所以只有平台账号能改；个人设置里不生效。
   panel.append(el("h3", "", "Hooks"), el("p", "meta", "在固定时刻运行本机命令：用户提交（UserPromptSubmit）、工具执行前（PreToolUse）、工具成功后（PostToolUse）、模型准备结束（Stop）。格式同 Claude Code 的 hooks 段；填配置原文，或相对 agent 目录的文件路径（如 hooks/hooks.json）。对话开始时读成原文拍进快照。命令不在沙箱里运行，只有平台账号能设置。"));
   const hooksBox = el("textarea"); hooksBox.rows = 3; hooksBox.style.width = "100%"; hooksBox.value = values.hooks;
   hooksBox.placeholder = "hooks/hooks.json\n或 {\"hooks\": {\"PostToolUse\": [{\"matcher\": \"edit_file|write_file\", \"hooks\": [{\"type\": \"command\", \"command\": \"...\"}]}]}}";
@@ -279,7 +279,7 @@ export async function openSkills() {
   }
 }
 // 预设统一从源码启动，在项目根目录执行，无需提前准备可执行文件。
-const MCP_PRESETS = [["observer", location.origin + "/mcp", "观测台内置的远程 MCP server（Streamable HTTP），工具是 agent 的 calculator"], ["everything", "go run github.com/mark3labs/mcp-go/examples/everything@v1.1.1", "Day 6 示例 server；首次运行会下载并编译"], ["calculator", "go run . -mcp-serve", "Day 7 本项目 server，始终用当前源码"]];
+const MCP_PRESETS = [["observer", location.origin + "/mcp", "观测台内置的远程 MCP server（Streamable HTTP），工具是 agent 的 calculator"], ["everything", "go run github.com/mark3labs/mcp-go/examples/everything@v1.1.1", "示例 server；首次运行会下载并编译"], ["calculator", "go run . -mcp-serve", "本项目 server，始终用当前源码"]];
 export async function openMCP() {
   const panel = await openHubPage("MCP 中心", "两种 server：填 http(s) 地址是远程 server（Streamable HTTP，每条消息一个 POST）；填命令是本地 stdio server（相对 agent 目录执行，按空格切分、不经过 shell）。配置保存在 .data/hub.json。新对话勾选 MCP 时，打开的 server 由 agent 逐个连接，工具注册为 mcp_<原名>；连不上的 server 跳过，与已有工具重名的工具跳过。");
   if (!panel) return;

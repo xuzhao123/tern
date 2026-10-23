@@ -46,7 +46,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// 唯一入口：go run . observe 启动观测台（含内置远程 MCP）；go run . queue 运行任务队列；go run . metrics 统计 D15 指标；go run . eval 跑 D16 评测与 D17 归因；go run . audit 查看并校验 D21 审计日志；go run . rewind 按轮撤销 D29 的文件改动；其余用法都是 agent 本身。
+// 唯一入口：go run . observe 启动观测台（含内置远程 MCP）；go run . queue 运行任务队列；go run . metrics 统计指标；go run . eval 跑评测与归因；go run . audit 查看并校验审计日志；go run . rewind 按轮撤销文件改动；其余用法都是 agent 本身。
 func main() {
 	run := run
 	if len(os.Args) > 1 && os.Args[1] == "observe" {
@@ -57,7 +57,7 @@ func main() {
 		os.Exit(sandbox.Init(os.Args[2:]))
 	}
 	service := "agent"
-	// D34：终端客户端，每一轮启动一个 -app-server 的 agent 子进程，经协议交互。
+	// 终端客户端，每一轮启动一个 -app-server 的 agent 子进程，经协议交互。
 	if len(os.Args) > 1 && os.Args[1] == "chat" {
 		run, service = func() error { return chat.Run(os.Args[2:]) }, "chat"
 	}
@@ -67,11 +67,11 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "observe" {
 		service = "observer"
 	}
-	// D16：评测集与回归；D17：归因卡片与回放验证。
+	// 评测集与回归；归因卡片与回放验证。
 	if len(os.Args) > 1 && os.Args[1] == "eval" {
 		run, service = func() error { return eval.Run(os.Args[2:]) }, "eval"
 	}
-	// D21：列出并校验审计日志；只读 .data/audit，不请求模型。
+	// 列出并校验审计日志；只读 .data/audit，不请求模型。
 	if len(os.Args) > 1 && os.Args[1] == "audit" {
 		if err := audit.Run(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
@@ -79,7 +79,7 @@ func main() {
 		}
 		return
 	}
-	// D29：撤销某一轮及之后各轮改过的文件（观测台的“撤销”按钮也走这里）；不请求模型。
+	// 撤销某一轮及之后各轮改过的文件（观测台的“撤销”按钮也走这里）；不请求模型。
 	if len(os.Args) > 1 && os.Args[1] == "rewind" {
 		if err := agent.RewindCommand(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
@@ -87,7 +87,7 @@ func main() {
 		}
 		return
 	}
-	// D15：只读检查点和 trace，统计 5 个核心指标；不请求模型，也不创建 span。
+	// 只读检查点和 trace，统计 5 个核心指标；不请求模型，也不创建 span。
 	if len(os.Args) > 1 && os.Args[1] == "metrics" {
 		if err := metrics.Run(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
@@ -98,7 +98,7 @@ func main() {
 	if slices.Contains(os.Args, "-mcp-serve") {
 		service = "mcp-calculator"
 	}
-	// D13：每个进程各自安装 OpenTelemetry SDK；退出前 shutdown，把缓冲的 span 发完。
+	// 每个进程各自安装 OpenTelemetry SDK；退出前 shutdown，把缓冲的 span 发完。
 	shutdown := telemetry.Start(service)
 	err := run()
 	shutdown()
@@ -118,33 +118,33 @@ func run() error {
 	var imagePaths stringList
 	flag.Var(&imagePaths, "image", "图片输入：随问题附带的图片路径（PNG、JPEG、GIF、WebP，可重复）；发给模型前会缩放并写进附件目录")
 	historyStdin := flag.Bool("history-stdin", false, "从stdin读取上次模型上下文JSON，配合-question续聊")
-	appServer := flag.Bool("app-server", false, "B0：以结构化协议与界面通信（JSON-RPC，一行一条）：stdout 只走协议，日志改走 stderr；问题与续聊上下文由 turn/start 给出")
+	appServer := flag.Bool("app-server", false, "以结构化协议与界面通信（JSON-RPC，一行一条）：stdout 只走协议，日志改走 stderr；问题与续聊上下文由 turn/start 给出")
 	flag.StringVar(&agent.Continues, "continues", "", "续聊时上一轮的检查点ID：本轮用新ID，记下续接关系，子任务可按 task_id 引用之前各轮派出的子任务")
 	parallel := flag.Int("parallel", 4, "同时执行的工具数，1 到 16")
 	maxSteps := flag.Int("max-steps", 10, "模型请求总次数，包含最终回答和上下文摘要；0 表示不限（靠熔断与停止收住）")
 	retries := flag.Int("retries", 2, "工具失败后额外重试次数，0 到 5")
 	provider := flag.String("provider", "ark", "模型路由：ark（豆包，方舟）、deepseek、deepseekanthropic（DeepSeek 的 Anthropic 接口）或 coconut（本机 Responses 服务）；地址、模型与密钥见 README")
-	check := flag.String("check", "", "D36：不请求模型，只在沙箱里跑这条校验命令（工作区只读挂载，同 verify_feature），输出 JSON 的退出码与输出后退出；须配合 -workspace 与 -bash")
-	// D37 消融的开关：默认值就是现在的做法。
-	flag.StringVar(&llm.ToolFormat, "tool-format", "json", "D37 消融：工具结果发给模型的格式，json（默认）或 text（只在发请求时换成纯文本，多行原样）")
-	flag.StringVar(&workspace.PromptVariant, "coding-prompt", "default", "D37 消融：编码提示词，minimal（只说工作区）、default、extended（加并行读取、只用编辑工具改、该问就问、没验证不下结论）")
-	flag.BoolVar(&agent.Todo, "todo", false, "D37 消融：提供上下文内的 todo_write 清单工具（默认不提供，见 D27）")
-	flag.BoolVar(&agent.ClearOldResults, "clear-old-results", false, "D37 消融：续聊时把之前各轮的工具结果换成占位（R2、O13）")
-	flag.BoolVar(&agent.AskUser, "ask-user", false, "D34：提供 ask_user 工具，模型可以在运行中向用户提问（经协议的 user/requestInput）；只在界面上有人能当场回答时打开（终端客户端、观测台）")
-	verifier := flag.String("verifier", "", "D31：判定功能是否完成的验证者用哪家供应商；默认和主模型不同的一家（主模型是 DeepSeek 时用 ark，否则 deepseek）")
+	check := flag.String("check", "", "不请求模型，只在沙箱里跑这条校验命令（工作区只读挂载，同 verify_feature），输出 JSON 的退出码与输出后退出；须配合 -workspace 与 -bash")
+	// 消融的开关：默认值就是现在的做法。
+	flag.StringVar(&llm.ToolFormat, "tool-format", "json", "消融：工具结果发给模型的格式，json（默认）或 text（只在发请求时换成纯文本，多行原样）")
+	flag.StringVar(&workspace.PromptVariant, "coding-prompt", "default", "消融：编码提示词，minimal（只说工作区）、default、extended（加并行读取、只用编辑工具改、该问就问、没验证不下结论）")
+	flag.BoolVar(&agent.Todo, "todo", false, "消融：提供上下文内的 todo_write 清单工具（默认不提供）")
+	flag.BoolVar(&agent.ClearOldResults, "clear-old-results", false, "消融：续聊时把之前各轮的工具结果换成占位")
+	flag.BoolVar(&agent.AskUser, "ask-user", false, "提供 ask_user 工具，模型可以在运行中向用户提问（经协议的 user/requestInput）；只在界面上有人能当场回答时打开（终端客户端、观测台）")
+	verifier := flag.String("verifier", "", "判定功能是否完成的验证者用哪家供应商；默认和主模型不同的一家（主模型是 DeepSeek 时用 ark，否则 deepseek）")
 	model := flag.String("model", "", "这家供应商下的具体模型，优先于 LLM_MODEL / DEEPSEEK_MODEL 与默认值；作为启动参数写进检查点，续跑、回放与子 agent 沿用")
 	effort := flag.String("reasoning-effort", "high", "所有请求统一的推理强度：minimal、low、medium或high")
-	window := flag.Int("context-window", 12288, "上下文总窗口（学习实验值），输入容量扣除输出预算预留与推理余量")
+	window := flag.Int("context-window", 12288, "上下文总窗口（命令行默认值偏小，长任务按模型调大；观测台按模型取核对过的上限），输入容量扣除输出预算预留与推理余量")
 	output := flag.Int("max-output-tokens", 0, "可选输出上限（含推理）；0不向API传限制，输入预算仍预留4096")
 	reserve := flag.Int("reasoning-reserve", 1024, "输入容量额外预留的安全余量")
 	toolOutput := flag.Int("tool-output-tokens", 2000, "工具结果写入视图的估算token上限，至少64")
 	keepGroups := flag.Int("keep-groups", 2, "压缩后最多保留的最近完整消息组数")
-	flag.BoolVar(&retrieval.Enabled, "rag", false, "Day 4：启用本地知识库检索工具与来源引用")
+	flag.BoolVar(&retrieval.Enabled, "rag", false, "启用本地知识库检索工具与来源引用")
 	embeddingMode := flag.String("embedding", "ark", "向量模型：ark（线上方舟）或local（本地纯Go推理）")
 	threshold := flag.Float64("min-score", retrieval.MinScore, "检索余弦相似度阈值，-1到1")
 	searchQuery := flag.String("search-docs", "", "只执行检索；不调用聊天模型，local模式无需密钥")
 	searchK := flag.Int("k", 3, "search-docs 返回的候选数，1到6")
-	memoryEnabled := flag.Bool("memory", false, "Day 5：启用跨进程长期记忆（.data/memory.json）")
+	memoryEnabled := flag.Bool("memory", false, "启用跨进程长期记忆（.data/memory.json）")
 	memoryTTL := flag.Duration("memory-ttl", 0, "本轮“记住”写入的有效期，如 1m；0 表示不过期")
 	memoryLimit := flag.Int("memory-limit", 200, "长期记忆总量上限；超出时淘汰重要性×新近度最低的一条")
 	memoryForget := flag.String("memory-forget", "", "只删除指定编号的长期记忆后退出（人工修正）")
@@ -153,36 +153,36 @@ func run() error {
 	memoryContextCalls := flag.Int("memory-context-calls", 4, "本次运行最多发起几次记忆背景生成，0 表示不生成（全部按原文检索）")
 	memoryTokens := flag.Int("memory-tokens", 800, "开场注入或 search_memory 返回的记忆估算 token 预算")
 	var mcpCommands, skillNames stringList
-	flag.Var(&mcpCommands, "mcp-server", "Day 6：MCP server 子进程命令（按空格切分，可重复给多个）；配合-question时把它们的tools注册为agent工具")
-	mcpList := flag.Bool("mcp-list", false, "Day 6：用SDK连接-mcp-server，打印协议版本、capabilities与工具列表后退出，不请求模型")
-	mcpRaw := flag.String("mcp-raw", "", "Day 6：不用SDK，手写JSON-RPC走stdio：legacy（initialize握手）或modern（server/discover+每请求_meta）")
+	flag.Var(&mcpCommands, "mcp-server", "MCP server 子进程命令（按空格切分，可重复给多个）；配合-question时把它们的tools注册为agent工具")
+	mcpList := flag.Bool("mcp-list", false, "用SDK连接-mcp-server，打印协议版本、capabilities与工具列表后退出，不请求模型")
+	mcpRaw := flag.String("mcp-raw", "", "不用SDK，手写JSON-RPC走stdio：legacy（initialize握手）或modern（server/discover+每请求_meta）")
 	mcpCall := flag.String("mcp-call", "", "配合-mcp-list或-mcp-raw：再调用一次该工具")
 	mcpArgs := flag.String("mcp-args", "{}", "mcp-call的参数JSON")
-	mcpServe := flag.Bool("mcp-serve", false, "Day 7：作为MCP server运行（stdio），暴露calculator；须单独使用")
+	mcpServe := flag.Bool("mcp-serve", false, "作为MCP server运行（stdio），暴露calculator；须单独使用")
 	mcpHTTP := flag.String("mcp-http", "", "配合-mcp-serve：改用 Streamable HTTP（远程 MCP）在该地址提供 /mcp，如 127.0.0.1:8091")
 	flag.BoolVar(&skills.Enabled, "skills", false, "Bonus：扫描skills/*/SKILL.md，system中放索引，增加load_skill工具")
 	flag.Var(&skillNames, "skill", "配合-skills：只启用这个名字的skill（可重复）；不给则启用全部")
 	skillsList := flag.Bool("skills-list", false, "只扫描skills/并以JSON输出每个skill的元数据、正文与错误，不请求模型；须单独使用")
-	timeout := flag.Duration("timeout", 0, "Day 8：整次运行的时限，如 2m；0 表示不限（仍可 Ctrl+C 取消）")
-	flag.DurationVar(&agent.ToolTimeout, "tool-timeout", agent.ToolTimeout, "Day 8：单次工具尝试的时限；超时记为结果未知（bash 由沙箱终止，返回终止前的输出）")
-	taskID := flag.String("task-id", "", "Day 9：检查点ID（字母、数字和 ._-）；不给则生成随机 UUID")
-	resume := flag.String("resume", "", "Day 9：从这个ID的检查点续跑；配置取自检查点，须单独使用")
-	flag.BoolVar(&browser.Enabled, "browser", false, "Day 11：增加 web_search 与 open_page，用无头 Chrome 查资料（CHROME_PATH 可指定浏览器）")
+	timeout := flag.Duration("timeout", 0, "整次运行的时限，如 2m；0 表示不限（仍可 Ctrl+C 取消）")
+	flag.DurationVar(&agent.ToolTimeout, "tool-timeout", agent.ToolTimeout, "单次工具尝试的时限；超时记为结果未知（bash 由沙箱终止，返回终止前的输出）")
+	taskID := flag.String("task-id", "", "检查点ID（字母、数字和 ._-）；不给则生成随机 UUID")
+	resume := flag.String("resume", "", "从这个ID的检查点续跑；配置取自检查点，须单独使用")
+	flag.BoolVar(&browser.Enabled, "browser", false, "增加 web_search 与 open_page，用无头 Chrome 查资料（CHROME_PATH 可指定浏览器）")
 	flag.BoolVar(&websearch.Enabled, "ds-search", false, "增加 ds_search 与 ds_fetch，用 DeepSeek 的搜索与抓取 API 查资料（读取 DEEPSEEK_API_KEY）")
 	disallowedTools := flag.String("disallowed-tools", "", "从工具清单里去掉单个工具（与 Claude Code 的 --disallowed-tools 同名，只认工具名；按调用拦用 -deny），逗号分隔：内置的 calculator、get_current_datetime，浏览器的 web_search、open_page")
-	flag.BoolVar(&sandbox.Enabled, "bash", false, "Day 12：增加 bash 与 request_network_access，在 bubblewrap 沙箱里执行命令（仅 Linux）")
+	flag.BoolVar(&sandbox.Enabled, "bash", false, "增加 bash 与 request_network_access，在 bubblewrap 沙箱里执行命令（仅 Linux）")
 	flag.BoolVar(&sandbox.ProjectRO, "bash-project-ro", false, "配合 -bash：把项目目录只读挂到 /project（.env、.data、.git 除外）")
 	var netAllow stringList
 	flag.Var(&netAllow, "net-allow", "配合 -bash：沙箱可经代理访问的域名（含子域名，可重复）；由用户批准后添加")
-	flag.BoolVar(&agent.PrivateInput, "private-input", false, "D20：任务输入已含私有数据（父 agent 派出子任务时自动加上）：外发类工具执行前要用户确认")
+	flag.BoolVar(&agent.PrivateInput, "private-input", false, "任务输入已含私有数据（父 agent 派出子任务时自动加上）：外发类工具执行前要用户确认")
 	flag.StringVar(&tenant.Current, "tenant", "", "多租户：本任务所属的租户；检查点、记忆、沙箱、浏览器画面与审计都放在 .data/tenants/<租户>/ 下。不给时是平台空间 .data/")
-	flag.StringVar(&permission.Mode, "permission-mode", permission.Mode, "D25：权限模式 plan（只读）、ask（改动都问）、edit（工作区内编辑与沙箱 bash 直接执行）、full（不问，含高风险确认；deny、ask 规则照常）")
+	flag.StringVar(&permission.Mode, "permission-mode", permission.Mode, "权限模式 plan（只读）、ask（改动都问）、edit（工作区内编辑与沙箱 bash 直接执行）、full（不问，含高风险确认；deny、ask 规则照常）")
 	var allowRules, askRules, denyRules stringList
-	flag.Var(&allowRules, "allow", "D25：允许规则，如 Bash(go build *)、Edit(docs/**)（可重复）")
-	flag.Var(&askRules, "ask", "D25：询问规则，如 Edit(internal/agent/**)（可重复）")
-	flag.Var(&denyRules, "deny", "D25：拒绝规则，如 Bash(git push *)、Read(.env)（可重复）；顺序 deny › ask › allow")
-	hooksConfig := flag.String("hooks", "", "D26：生命周期 hooks 配置（Claude Code 的 hooks 格式）：JSON 原文或文件路径；命令在宿主机上运行，只由用户提供")
-	workspaceDir := flag.String("workspace", "", "D23：增加编码工具 read_file、glob、grep、edit_file、write_file，只在这个仓库目录里读写")
+	flag.Var(&allowRules, "allow", "允许规则，如 Bash(go build *)、Edit(internal/**)（可重复）")
+	flag.Var(&askRules, "ask", "询问规则，如 Edit(internal/agent/**)（可重复）")
+	flag.Var(&denyRules, "deny", "拒绝规则，如 Bash(git push *)、Read(.env)（可重复）；顺序 deny › ask › allow")
+	hooksConfig := flag.String("hooks", "", "生命周期 hooks 配置（Claude Code 的 hooks 格式）：JSON 原文或文件路径；命令在宿主机上运行，只由用户提供")
+	workspaceDir := flag.String("workspace", "", "增加编码工具 read_file、glob、grep、edit_file、write_file，只在这个仓库目录里读写")
 	subagents := flag.Bool("subagents", false, "增加 spawn_agent：把独立子任务交给全新上下文的子 agent（子进程）")
 	flag.IntVar(&agent.SubagentSteps, "subagent-steps", agent.SubagentSteps, "每个子 agent 的模型请求预算，1到20")
 	flag.Parse()
@@ -217,10 +217,10 @@ func run() error {
 		*question, *taskID, *historyStdin, *appServer = cp.Question, cp.ID, false, wantAppServer
 		agent.Resume = cp
 	}
-	// B0：-app-server 时 stdout 归协议所有，在任何打印之前分流。
+	// -app-server 时 stdout 归协议所有，在任何打印之前分流。
 	var history *agent.HistoryInput
 	var turnImages []imageRef // turn/start 带进来的附件引用，与 -image 一样在本轮用户消息里
-	var turnNotes []string    // turn/start 带进来的提醒（D34）
+	var turnNotes []string    // turn/start 带进来的提醒
 	starts := make(chan protocol.Message, 1)
 	interrupted := make(chan struct{})
 	var interruptOnce sync.Once
@@ -239,7 +239,7 @@ func run() error {
 			case "turn/interrupt":
 				interrupt()
 				protocol.Client.Reply(*m.ID, nil, nil)
-			case "turn/steer": // D34：运行中插话，排进下一次模型请求；这一轮已经结束时如实拒绝，界面改作下一轮的问题
+			case "turn/steer": // 运行中插话，排进下一次模型请求；这一轮已经结束时如实拒绝，界面改作下一轮的问题
 				var p struct{ Text string }
 				json.Unmarshal(m.Params, &p)
 				switch {
@@ -286,8 +286,8 @@ func run() error {
 				History   *agent.HistoryInput `json:"history"`
 				Continues string              `json:"continues"`
 				Images    []imageRef          `json:"images"`
-				Compact   bool                `json:"compact"` // D34：/compact，第一次请求前先压缩
-				Notes     []string            `json:"notes"`   // D34：界面要告诉模型的情况（如只退了对话、文件没退），以提醒追加在问题后面
+				Compact   bool                `json:"compact"` // /compact，第一次请求前先压缩
+				Notes     []string            `json:"notes"`   // 界面要告诉模型的情况（如只退了对话、文件没退），以提醒追加在问题后面
 			}
 			if err := json.Unmarshal(m.Params, &params); err != nil || strings.TrimSpace(params.Question) == "" {
 				protocol.Client.Reply(*m.ID, nil, &protocol.Error{Code: -32602, Message: "turn/start 需要非空的 question"})
@@ -396,7 +396,7 @@ func run() error {
 		}
 		if *memoryForget != "" {
 			// 删除不做容量淘汰：一次性命令的默认上限不能顺带删掉其他记忆。
-			// D21：人发起的删除（命令行或观测台记忆页的按钮），先记下是谁要求的，删除本身由记忆模块记录。
+			// 人发起的删除（命令行或观测台记忆页的按钮），先记下是谁要求的，删除本身由记忆模块记录。
 			audit.Log(context.Background(), audit.Record{Actor: "user", Event: "memory_forget_command", Target: *memoryForget})
 			_, err := memory.Active.Forget(*memoryForget, "人工删除")
 			return err
@@ -451,7 +451,7 @@ func run() error {
 		ctx, cancel = context.WithTimeout(ctx, *timeout)
 		defer cancel()
 	}
-	// D13：一次运行一个根 span invoke_agent。父进程（观测台、队列、父 agent）通过 TRACEPARENT 把它挂到自己的 span 下；
+	// 一次运行一个根 span invoke_agent。父进程（观测台、队列、父 agent）通过 TRACEPARENT 把它挂到自己的 span 下；
 	// 启动阶段的检索建库、MCP 连接也在它下面。结局与任务ID由 agent.Run 补上。
 	ctx, root := telemetry.Begin(telemetry.FromEnv(ctx), "invoke_agent tern", trace.SpanKindInternal, agent.RootAttributes()...)
 	defer root.End()
@@ -545,7 +545,7 @@ func run() error {
 		llm.Tools = append(llm.Tools, workspace.Definitions...)
 		fmt.Printf("Workspace: dir=%s（编码工具只在这里读写）\n", workspace.Dir)
 		if sandbox.Enabled {
-			// D25：bash 看到的 /workspace 就是这个仓库；plan 模式挂成只读。
+			// bash 看到的 /workspace 就是这个仓库；plan 模式挂成只读。
 			sandbox.Project, sandbox.ProjectWrite, sandbox.GoCache = workspace.Dir, permission.Mode != "plan", tenant.Here("gocache")
 			// 环境信息里写清 bash 里的工作区路径：编码工具用的是宿主机路径，bash 里是 /workspace。
 			workspace.BashMount = "/workspace"
@@ -556,7 +556,7 @@ func run() error {
 		sandbox.Timeout = agent.ToolTimeout
 		llm.Tools = append(llm.Tools, sandbox.Definitions()...)
 	}
-	// D36：评测的校验命令。和 verify_feature 一样在工作区只读的沙箱里跑：被测的代码是模型改过的，不在宿主机上直接执行。
+	// 评测的校验命令。和 verify_feature 一样在工作区只读的沙箱里跑：被测的代码是模型改过的，不在宿主机上直接执行。
 	// 沙箱目录（/scratch）默认每次新建；评测用 AGENT_CHECK_DIR 指定，先把这道题的检查脚本放进去，用完删掉。
 	// 结果是 stdout 的最后一行（之前的日志也在 stdout）。
 	if *check != "" {
@@ -572,7 +572,7 @@ func run() error {
 		}
 		return json.NewEncoder(os.Stdout).Encode(result)
 	}
-	// D31：有工作区又开了 bash 时提供长任务接力：进度文件与独立验证（校验命令在工作区只读的沙箱里跑）。
+	// 有工作区又开了 bash 时提供长任务接力：进度文件与独立验证（校验命令在工作区只读的沙箱里跑）。
 	if workspace.Dir != "" && sandbox.Enabled {
 		llm.Tools = append(llm.Tools, agent.ProgressDefinitions...)
 		workspace.Protected[".agent/progress.json"] = "进度文件只能用 progress、verify_feature 改：一项是否通过由独立验证决定"
@@ -616,7 +616,7 @@ func run() error {
 	}
 	config.Effort = *effort
 	fmt.Printf("Model: provider=%s model=%s upstream=%s\n", config.Provider, config.Model, config.Upstream)
-	// B0：一轮开始。界面从这里拿任务ID（检查点、浏览器画面目录都按它存放）、输入容量和 trace_id，不再从日志里解析。
+	// 一轮开始。界面从这里拿任务ID（检查点、浏览器画面目录都按它存放）、输入容量和 trace_id，不再从日志里解析。
 	sandboxID := "" // 启用 bash 时是本对话沙箱目录的名字（对话第一轮的检查点ID），界面按它列出沙箱文件
 	turnStarted := func(turn string) {
 		thread := telemetry.ConversationID
@@ -673,7 +673,7 @@ func run() error {
 		}
 		llm.Tools = append(append(llm.Tools, agent.SpawnDefinition), agent.ControlDefinitions...)
 	}
-	// D9：每次普通运行都写检查点，并在整个运行期间持有它的锁，同一任务不会被两个进程同时执行。
+	// 每次普通运行都写检查点，并在整个运行期间持有它的锁，同一任务不会被两个进程同时执行。
 	// 通信方式不存进检查点：之后在命令行续跑时，不该变成协议模式。
 	agent.CheckpointID, agent.CheckpointArgs = *taskID, slices.DeleteFunc(slices.Clone(os.Args[1:]), func(a string) bool { return a == "-app-server" || a == "--app-server" })
 	if agent.CheckpointID == "" {
@@ -699,7 +699,7 @@ func run() error {
 	}
 	defer unlock()
 	audit.Task, audit.Conversation = agent.CheckpointID, telemetry.ConversationID
-	// D21：启动参数带进来的联网白名单也是用户授权（命令行，或观测台把之前的批准转成参数），每次运行记一条。
+	// 启动参数带进来的联网白名单也是用户授权（命令行，或观测台把之前的批准转成参数），每次运行记一条。
 	for _, domain := range sandbox.Allow {
 		audit.Log(ctx, audit.Record{Actor: "user", Event: "network_allow_flag", Target: domain, Decision: "allow", Detail: "启动参数 -net-allow"})
 	}
@@ -708,7 +708,7 @@ func run() error {
 	}
 	llm.TaskID = agent.CheckpointID
 	if workspace.Dir != "" {
-		// D29：改文件之前的快照按轮存放。子 agent 继承父进程的环境变量，它的改动记在派出它的那一轮里。
+		// 改文件之前的快照按轮存放。子 agent 继承父进程的环境变量，它的改动记在派出它的那一轮里。
 		turn := os.Getenv("AGENT_FILES_TURN")
 		if turn == "" || !agent.ValidID(turn) {
 			turn = agent.CheckpointID
@@ -745,7 +745,7 @@ func run() error {
 		}
 		fmt.Printf("Hooks: events=%s dir=%s\n", strings.Join(configured, ","), hooks.Dir)
 	}
-	// D30：过长的工具输出存进本对话的目录，模型用 read_output 读回。工具从第一次请求就提供，
+	// 过长的工具输出存进本对话的目录，模型用 read_output 读回。工具从第一次请求就提供，
 	// 不在中途加：工具列表是请求前缀的一部分，中途变化会让之前的提示词缓存全部失效。
 	agent.OutputDir = tenant.Here("outputs", first)
 	llm.Tools = append(llm.Tools, agent.ReadOutputDefinition)
@@ -755,7 +755,7 @@ func run() error {
 	}
 	fmt.Printf("Checkpoint: id=%s file=%s（中断后用 -resume %s 续跑）\n", agent.CheckpointID, agent.CheckpointPath(agent.CheckpointID), agent.CheckpointID)
 	hooks.Session = first
-	// D26：/名字 开头的输入是斜杠命令，展开成模板里的提示词再交给 agent；续跑的问题已经是展开后的。
+	// /名字开头的输入是斜杠命令，展开成模板里的提示词再交给 agent；续跑的问题已经是展开后的。
 	if agent.Resume == nil {
 		prompt, name, err := commands.Expand(*question, ".", workspace.Dir)
 		if err != nil {
@@ -766,7 +766,7 @@ func run() error {
 			*question = prompt
 		}
 	}
-	agent.OpenJournal() // D40：只追加的会话记录，从 turn/started 起写
+	agent.OpenJournal() // 只追加的会话记录，从 turn/started 起写
 	turnStarted(agent.CheckpointID)
 	// 图片输入：本轮的附图。续跑沿用检查点里的消息，不再从文件重读；处理不了的图换成文字占位，不让这一轮失败。
 	// 续聊时编号接着历史里已有的图往后数。

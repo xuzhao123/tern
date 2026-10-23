@@ -83,7 +83,7 @@ dropZone.addEventListener("drop", (ev) => {
 $("composer").onsubmit = (ev) => {
   ev.preventDefault();
   const query = $("query").value.trim();
-  // D34：运行中按回车是插话：排进 agent 的下一次模型请求，不打断正在进行的请求或工具。
+  // 运行中按回车是插话：排进 agent 的下一次模型请求，不打断正在进行的请求或工具。
   if ($("send").classList.contains("stop")) { if (query) steer(query); return; }
   if ($("send").disabled || !query) return;
   // 附了图又换到不能看图的模型：说明原因、保留图，换回能看图的模型就能发。
@@ -125,7 +125,7 @@ $("settings").onclick = () => openSettings();
 // 输入法组合输入时的 Enter 用于选词，不能发送。
 $("query").onkeydown = (ev) => { if (ev.key === "Enter" && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); $("composer").requestSubmit(); } };
 $("query").oninput = () => { autosize(); syncComposer(); syncSlash(); };
-// D26：斜杠命令。输入框里只有 /前缀 时列出命令（个人级 commands/、所选工作区的 .agents/commands/）；展开由 agent 做。
+// 斜杠命令。输入框里只有 /前缀时列出命令（个人级 commands/、所选工作区的 .agents/commands/）；展开由 agent 做。
 async function loadCommands() {
   const ws = ui.run ? ui.run.workspace || "" : $("workspace").value;
   if (ui.commands && ui.commandsFor === ws) return;

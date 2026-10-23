@@ -21,7 +21,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// D16/D17：观测台是评测的界面。评测逻辑（选题、执行、打分、回放）在 internal/eval，与 go run . eval 共用同一份记录；
+// 观测台是评测的界面。评测逻辑（选题、执行、打分、回放）在 internal/eval，与 go run . eval 共用同一份记录；
 // 观测台给每个试次建一条对话：模型请求经本机代理、协议通知存成事件，所以每个试次都能像普通对话一样看轨迹、调用链。
 type evalJob struct {
 	runner *eval.Runner
@@ -313,7 +313,7 @@ func (s *server) attributeRun(w http.ResponseWriter, req *http.Request) {
 	source := r.trajectory(task)
 	r.mu.Unlock()
 	if !done || task == "" {
-		http.Error(w, "对话还在运行，或者没有检查点（Day 9 之前的存档、实验）", http.StatusConflict)
+		http.Error(w, "对话还在运行，或者没有检查点（早期的存档）", http.StatusConflict)
 		return
 	}
 	var id string
@@ -379,7 +379,7 @@ func (r *run) trajectory(task string) eval.Source {
 	}
 	var b strings.Builder
 	header := false
-	bodies := requestBodies(r.events) // O20：存档里的请求可能是增量，先还原成整份
+	bodies := requestBodies(r.events) // 存档里的请求可能是增量，先还原成整份
 	for k, e := range r.events[from:] {
 		main := !e.Sub && (e.Purpose == "" || e.Purpose == "main")
 		body := bodies[from+k]

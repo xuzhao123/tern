@@ -204,7 +204,7 @@ type failure struct {
 }
 
 const (
-	cookieName = "la_session"
+	cookieName = "tern_session"
 	sessionTTL = 12 * time.Hour
 	lockAfter  = 5 // 连续失败几次后锁定这个用户名
 	lockFor    = time.Minute
@@ -389,7 +389,7 @@ func (s *server) loginPage(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	token, u, err := s.auth.login(input.Name, input.Password)
-	// D21：登录成败都写审计。已知账号写进它所属空间的链；不存在的用户名写平台的链，只记合法格式的名字。
+	// 登录成败都写审计。已知账号写进它所属空间的链；不存在的用户名写平台的链，只记合法格式的名字。
 	record := audit.Record{Actor: "user", Event: "login", Status: "ok", User: u.Name, Tenant: u.Tenant}
 	if err != nil {
 		record.Status, record.Detail = "failed", err.Error()

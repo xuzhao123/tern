@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// B0 接管：可以脱离的连接。观测台启动的 agent 不用 stdio，而是在 AGENT_APP_SOCKET 指定的 Unix socket 上等界面连进来。
+// 接管：可以脱离的连接。观测台启动的 agent 不用 stdio，而是在 AGENT_APP_SOCKET 指定的 Unix socket 上等界面连进来。
 // 观测台退出或重启时连接断开，agent 照常运行：发出的通知与请求（item/delta 除外）按顺序编号留在内存里，
 // 界面重新连上时先发 session/attach，说出已经收到第几条（after）；agent 补发之后的各条，
 // 以及还在等答复的请求（哪怕界面收到过：新的界面要重新登记它们）。

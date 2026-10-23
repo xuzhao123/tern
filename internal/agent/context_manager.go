@@ -52,10 +52,10 @@ type Context struct {
 	tailStart, summaryAt   int
 	stepsSinceCompact      int
 	forceFull              bool
-	forceCompact           bool // D34：下一次请求前先压缩，不管用量（/compact）
-	// D30：已经提醒过模型的用量档位（50、75）；压缩后用量回落，清零重新计。
+	forceCompact           bool // 下一次请求前先压缩，不管用量（/compact）
+	// 已经提醒过模型的用量档位（50、75）；压缩后用量回落，清零重新计。
 	announced int
-	// D24/O7：上一次告诉模型的环境（按字段）；压缩后清空，下一轮重发整份。随检查点的 State 跨进程。
+	// 上一次告诉模型的环境（按字段）；压缩后清空，下一轮重发整份。随检查点的 State 跨进程。
 	env map[string]string
 }
 
@@ -104,7 +104,7 @@ func restoreContext(history HistoryInput, options ContextOptions) (*Context, err
 	return rebuildContext(history, options), nil
 }
 
-// D37 消融（R2、O13）：续聊时把之前各轮的工具结果换成占位，只留工具名、原长度和存档名（还能用 read_output 读）。
+// 消融：续聊时把之前各轮的工具结果换成占位，只留工具名、原长度和存档名（还能用 read_output 读）。
 // 每轮开头清一次：这一轮的请求前缀从被清理处起不再命中缓存，之后整轮都稳定（“一轮只破一次缓存”）。
 // 已经清过的保持原样，所以上一轮清过的部分在下一轮仍是同一个前缀。短结果（不到 400 字）不清。
 var ClearOldResults bool
@@ -131,11 +131,11 @@ func clearOldResults(messages []llm.Message) ([]llm.Message, int) {
 	return out, cleared
 }
 
-// 续聊与 D9 续跑共用：按已校验的消息组重建 View，摘要消息单独标记。
+// 续聊与续跑共用：按已校验的消息组重建 View，摘要消息单独标记。
 func rebuildContext(history HistoryInput, options ContextOptions) *Context {
 	system := func() string { return history.Messages[0].Content }
 	if history.Messages[0].Content == "" {
-		system = SystemPrompt // D39 分叉：父对话的系统提示词说的是父的工具，子 agent 换成自己的
+		system = SystemPrompt // 分叉：父对话的系统提示词说的是父的工具，子 agent 换成自己的
 	}
 	c := NewContext(system, options, true)
 	for _, m := range history.Messages[1:] {
@@ -149,7 +149,7 @@ func rebuildContext(history HistoryInput, options ContextOptions) *Context {
 			c.Append(m)
 		}
 	}
-	// 普通续聊继续提供三种工具；实验此前没有工具时，首次重新估算新增定义。
+	// 续聊沿用服务端报的用量；之前没有工具时，首次重新估算新增定义。
 	if history.WithTools && history.Usage != nil {
 		c.LastUsage = history.Usage.Prompt + history.Usage.Completion
 		c.UsageAt = len(c.View)
@@ -159,7 +159,7 @@ func rebuildContext(history HistoryInput, options ContextOptions) *Context {
 }
 
 // 同一条工具结果只在首次进入View时处理；完整原文不受影响，之后追加不改写已有前缀。
-// D30：超过上限的结果先存成文件、视图里放开头结尾和文件名（见 outputs.go）；存不了（实验、不是 JSON）才截掉中间。
+// 超过上限的结果先存成文件、视图里放开头结尾和文件名（见 outputs.go）；存不了（没有检查点、不是 JSON）才截掉中间。
 func (c *Context) Append(m llm.Message) {
 	m.ToolCalls = append([]llm.ToolCall(nil), m.ToolCalls...)
 	c.Transcript = append(c.Transcript, m)
@@ -247,7 +247,7 @@ func (c *Context) Prepare(ctx context.Context, client *llm.Client) (err error) {
 			}
 		}()
 	}
-	// D13：压缩单独一个 span；摘要请求（purpose=compact 的 chat span）挂在它下面。
+	// 压缩单独一个 span；摘要请求（purpose=compact 的 chat span）挂在它下面。
 	ctx, span := telemetry.Begin(ctx, "compact_context", trace.SpanKindInternal, attribute.Int("agent.context.before", before), attribute.Int("agent.context.capacity", cap))
 	item := protocol.Item{ID: fmt.Sprintf("compact-%d", c.CompactCount+1), Type: "compaction", Data: map[string]int{"before": before, "capacity": cap}}
 	protocol.ItemStarted(llm.TaskID, item)
@@ -394,7 +394,7 @@ func (c *Context) finishCompact(before, cleared, summarized, kept, retries int) 
 	c.LastUsage, c.UsageAt, c.forceFull = 0, 0, false
 	c.stepsSinceCompact = 0
 	c.CompactCount++
-	// D30：告诉模型刚压缩过。不说的话，它以为之前读过的内容还在，找不到时只能猜；说了它才知道该重读，而且有 read_output 可用。
+	// 告诉模型刚压缩过。不说的话，它以为之前读过的内容还在，找不到时只能猜；说了它才知道该重读，而且有 read_output 可用。
 	c.announced, c.env = 0, nil
 	c.Append(llm.Reminder("[上下文已压缩] 较早的工具结果或对话已经清理或换成摘要，原文不在上下文里了。需要其中的细节时重新读取；工具结果里有 saved_output 的，用 read_output 读。"))
 	// 摘要会把子目录项目指令的提醒并进去，原文不在视图里了；按新视图重新标记，之后用到那个目录时再发一次原文。
@@ -402,7 +402,7 @@ func (c *Context) finishCompact(before, cleared, summarized, kept, retries int) 
 	fmt.Printf("Compact: before=%d after=%d cleared_tools=%d summarized=%dmsgs kept_groups=%d kept_user=%d retries=%d %s\n", before, llm.ContextTokens(c.View, c.withTools), cleared, summarized, kept, max(0, c.summaryAt-1), retries, c.parts())
 }
 
-// D30：用量越过 50%、75% 时各提醒模型一次。到 90% 会自动压缩，模型提前知道，就会少整份读大文件、多用分页和搜索。
+// 用量越过 50%、75% 时各提醒模型一次。到 90% 会自动压缩，模型提前知道，就会少整份读大文件、多用分页和搜索。
 // 只在越过档位时发，不是每次请求都发：每条提醒都会留在上下文里，次次都发反而占地方。
 func (c *Context) remindUsage(used, capacity int) {
 	level := 0

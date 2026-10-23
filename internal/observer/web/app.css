@@ -37,7 +37,6 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
 .navbtn { display: flex; align-items: center; gap: 10px; margin: 1px 8px; padding: 6px 10px; border: 0; border-radius: 8px; background: none; color: var(--text); text-align: left; font-size: 13.5px; text-decoration: none; }
 .navbtn:hover { background: var(--hover); }
 .navbtn .ico { display: grid; place-items: center; width: 16px; color: var(--muted); }
-.navbtn .tag { margin-left: auto; color: var(--faint); font: 11px var(--mono); }
 .navlabel { display: flex; justify-content: space-between; padding: 16px 18px 4px; font-size: 12px; color: var(--faint); }
 #runs { flex: 1; overflow: auto; padding: 0 8px 12px; }
 .runitem { display: flex; gap: 6px; align-items: center; padding: 6px 10px; border-radius: 8px; font-size: 13px; }
@@ -86,7 +85,7 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
 .banner { display: flex; align-items: center; gap: 12px; margin: 20px 0; color: var(--faint); font-size: 12px; }
 .banner::before, .banner::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
 .a { margin: 4px 0 8px; }
-/* D29：被撤销的轮次留在对话里，淡化显示 */
+/* 被撤销的轮次留在对话里，淡化显示 */
 .u.rewound div, .a.rewound { opacity: .45; }
 .utools { display: flex; justify-content: flex-end; align-items: center; gap: 12px; margin: -12px 0 8px; }
 .utools .meta { font-size: 12px; color: var(--faint); }
@@ -291,7 +290,7 @@ select.pick:disabled { background-image: none; padding-right: 8px; }
 .fp-tools input[type=file] { display: none; }
 .sp-item .sz { color: var(--muted); font: 12px var(--mono); }
 .fp-img { max-width: 100%; border: 1px solid var(--line); border-radius: 6px; }
-/* Day 12 bash 沙箱：终端卡片与网络审批 */
+/* bash 沙箱：终端卡片与网络审批 */
 .term { margin: 4px 0 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--term); color: var(--term-text); font: 12px/1.6 var(--mono); white-space: pre-wrap; word-break: break-word; max-height: 420px; overflow: auto; }
 .term .cmd { color: var(--term-cmd); }
 .exit-chip { padding: 0 5px; border-radius: 4px; font: 500 10px/1.7 var(--mono); background: var(--soft); color: var(--muted); }
@@ -303,14 +302,14 @@ select.pick:disabled { background-image: none; padding-right: 8px; }
 .net-card button { padding: 4px 14px; border: 1px solid var(--line); border-radius: 99px; background: var(--panel); font-size: 13px; }
 .net-card button:hover { background: var(--hover); }
 .net-card button.yes { border-color: var(--text); background: var(--text); color: var(--bg); }
-/* D34：ask_user 的提问卡片与运行中插话 */
+/* ask_user 的提问卡片与运行中插话 */
 .ask-card b { font: 600 14px var(--sans, inherit); }
 .ask-card .acts { margin-top: 8px; }
 .ask-input { flex: 1 1 220px; min-width: 0; padding: 5px 12px; border: 1px solid var(--line); border-radius: 99px; background: var(--bg); color: var(--text); font-size: 13px; }
 .u.steer { margin: 10px 0; }
 .u.steer div { background: none; border: 1px dashed var(--line); font-size: 14px; }
 .u.steer div::before { content: "插话 · "; color: var(--muted); }
-/* Day 11 浏览器：卡片缩略图 + 侧栏实时画面 */
+/* 浏览器：卡片缩略图 + 侧栏实时画面 */
 .web-card .av { overflow: hidden; width: 64px; height: 40px; border-radius: 6px; background: var(--soft); }
 .web-card .av img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
 .web-url { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; padding: 7px 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); font: 12px var(--mono); overflow-wrap: anywhere; }
@@ -339,7 +338,7 @@ select.pick:disabled { background-image: none; padding-right: 8px; }
 .ghost.on { background: var(--sel); }
 .stats { display: flex; flex-wrap: wrap; gap: 4px 20px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
 .stats span { color: var(--muted); font-size: 12px; }
-/* D13 调用链：span 树 + 瀑布图 + 由 span 汇总的指标 */
+/* 调用链：span 树 + 瀑布图 + 由 span 汇总的指标 */
 .spans { padding: 4px 0 16px; }
 .span-trace { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 10px 12px 6px; border-top: 1px solid var(--line); font-size: 13px; }
 .span-trace .meta, .span-note { color: var(--muted); font-size: 12px; }
@@ -524,7 +523,7 @@ details > summary { cursor: pointer; color: var(--muted); font-size: 12px; }
   .lrow .num, .lrow .tok { display: none; }
 }
 
-/* D16 评测 · D17 归因 */
+/* 评测 · 归因 */
 #thread:has(.evalpanel) { max-width: 1080px; }
 .evalpanel h3 { margin: 22px 0 8px; font-size: 15px; }
 .evalpanel .sub { margin: -4px 0 10px; font-size: 12px; color: var(--muted); }
