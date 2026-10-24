@@ -1,6 +1,6 @@
 # 远程 agent：网页操作用户本机的代码
 
-状态：设计稿，待确认。
+状态：搁置（2026-10-23）。需求对齐后改为照 Codex 的 SSH 远程来做，见 [app-server-design.md](app-server-design.md)。
 
 ## 1. 目标与范围
 

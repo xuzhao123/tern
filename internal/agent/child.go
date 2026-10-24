@@ -30,7 +30,7 @@ import (
 // 父 agent 的上下文它看不到，凭父的记录改文件等于改一个自己没看过的版本；它要改就先自己读。
 // 返回的错误按能否再试分类：llm.IsPermanent 为真时再跑也一样，否则可以稍后续跑。
 //
-// 子进程以 -app-server 启动，父进程就是它的界面：子进程的通知交给 child.Notify（子 agent 包一层转给上级界面，
+// 子进程以 -agent-server 启动，父进程就是它的界面：子进程的通知交给 child.Notify（子 agent 包一层转给上级界面，
 // 评测收下来打分，队列不要）；子进程的请求（联网审批）转给上级界面，没有上级界面时如实回答“没人能批准”。
 //
 // 多租户：child.Tenant 决定任务在哪个空间里（检查点、记忆、沙箱目录都在那里），子进程带 -tenant 启动。
@@ -70,7 +70,7 @@ func RunChild(ctx context.Context, id, question string, args []string, child Chi
 	if err != nil {
 		return cp, false, err
 	}
-	cmd := exec.CommandContext(ctx, self, append([]string{"-app-server"}, args...)...)
+	cmd := exec.CommandContext(ctx, self, append([]string{"-agent-server"}, args...)...)
 	// 协议走一对管道：子进程的 stdout → 父进程读，父进程写 → 子进程的 stdin。用 *os.File 而不是 io.Writer，Wait 不必等复制协程。
 	fromChild, childOut, err := os.Pipe()
 	if err != nil {

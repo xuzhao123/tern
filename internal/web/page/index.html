@@ -35,6 +35,8 @@
       <div id="heading"><div id="title">新对话</div><button id="run-id" type="button" aria-label="复制对话 ID" hidden></button></div>
       <div class="seg"><button id="page-chat">对话</button><button id="page-observe">观测</button></div>
       <button id="files-btn" class="ghost" type="button" hidden title="本对话的 /workspace：各轮 bash 共用">沙箱文件</button>
+      <!-- 连的是哪台机器、连上没有：本机或 ssh 别名 · 已连接/重连中，见 connection.js。 -->
+      <span id="host"></span>
       <span id="status"></span>
     </div>
     <section id="chat-pane">

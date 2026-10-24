@@ -1,8 +1,10 @@
 package tenant
 
 import (
+	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 )
 
 // 多租户的数据边界：每个租户一棵自己的目录，检查点、记忆、沙箱工作目录、浏览器画面、对话存档和审计都在里面。
@@ -30,3 +32,15 @@ func Path(space string, parts ...string) string {
 
 // Here 是本进程空间里的路径。
 func Here(parts ...string) string { return Path(Current, parts...) }
+
+// SourceRoot 判断目录是不是 tern 的源码根目录：go.mod 的第一行是 tern 自己的 module。
+// 与数据路径放在一起：`TERN_HOME` 没设时，在源码根目录里就用当前目录，网页端的 -dev 也只在这里可用。
+func SourceRoot(dir string) bool {
+	data, err := os.ReadFile(filepath.Join(dir, "go.mod"))
+	if err != nil {
+		return false
+	}
+	first, _, _ := strings.Cut(string(data), "\n")
+	fields := strings.Fields(first)
+	return len(fields) == 2 && fields[0] == "module" && fields[1] == "github.com/xuzhao123/tern"
+}

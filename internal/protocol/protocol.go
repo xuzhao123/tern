@@ -19,7 +19,7 @@ import (
 //	agent → 界面   请求  tool/requestApproval：高风险操作执行前同样暂停，等界面上的人确认；
 //	                     外发类带 scope，人可以回 allow_session（本对话内同一范围都允许）
 //
-// agent 以 -app-server 运行时，stdout 只承载协议，给人看的日志改走 stderr。
+// agent 以 -agent-server 运行时，stdout 只承载协议，给人看的日志改走 stderr。
 // 子 agent 也是这样被父 agent 启动的：父进程的 RunChild 就是它的“界面”。
 
 type Message struct {

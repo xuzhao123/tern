@@ -1,11 +1,10 @@
-package web
+package appserver
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"slices"
 	"strconv"
 	"strings"
@@ -14,6 +13,7 @@ import (
 	"github.com/xuzhao123/tern/internal/agent"
 	"github.com/xuzhao123/tern/internal/eval"
 	"github.com/xuzhao123/tern/internal/llm"
+	"github.com/xuzhao123/tern/internal/protocol"
 	"github.com/xuzhao123/tern/internal/telemetry"
 
 	"github.com/google/uuid"
@@ -21,8 +21,8 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// 网页端是评测的界面。评测逻辑（选题、执行、打分、回放）在 internal/eval，与 go run . eval 共用同一份记录；
-// 网页端给每个试次建一条对话：模型请求经本机代理、协议通知存成事件，所以每个试次都能像普通对话一样看轨迹、调用链。
+// app-server 是评测的界面。评测逻辑（选题、执行、打分、回放）在 internal/eval，与 go run . eval 共用同一份记录；
+// app-server 给每个试次建一条对话：模型请求经本机代理、协议通知存成事件，所以每个试次都能像普通对话一样看轨迹、调用链。
 type evalJob struct {
 	runner *eval.Runner
 	busy   string // 正在做的事：run、replay、regrade；空表示空闲
@@ -35,7 +35,7 @@ type evals struct {
 }
 
 // job 取一条评测记录。空闲的记录每次从磁盘读回：命令行可能刚改过它（重新打分、备注），内存里的旧副本不能再写回去。
-func (s *server) job(id string) (*evalJob, error) {
+func (s *Server) job(id string) (*evalJob, error) {
 	s.evals.mu.Lock()
 	defer s.evals.mu.Unlock()
 	if j := s.evals.jobs[id]; j != nil && j.busy != "" {
@@ -54,7 +54,7 @@ func (s *server) job(id string) (*evalJob, error) {
 }
 
 // start 在后台做一件事；同一条评测同时只做一件，避免运行、回放和重新打分交错写记录。
-func (s *server) start(j *evalJob, what string, work func(ctx context.Context)) error {
+func (s *Server) start(j *evalJob, what string, work func(ctx context.Context)) error {
 	s.evals.mu.Lock()
 	if j.busy != "" {
 		s.evals.mu.Unlock()
@@ -73,12 +73,8 @@ func (s *server) start(j *evalJob, what string, work func(ctx context.Context)) 
 	return nil
 }
 
-func writeJSON(w http.ResponseWriter, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(v)
-}
-
-func (s *server) listEvals(w http.ResponseWriter, _ *http.Request) {
+func (c *conn) evalList(protocol.Message) (any, *protocol.Error) {
+	s := c.s
 	list := []map[string]any{}
 	for _, rec := range eval.List() {
 		s.evals.mu.Lock()
@@ -96,20 +92,19 @@ func (s *server) listEvals(w http.ResponseWriter, _ *http.Request) {
 		}
 		list = append(list, item)
 	}
-	writeJSON(w, list)
+	return list, nil
 }
 
-// 评测集概览：开始评测前看要跑哪些题、各多少次。
-func (s *server) evalCases(w http.ResponseWriter, _ *http.Request) {
+// eval/cases：评测集概览，开始评测前看要跑哪些题、各多少次。
+func (c *conn) evalCases(protocol.Message) (any, *protocol.Error) {
 	cases, hash, err := eval.LoadCases("eval/cases.jsonl")
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return nil, bad(500, err.Error())
 	}
-	writeJSON(w, map[string]any{"file": "eval/cases.jsonl", "hash": hash, "cases": cases})
+	return map[string]any{"file": "eval/cases.jsonl", "hash": hash, "cases": cases}, nil
 }
 
-func (s *server) startEval(w http.ResponseWriter, req *http.Request) {
+func (c *conn) evalStart(m protocol.Message) (any, *protocol.Error) {
 	var input struct {
 		Set      string   `json:"set"`
 		K        int      `json:"k"`
@@ -117,10 +112,10 @@ func (s *server) startEval(w http.ResponseWriter, req *http.Request) {
 		Baseline string   `json:"baseline"`
 		Cases    []string `json:"cases"`
 	}
-	if json.NewDecoder(req.Body).Decode(&input) != nil {
-		http.Error(w, "请求必须是JSON", http.StatusBadRequest)
-		return
+	if ferr := decode(m, &input); ferr != nil {
+		return nil, ferr
 	}
+	s := c.s
 	var j *evalJob
 	o := eval.Options{Set: input.Set, K: input.K, Workers: 3, Ablation: input.Ablation, Baseline: input.Baseline, Only: input.Cases, Judge: "deepseek"}
 	// Attach 需要评测ID才能给对话打标记，而ID在 Prepare 里生成：先用一个间接引用，Prepare 之后再填上。
@@ -130,8 +125,7 @@ func (s *server) startEval(w http.ResponseWriter, req *http.Request) {
 	}
 	runner, err := eval.Prepare(o)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
+		return nil, bad(400, err.Error())
 	}
 	id = runner.ID()
 	j = &evalJob{runner: runner}
@@ -139,14 +133,20 @@ func (s *server) startEval(w http.ResponseWriter, req *http.Request) {
 	s.evals.jobs[id] = j
 	s.evals.mu.Unlock()
 	s.start(j, "run", func(ctx context.Context) { runner.Run(ctx, o.Workers) })
-	writeJSON(w, map[string]string{"id": id})
+	return map[string]string{"id": id}, nil
 }
 
-func (s *server) getEval(w http.ResponseWriter, req *http.Request) {
-	j, err := s.job(req.PathValue("id"))
+func (c *conn) evalGet(m protocol.Message) (any, *protocol.Error) {
+	var input struct {
+		ID string `json:"id"`
+	}
+	if ferr := decode(m, &input); ferr != nil {
+		return nil, ferr
+	}
+	s := c.s
+	j, err := s.job(input.ID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
-		return
+		return nil, bad(404, err.Error())
 	}
 	rec := j.runner.Snapshot()
 	var baseline *eval.Record
@@ -158,23 +158,21 @@ func (s *server) getEval(w http.ResponseWriter, req *http.Request) {
 	s.evals.mu.Unlock()
 	cases := j.runner.Cases()
 	info := map[string]any{}
-	for _, c := range cases {
+	for _, cs := range cases {
 		graders := []map[string]any{}
-		for _, g := range c.Graders {
+		for _, g := range cs.Graders {
 			graders = append(graders, map[string]any{"name": g.Name(), "process": g.Process(), "with_only": g.WithOnly})
 		}
-		info[c.ID] = map[string]any{"question": c.Question, "reference": c.Reference, "group": c.Group, "suite": c.Suite, "holdout": c.Holdout, "args": c.Args, "ablation": c.Ablation, "graders": graders}
+		info[cs.ID] = map[string]any{"question": cs.Question, "reference": cs.Reference, "group": cs.Group, "suite": cs.Suite, "holdout": cs.Holdout, "args": cs.Args, "ablation": cs.Ablation, "graders": graders}
 	}
-	writeJSON(w, map[string]any{"record": rec, "busy": busy, "summary": eval.Summarize(rec, cases, baseline), "cards": eval.Cards(rec, cases), "cases": info})
+	return map[string]any{"record": rec, "busy": busy, "summary": eval.Summarize(rec, cases, baseline), "cards": eval.Cards(rec, cases), "cases": info}, nil
 }
 
-func (s *server) evalAction(w http.ResponseWriter, req *http.Request) {
-	j, err := s.job(req.PathValue("id"))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
-		return
-	}
+// eval/action：stop、resume、regrade、replay、note 五个动作，参数与原来一样。
+func (c *conn) evalAction(m protocol.Message) (any, *protocol.Error) {
 	var input struct {
+		ID     string `json:"id"`
+		Action string `json:"action"`
 		Trial  string `json:"trial"`
 		Rounds int    `json:"rounds"`
 		Note   string `json:"note"`
@@ -182,12 +180,18 @@ func (s *server) evalAction(w http.ResponseWriter, req *http.Request) {
 		Text   string `json:"text"`
 		Label  string `json:"label"`
 	}
-	if req.ContentLength > 0 && json.NewDecoder(req.Body).Decode(&input) != nil {
-		http.Error(w, "请求必须是JSON", http.StatusBadRequest)
-		return
+	if len(m.Params) > 0 {
+		if ferr := decode(m, &input); ferr != nil {
+			return nil, ferr
+		}
+	}
+	s := c.s
+	j, err := s.job(input.ID)
+	if err != nil {
+		return nil, bad(404, err.Error())
 	}
 	r := j.runner
-	switch req.PathValue("action") {
+	switch input.Action {
 	case "stop":
 		s.evals.mu.Lock()
 		if j.cancel != nil {
@@ -210,30 +214,26 @@ func (s *server) evalAction(w http.ResponseWriter, req *http.Request) {
 	case "note":
 		err = r.Annotate(input.Trial, input.Text, input.Label)
 	default:
-		http.NotFound(w, req)
-		return
+		return nil, bad(404, "没有这个动作："+input.Action)
 	}
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
-		return
+		return nil, bad(409, err.Error())
 	}
-	w.WriteHeader(http.StatusNoContent)
+	return nil, nil
 }
 
 // evalAttach 为一个试次建一条对话：和普通对话一样经本机代理请求模型、记录协议通知，只是由评测发起，
 // 列表里不显示，从评测页面打开。每个试次一个 trace（根 span interaction），调用链照常可看。
-func (s *server) evalAttach(evalID string) eval.Attach {
+func (s *Server) evalAttach(evalID string) eval.Attach {
 	return func(ctx context.Context, t *eval.Trial, c eval.Case) (context.Context, agent.ChildIO, string, func(bool)) {
 		id := uuid.NewString()
-		// 评测与归因只在平台空间运行（路由只给平台账号）；试次的 agent 同样凭令牌访问模型代理。
-		file, err := s.createRunFile("", id)
+		// 评测与归因在平台空间运行；试次的 agent 同样凭令牌访问模型代理。
+		file, err := s.createRunFile(id)
 		if err != nil {
 			return ctx, agent.ChildIO{Out: discard{}}, "", func(bool) {}
 		}
-		r := &run{ID: id, Query: c.Question, Eval: evalID, changed: make(chan struct{}), file: file, token: newToken()}
-		s.mu.Lock()
-		s.runs = append(s.runs, r)
-		s.mu.Unlock()
+		r := &run{s: s, ID: id, Query: c.Question, Eval: evalID, changed: make(chan struct{}), file: file, token: newToken()}
+		s.addRun(r)
 		_, span := r.beginTurn(c.Question)
 		span.SetAttributes(attribute.String("eval.id", evalID), attribute.String("eval.case", t.Case), attribute.String("eval.trial", t.TaskID))
 		label := evalID + " · " + t.Case + " #" + strconv.Itoa(t.N)
@@ -248,7 +248,7 @@ func (s *server) evalAttach(evalID string) eval.Attach {
 		r.add(event{Kind: "start", Text: c.Question, Eval: label, Subagents: slices.Contains(args, "-subagents"), Browser: slices.Contains(args, "-browser"), DSSearch: slices.Contains(args, "-ds-search"),
 			Bash: slices.Contains(args, "-bash"), Provider: provider, Embedding: "ark", Trace: span.SpanContext().TraceID().String(), Protocol: true})
 		out := &lines{r: r}
-		child := agent.ChildIO{Out: out, Notify: r.handle, Env: []string{"AGENT_PROXY_URL=http://" + s.addr + "/llm/" + id, "AGENT_CONVERSATION_ID=" + id, "AGENT_PROXY_TOKEN=" + r.token}}
+		child := agent.ChildIO{Out: out, Notify: r.handle, Env: []string{"AGENT_PROXY_SOCKET=" + LlmSocket, "AGENT_PROXY_URL=http://tern/llm/" + id, "AGENT_CONVERSATION_ID=" + id, "AGENT_PROXY_TOKEN=" + r.token}}
 		done := func(ok bool) {
 			out.flush()
 			text := "exit 0"
@@ -301,20 +301,26 @@ type discard struct{}
 
 func (discard) Write(p []byte) (int, error) { return len(p), nil }
 
-// attributeRun 对一段对话的最后一轮自动归因（见 eval.Attribute）：诊断、评分、回放验证都在后台进行，
-// 返回归因记录的ID，页面打开它的详情即可看到进度。回放的每次尝试同样是一条可打开的对话。
-func (s *server) attributeRun(w http.ResponseWriter, req *http.Request) {
-	r := s.runOf(w, req)
-	if r == nil {
-		return
+// thread/attribute：对一段对话的最后一轮自动归因（见 eval.Attribute）：诊断、评分、回放验证都在后台进行，
+// 返回归因记录的ID，界面打开它的详情即可看到进度。回放的每次尝试同样是一条可打开的对话。
+func (c *conn) threadAttribute(m protocol.Message) (any, *protocol.Error) {
+	var input struct {
+		ThreadID string `json:"threadId"`
+	}
+	if ferr := decode(m, &input); ferr != nil {
+		return nil, ferr
+	}
+	s := c.s
+	r, ferr := s.threadOf(input.ThreadID)
+	if ferr != nil {
+		return nil, ferr
 	}
 	r.mu.Lock()
 	done, task := r.Done, r.lastCheckpoint()
 	source := r.trajectory(task)
 	r.mu.Unlock()
 	if !done || task == "" {
-		http.Error(w, "对话还在运行，或者没有检查点（早期的存档）", http.StatusConflict)
-		return
+		return nil, bad(409, "对话还在运行，或者没有检查点（早期的存档）")
 	}
 	var id string
 	attach := func(ctx context.Context, t *eval.Trial, c eval.Case) (context.Context, agent.ChildIO, string, func(bool)) {
@@ -322,8 +328,7 @@ func (s *server) attributeRun(w http.ResponseWriter, req *http.Request) {
 	}
 	runner, err := eval.NewAttribution(r.ID, task, source, "deepseek", attach)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
-		return
+		return nil, bad(409, err.Error())
 	}
 	id = runner.ID()
 	j := &evalJob{runner: runner}
@@ -331,10 +336,10 @@ func (s *server) attributeRun(w http.ResponseWriter, req *http.Request) {
 	s.evals.jobs[id] = j
 	s.evals.mu.Unlock()
 	s.start(j, "attribute", runner.Attribute)
-	writeJSON(w, map[string]string{"id": id})
+	return map[string]string{"id": id}, nil
 }
 
-// trajectory 从网页端记下的事件重建这一轮的完整过程，交给诊断：检查点里只有压缩后的 View，
+// trajectory 从 app-server 记下的事件重建这一轮的完整过程，交给诊断：检查点里只有压缩后的 View，
 // 早先的决定只剩一段摘要，诊断就会把下游的错误当成第一个错误。这里用代理记录的每一次主任务响应
 // （模型的推理、回复与工具调用）和协议里的工具结果，按实际请求顺序编号；压缩只记一行，不算一次决定。
 // 调用方持有 r.mu。

@@ -8,7 +8,9 @@
 
 ## 快速开始
 
-需要 Go 1.25.5 或以上版本。所有命令从项目根目录执行，文档中的文件路径相对于项目根目录。
+需要 Go 1.25.5 或以上版本。数据目录由环境变量 `TERN_HOME` 决定：`.env`、`.data/`、`skills/`、`retrieval/corpus.md`、`eval/cases.jsonl` 都相对它找。没设 `TERN_HOME` 时，在 tern 源码根目录（`go.mod` 的第一行是 `module github.com/xuzhao123/tern`）里就用当前目录，原来的用法不变；在别处运行用 `~/.tern`，目录不存在就自动创建（0700）。文档里没写绝对路径的文件路径都相对于它。
+
+agent 自己的路径参数 `-workspace`、`-image`、`-hooks` 里的相对路径按启动时的工作目录解释；子命令（`web`、`chat`、`queue`、`eval`…）的参数按 `TERN_HOME` 解释。
 
 ```sh
 cp .env.example .env
@@ -19,13 +21,26 @@ go run . -question '计算 1231+23123'
 不带 `-question` 时从终端交互输入。启动网页端前先添加登录账号（密码从标准输入读）：
 
 ```sh
-go run . web -add-user admin                  # 平台账号：看到 .data/ 下原有的数据
-go run . web -add-user alice -tenant acme     # 租户账号：只看到 .data/tenants/acme/ 下的数据
+go run . web -add-user admin     # 添加登录账号
 go run . web
 # 打开 http://127.0.0.1:8090 登录
+go run . web -remote devbox       # 或者连远端：ssh 别名见 ~/.ssh/config
 ```
 
-网页端支持新对话、续聊、停止，以及每个模型 Step 的完整输入输出。开发时用 `go run . web -dev`，每次对话从当前源码启动 agent；默认使用当前程序，修改 agent 后需要重启网页端。
+这一版只有平台空间：登录后看到的就是 `.data/` 下的数据。早期 `users.json` 里带 `tenant` 的账号登录时会被拒绝，提示“租户账号暂不支持”。
+
+网页端支持新对话、续聊、停止，以及每个模型 Step 的完整输入输出。网页端是 app-server 的客户端：它自己启动时先做一次 `app-server start`，之后所有对话、设置、文件都在 app-server 里，网页端退出不影响正在跑的对话。网页端没有 `-dev` 了，要从源码跑 agent 就 `go run . app-server -dev` 或 `go run . app-server start -dev`（要求 `TERN_HOME` 就是 tern 源码根目录，否则报错退出）。
+起 agent 用哪个程序：app-server 起 agent 用 `/proc/self/exe`（没有 `/proc` 时用 `os.Executable()`），也就是正在跑的那个程序本身。所以**重启网页端不会换掉 app-server 的代码**：改了代码要先 `tern app-server stop`，再起界面；或者用 `-dev`。
+
+### 远程（SSH）
+
+`go run . web -remote devbox`、`go run . chat -remote devbox`：界面在本机，对话、agent、代码、模型密钥都在远端。本机用系统的 ssh 连远端，跑的是 `ssh -T -o BatchMode=yes devbox 'exec "$SHELL" -lc "tern app-server proxy"'`，用它的标准输入输出说协议：不开端口、不需要公网，鉴权就是 SSH，也不需要在本机放模型密钥。
+
+远端的准备：装好 tern（协议版本和本机一致，对不上时 `initialize` 会报出两边的版本），tern 在登录 shell 的 PATH 上（proxy 走登录 shell，`~/.profile` 里设的 PATH 和 `TERN_HOME` 才生效），`TERN_HOME` 里有 `.env`（模型密钥），工作区在远端的设置页里登记（网页端的设置页改的就是远端的设置）。第一次连某台机器要先在终端里手动 `ssh devbox` 一次：确认主机指纹、登录，之后的连接带 `BatchMode=yes`，不会在后台卡在输密码或确认指纹那一步。
+`-remote` 只认 `~/.ssh/config` 里具体的 Host 别名或 `user@host`：带通配符的 `Host` 会匹配到别的机器，以 `-` 开头的会被 ssh 当成选项，都拒绝。
+远程模式下网页端内置的计算器 MCP（`/mcp`）在本机的网页端进程里，远端的 agent 连不到，这一期不处理：要用就在远端另起一个网页端。
+
+连接断了（ssh 断了、远端的 app-server 重启了）界面自己重连，本机模式和远程模式一样：按 1、2、4…秒退避，最多 30 秒；本机模式每次先 `app-server start`，远程模式重新起 ssh。重连期间所有请求立刻失败，网页端回 503“正在重连 devbox”，顶栏显示“devbox · 重连中”；正在看的事件流不会断，连上后按每条订阅最后收到的序号重新补齐，既不重复也不缺。启动时第一次就连不上直接报错（带上 ssh 的报错），不进入重连。
 
 需要可执行文件时：
 
@@ -36,7 +51,7 @@ go build -o bin/tern .
 
 ## 模型与工具配置
 
-配置读取根目录 `.env`，同名环境变量优先。密钥只写入本地私有配置，保持文件权限为 0600；`.env` 已忽略提交。
+配置读取 `TERN_HOME` 下的 `.env`，同名环境变量优先。密钥只写入本地私有配置，保持文件权限为 0600；`.env` 已忽略提交。
 
 | 模式 | 配置项 | 默认值 |
 | --- | --- | --- |
@@ -54,7 +69,7 @@ go build -o bin/tern .
 
 豆包的地址有两套，不能混用：默认的 `.../api/coding/v3` 是方舟 Coding Plan 订阅入口，模型名用套餐里的 Model Name（如 `doubao-seed-2.1-pro`、`doubao-seed-2.1-lite`、`kimi-k3`、`glm-5.3`）或 `ark-code-latest`（跟随控制台“开通管理”的模型选择，切换后 3–5 分钟生效）；`.../api/v3` 是按量付费入口，模型名带日期版本号（如 `doubao-seed-2-1-pro-260628`）。方舟文档说明 `.../api/v3` 不消耗套餐额度、照按量计费，所以地址不能混用；模型名按文档用 Model Name——套餐入口实测也接受带日期版本号的旧名字，但文档没有列出，是否计入套餐以控制台用量为准。`ark-code-latest` 的响应里 `model` 是 `auto`（实测），看不出实际是哪个模型回答的，评测与归因要固定模型时选具体名字。`.env` 里的 `LLM_API_URL`、`LLM_MODEL` 会覆盖默认值，以前填过老地址老模型的要一起改掉或删掉这两行；启动输出里的 `Model: provider=ark model=... upstream=...` 可以核对实际用的地址与模型。套餐额度按 5 小时、周、月分档，用完返回 429（`hour / week / month allocated quota exceeded`），不是地址配错。
 
-方舟套餐里的模型可以换：命令行用 `-model kimi-k3`（`.env` 或环境变量里的 `LLM_MODEL` 改的是不加 `-model` 时的默认值）；网页端分两级选：一级是供应商与接口（豆包、DeepSeek、DeepSeek 的 Anthropic 接口、Coconut），二级才是具体模型，只有一个模型的供应商不显示第二级。设置页的“默认值”里同样是这两级（`provider`、`model`，`model` 空表示用供应商默认值），新对话在输入框不选就用它；页面另选以页面为准。清单在路由表 `llm.Provider.Models`，经 `GET /models` 给页面，14 个名字 2026-10-20 逐个真实调用过（含一次工具调用）。网页端以 `-model` 传给 agent，它和其他启动参数一起写进检查点，所以一条对话固定一个模型：续聊、中断续跑、归因回放和子 agent 都用同一个。上下文窗口默认按模型（取路由表里这个模型核对过的输入上限），在设置里填了值就以设置里的为准，所以换窗口更小的模型时要检查这一项。
+方舟套餐里的模型可以换：命令行用 `-model kimi-k3`（`.env` 或环境变量里的 `LLM_MODEL` 改的是不加 `-model` 时的默认值）；网页端分两级选：一级是供应商与接口（豆包、DeepSeek、DeepSeek 的 Anthropic 接口、Coconut），二级才是具体模型，只有一个模型的供应商不显示第二级。设置页的“默认值”里同样是这两级（`provider`、`model`，`model` 空表示用供应商默认值），新对话在输入框不选就用它；页面另选以页面为准。清单在路由表 `llm.Provider.Models`，经 `GET /models` 给页面，14 个名字 2026-10-20 逐个真实调用过（含一次工具调用）。app-server 以 `-model` 传给 agent，它和其他启动参数一起写进检查点，所以一条对话固定一个模型：续聊、中断续跑、归因回放和子 agent 都用同一个。上下文窗口默认按模型（取路由表里这个模型核对过的输入上限），在设置里填了值就以设置里的为准，所以换窗口更小的模型时要检查这一项。
 
 默认使用原生 Tool Calling：工具定义在请求的 `tools` 字段，模型返回 `tool_calls`，回答不限制文本格式。普通任务只启用 calculator、get_current_datetime；检索、记忆、MCP、Skills、子 agent、浏览器、DeepSeek 搜索和 Bash 按需开启。`-disallowed-tools` 去掉其中单个工具（逗号分隔，也可以去掉浏览器的 web_search 或 open_page；名字与 Claude Code 的 `--disallowed-tools` 一致，但只认工具名，按调用拦截用 `-deny` 规则）；网页端在设置里逐个开关，默认关 web_search，搜索用 ds_search，打开网页用 open_page。
 
@@ -66,7 +81,7 @@ go build -o bin/tern .
 
 | 部分 | 文件或模块 | 关注点 |
 | --- | --- | --- |
-| 入口 | [main.go](main.go) | 参数、工具开关、agent / web / queue / metrics / eval / audit 的入口 |
+| 入口 | [main.go](main.go) | 参数、工具开关、agent / web / app-server / queue / metrics / eval / audit 的入口 |
 | 模型协议 | [internal/llm](internal/llm/) | messages、tools、tool_calls、请求预算与用量 |
 | 执行循环 | [internal/agent/react.go](internal/agent/react.go)、[工具分发](internal/agent/dispatch.go)、[确认与循环检测](internal/agent/approval.go) | 结果回填、并发、分类重试与终止；高风险确认、私有数据标记、结果日志与无进展检测 |
 | 上下文与恢复 | [上下文管理](internal/agent/context_manager.go)、[检查点](internal/agent/checkpoint.go) | Transcript/View、压缩、写前日志、续跑 |
@@ -76,12 +91,13 @@ go build -o bin/tern .
 | 编码工具 | [workspace](internal/workspace/)、[permission](internal/permission/) | 读、找、搜、改；`os.Root` 路径边界、读后才写的版本核对、输出预算；项目指令、环境信息与系统提醒；权限规则与模式 |
 | 扩展点 | [hooks](internal/hooks/)、[commands](internal/commands/) | 生命周期 hooks（配置与脚本在 [hooks/](hooks/)）；斜杠命令模板（[commands/](commands/) 与工作区的 `.agents/commands/`） |
 | 外部执行 | [browser](internal/browser/)、[sandbox](internal/sandbox/)、[netguard](internal/netguard/) | 页面读取、进程隔离、网络与资源边界、出口地址判断 |
-| 网页端 | [web](internal/web/)（页面在 [page](internal/web/page/)，原生 ES 模块）、[protocol](internal/protocol/)、[telemetry](internal/telemetry/)、[metrics](internal/metrics/) | 模型请求代理、agent 与界面的结构化协议、OpenTelemetry span 与导出、核心指标 |
-| 评测与归因 | [eval](internal/eval/)、[评测集](eval/cases.jsonl)、[网页端评测页](internal/web/eval.go) | 题目与打分器、多次尝试与 pass^k、评审模型、消融与基线对比、归因卡片与回放验证 |
-| 审计 | [audit](internal/audit/) | 只追加的审计记录、哈希链与校验；agent 与网页端共同写入 |
-| 多租户与登录 | [tenant](internal/tenant/)、[网页端登录](internal/web/auth.go) | 按租户决定数据路径；账号、密码哈希、会话、租户策略与访问检查 |
+| 常驻服务 | [appserver](internal/appserver/)、[appclient](internal/appclient/) | 控制 socket 上的协议方法、对话与设置等数据、模型代理、生命周期（`initialize`、`server/shutdown`）；界面一侧的 `start`、`stop`、`proxy` 与 `Call`、`Subscribe` |
+| 网页端 | [web](internal/web/)（页面在 [page](internal/web/page/)，原生 ES 模块）、[protocol](internal/protocol/)、[telemetry](internal/telemetry/)、[metrics](internal/metrics/) | 登录、页面、把 HTTP 接口翻成协议方法；agent 与界面的结构化协议、OpenTelemetry span 与导出、核心指标 |
+| 评测与归因 | [eval](internal/eval/)、[评测集](eval/cases.jsonl)、[网页端评测页](internal/web/page/eval.js) | 题目与打分器、多次尝试与 pass^k、评审模型、消融与基线对比、归因卡片与回放验证 |
+| 审计 | [audit](internal/audit/) | 只追加的审计记录、哈希链与校验；agent 与 app-server 共同写入 |
+| 多租户与登录 | [tenant](internal/tenant/)、[网页端登录](internal/web/auth.go) | 按租户决定数据路径（`queue` 与 agent 的 `-tenant` 仍在用）；网页端这一版只有平台账号：账号、密码哈希与会话 |
 
-一个 agent 进程运行一个任务，功能开关由入口设置。网页端、任务队列和子 agent 用独立子进程执行任务；检索等工具直接在该 agent 进程内调用。
+一个 agent 进程运行一个任务，功能开关由入口设置。app-server、任务队列和子 agent 用独立子进程执行任务；检索等工具直接在该 agent 进程内调用。
 
 ## 参数速查
 
@@ -105,7 +121,7 @@ go build -o bin/tern .
 | `-image` | 空 | 图片输入：随问题附带的图片路径，可写多次。按文件头只收 PNG、JPEG、GIF、WebP；长边超过 2048 或 32×32 块超过 2500 时等比缩小；按内容寻址存进 `.data/[tenants/<租户>/]attachments/`，消息与检查点里只放 `attachment://` 引用；处理不了的图以提醒说明，不让这一轮失败；每条消息最多 8 张；所选模型不能看图时发请求前换成说明文字。能看图的模型在有工作区或 bash 时另有 `view_image`，看工作区或沙箱里的图片 |
 | `-history-stdin` | false | 从stdin接收上次上下文JSON，配合-question续聊（命令行用；网页端改经 `turn/start` 传入） |
 | `-continues` | 空 | 续聊时上一轮的检查点ID：本轮用新ID并记下续接关系，子 agent 可按 task_id 引用之前各轮的子任务；网页端自动处理 |
-| `-app-server` | false | 以结构化协议与界面通信（JSON-RPC，一行一条）：stdout 只走协议，日志改走 stderr；网页端与父 agent 启动子进程时使用。网页端另给环境变量 `AGENT_APP_SOCKET`，协议与日志改走这个 Unix socket，网页端重启后能接管（） |
+| `-agent-server` | false | 以结构化协议与界面通信（JSON-RPC，一行一条）：stdout 只走协议，日志改走 stderr；app-server 与父 agent 启动子进程时使用。app-server 另给环境变量 `AGENT_APP_SOCKET`，协议与日志改走这个 Unix socket，app-server 重启后能接管 |
 | `-parallel` | 4 | 工具执行并发，1到16 |
 | `-max-steps` | 0 | 模型请求总预算，包含最终回答与上下文摘要；0 表示不限 |
 | `-retries` | 2 | 工具额外重试次数，0到5 |
@@ -143,7 +159,7 @@ go build -o bin/tern .
 | `-task-id` | 随机 UUID | 检查点ID（字母、数字和 `._-`）；已存在时拒绝启动，提示改用 `-resume` |
 | `-resume` | 空 | 从该ID的检查点续跑，配置取自检查点；须单独使用；已完成的直接返回存档答案 |
 | `-subagents` | false | 增加 spawn_agent：把独立子任务交给全新上下文的子 agent（子进程），每次运行最多4个 |
-| `-tenant` | 空 | 多租户：本任务所属的租户，数据都在 `.data/tenants/<租户>/` 下；网页端和带 `tenant` 的队列任务自动加上；可与 `-resume` 一起用 |
+| `-tenant` | 空 | 多租户：本任务所属的租户，数据都在 `.data/tenants/<租户>/` 下；带 `tenant` 的队列任务自动加上（app-server 启动 agent 时不加，这一版只有平台空间）；可与 `-resume` 一起用 |
 | `-private-input` | false | 任务输入已含私有数据，外发类工具执行前要确认；父 agent 派出子任务时自动加上，一般不手动使用 |
 | `-subagent-steps` | 6 | 每个子 agent 的模型请求预算，1到20 |
 | `-provider` | ark | 模型路由：`ark`（豆包，方舟 Coding Plan）、`deepseek`、`deepseekanthropic`（DeepSeek 的 Anthropic 接口）或 `coconut`（本机 Responses 服务）；子 agent 继承，续跑沿用 |
@@ -167,8 +183,12 @@ go build -o bin/tern .
 
 | 命令 | 作用 |
 | --- | --- |
-| `go run . chat [-continue 检查点ID] [agent 参数…]` | 终端客户端：每一轮启动一个 `-app-server` 的 agent，过程流式显示，运行中输入的话作为插话；`/help` 列出恢复、分叉、压缩、撤销（`/rewind <轮> [both\|files\|chat]`）、切权限与批准计划等命令；agent 的终端日志写在 `.data/[tenants/<租户>/]chat.log` |
-| `go run . web [-dev]` | 网页端：网页界面，需要先用 `-add-user` 添加账号 |
+| `go run . chat [-remote 别名] [-continue 对话ID] [-provider …] [-model …] [-permission-mode …] [-workspace 名字]` | 终端客户端，app-server 的界面：对话、agent 进程、模型请求都在 app-server 里（带 `-remote` 时在远端），网页端开的对话也能接着聊；过程流式显示，运行中输入的话作为插话；断线时打一行“连接断开，重连中…”，连上后打“已重连”，这一轮接着往下走；`/help` 列出轮次、压缩、撤销（`/rewind <轮>`）、切权限与批准计划、`/resume <对话ID>` 等命令；不再接受 agent 参数（工具与权限来自 app-server 的设置）；agent 的终端日志写在 `.data/chat.log` |
+| `go run . web [-addr …] [-remote 别名]` | 网页端：网页界面，需要先用 `-add-user` 添加账号。它是 app-server 的客户端：不带 `-remote` 时连本机 app-server，启动时先做一次 `app-server start`；带 `-remote` 时经 ssh 连远端。启动时打印连上的 app-server 的主机、`TERN_HOME` 与版本；顶栏显示主机与连接状态（重连中换成醒目的样式），`GET /connection` 推 `{host, remote, state, runs}`，重连期间其他请求回 503“正在重连 <host>” |
+| `go run . app-server [-dev]` | 常驻的 app-server：前台运行，一个 `TERN_HOME` 一个，在 `.data/app-server/control.sock` 上等界面连进来（一行一条 JSON-RPC 2.0，`initialize` 握手），模型代理在同目录的 `llm.sock` 上；日志写 stderr，Ctrl-C 或 SIGTERM 与 `server/shutdown` 一样收尾：删掉两个 socket 与 pid 文件后退出。`-dev`：每次对话用 `go run .` 启动 agent，改完 agent 代码不必重启 app-server，要求 `TERN_HOME` 是 tern 源码根目录 |
+| `go run . app-server start [-dev]` | 幂等启动：控制 socket 能答 `initialize` 就直接返回（已在运行的不会因为 `-dev` 换模式）；否则以新会话（setsid）在后台起一个，把 `-dev` 传给它，输出写 `.data/app-server/app-server.log`，等它能握手再返回（最多 30 秒）；子进程提前退出就不再等，报错并带上日志的最后几行。输出一行 JSON：socket、pid、version |
+| `go run . app-server stop` | 发 `server/shutdown`，按 pid 文件等进程真的不在才返回（socket 与 pid 文件都已删掉）；没有在运行的 app-server 时提示“没有在运行的 app-server”，正常退出 |
+| `go run . app-server proxy` | 经 SSH 时由界面调用：先做一次 start，再把标准输入输出与控制 socket 原样转发，任何一边断开就退出；stdout 只走协议 |
 | `go run . queue` | 任务队列：按 `queue/tasks.jsonl` 逐个执行，每个任务一个 agent 子进程，同一个 id 只执行一次 |
 | `go run . metrics [-since 168h] [-prefix ID前缀] [-tenant 租户] [-json]` | 统计完成率、耗时、成本等核心指标，只读 `.data/` |
 | `go run . eval` / `go run . eval -cases eval/coding-cases.jsonl` | 评测：通用评测集（每题 k 次、DeepSeek 评审，需要 `DEEPSEEK_API_KEY`）或编码任务评测（每个试次一份新的仓库拷贝，校验命令在沙箱里只读运行）；`eval triage`、`eval replay` 做失败归因与回放；网页端左侧“评测与归因”是同一功能的页面 |

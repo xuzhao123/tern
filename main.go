@@ -20,6 +20,8 @@ import (
 	"time"
 
 	"github.com/xuzhao123/tern/internal/agent"
+	"github.com/xuzhao123/tern/internal/appclient"
+	"github.com/xuzhao123/tern/internal/appserver"
 	"github.com/xuzhao123/tern/internal/audit"
 	"github.com/xuzhao123/tern/internal/browser"
 	"github.com/xuzhao123/tern/internal/chat"
@@ -48,16 +50,23 @@ import (
 
 // 唯一入口：go run . web 启动网页端（含内置远程 MCP）；go run . queue 运行任务队列；go run . metrics 统计指标；go run . eval 跑评测与归因；go run . audit 查看并校验审计日志；go run . rewind 按轮撤销文件改动；其余用法都是 agent 本身。
 func main() {
+	// 沙箱里的第一个程序（见 internal/sandbox）：转发代理端口后运行命令。不解析其他参数、不读配置，
+	// 也不做 TERN_HOME：沙箱里环境变量是清空的，按默认规则会落到 ~/.tern，那里既没有 tern 的配置，也不该由它去建。
+	if len(os.Args) > 1 && os.Args[1] == "sandbox-init" {
+		os.Exit(sandbox.Init(os.Args[2:]))
+	}
+	// 数据目录先定下来：算出 TERN_HOME、建好、chdir 过去。之后所有相对路径（.env、.data、skills/、
+	// retrieval/corpus.md、eval/cases.jsonl）照旧按它解释，子进程也继承这个环境变量。
+	if err := setupHome(); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		os.Exit(1)
+	}
 	run := run
 	if len(os.Args) > 1 && os.Args[1] == "web" {
 		run = func() error { return web.Run(os.Args[2:], mcp.Handler()) }
 	}
-	// 沙箱里的第一个程序（见 internal/sandbox）：转发代理端口后运行命令。不解析其他参数、不读配置。
-	if len(os.Args) > 1 && os.Args[1] == "sandbox-init" {
-		os.Exit(sandbox.Init(os.Args[2:]))
-	}
 	service := "agent"
-	// 终端客户端，每一轮启动一个 -app-server 的 agent 子进程，经协议交互。
+	// 终端客户端：app-server 的界面，对话与 agent 进程都在 app-server 里，经协议看过程、回答审批。
 	if len(os.Args) > 1 && os.Args[1] == "chat" {
 		run, service = func() error { return chat.Run(os.Args[2:]) }, "chat"
 	}
@@ -66,6 +75,10 @@ func main() {
 	}
 	if len(os.Args) > 1 && os.Args[1] == "web" {
 		service = "web"
+	}
+	// 常驻的 app-server：一个 TERN_HOME 一个，界面经控制 socket 连它；start、stop、proxy 是客户端那一侧（internal/appclient）。
+	if len(os.Args) > 1 && os.Args[1] == "app-server" {
+		run, service = func() error { return appServer(os.Args[2:]) }, "app-server"
 	}
 	// 评测集与回归；归因卡片与回放验证。
 	if len(os.Args) > 1 && os.Args[1] == "eval" {
@@ -113,12 +126,122 @@ func main() {
 	}
 }
 
+// appServer 分派 app-server 的几条命令：不带子命令是前台运行（internal/appserver），
+// 其余三个是界面这一侧的动作（internal/appclient）。-dev 只在前台运行和 start 上有：每轮用 go run . 启动 agent。
+func appServer(args []string) error {
+	// 不带子命令、或者第一条就是 -dev，都是前台运行。
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		return appserver.Run(args)
+	}
+	switch args[0] {
+	case "start":
+		dev := slices.Contains(args[1:], "-dev")
+		info, err := appclient.Start(dev)
+		if err != nil {
+			return err
+		}
+		// 一行 JSON：socket、pid、version。proxy 不走这里，它的 stdout 是协议通道。
+		data, err := json.Marshal(info)
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(data))
+		return nil
+	case "stop":
+		return appclient.Stop()
+	case "proxy":
+		return appclient.Proxy()
+	}
+	return fmt.Errorf("不认识的 app-server 子命令：%s", args[0])
+}
+
+// startDir 是进程启动时的工作目录。main 已经 chdir 到 TERN_HOME，agent 自己的路径参数
+// （-workspace、-image、-hooks）按它转成绝对路径，输入时的相对路径才还是原来的意思。
+var startDir string
+
+// setupHome 确定数据目录 TERN_HOME：没设时，在 tern 源码根目录里就用当前目录（原来的用法），
+// 否则用 ~/.tern；目录不存在就建（0700）。算出后写回环境变量让子进程继承，再 chdir 过去。
+func setupHome() error {
+	dir, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	startDir = dir
+	home := os.Getenv("TERN_HOME")
+	switch {
+	case home == "" && tenant.SourceRoot(dir):
+		home = dir
+	case home == "":
+		userHome, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("没设 TERN_HOME，也取不到用户主目录：%w", err)
+		}
+		home = filepath.Join(userHome, ".tern")
+	case !filepath.IsAbs(home):
+		// 相对路径按启动时的工作目录解释，chdir 之后仍是这个目录。
+		home = filepath.Join(dir, home)
+	}
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		return fmt.Errorf("创建 TERN_HOME：%w", err)
+	}
+	os.Setenv("TERN_HOME", home)
+	return os.Chdir(home)
+}
+
+// absFromStart 把 agent 的路径参数按启动时的工作目录转成绝对路径。
+func absFromStart(path string) string {
+	if filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(startDir, path)
+}
+
+// checkpointArgs 是写进检查点的启动参数：不存 -agent-server（之后在命令行续跑时不该变成协议模式）；
+// -workspace、-image、-hooks 的值换成绝对路径，换个目录 -resume 时还指向原来的地方。
+// -x 值、-x=值、--x 值三种写法都处理；-hooks 是内联 JSON（以 { 开头）时不是路径，原样留着。
+func checkpointArgs(args []string) []string {
+	kept := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if !strings.HasPrefix(arg, "-") {
+			kept = append(kept, arg)
+			continue
+		}
+		name, value, hasValue := strings.Cut(strings.TrimLeft(arg, "-"), "=")
+		if name == "agent-server" {
+			continue
+		}
+		if name != "workspace" && name != "image" && name != "hooks" {
+			kept = append(kept, arg)
+			continue
+		}
+		if !hasValue {
+			// 值在下一个参数里；末尾没给值就照原样留着，让 agent 自己报缺值。
+			if i+1 >= len(args) {
+				kept = append(kept, arg)
+				continue
+			}
+			i++
+			value = args[i]
+		}
+		if value != "" && !(name == "hooks" && strings.HasPrefix(strings.TrimSpace(value), "{")) {
+			value = absFromStart(value)
+		}
+		if hasValue {
+			kept = append(kept, arg[:strings.Index(arg, "=")+1]+value)
+		} else {
+			kept = append(kept, arg, value)
+		}
+	}
+	return kept
+}
+
 func run() error {
 	question := flag.String("question", "", "要交给 agent 的问题")
 	var imagePaths stringList
 	flag.Var(&imagePaths, "image", "图片输入：随问题附带的图片路径（PNG、JPEG、GIF、WebP，可重复）；发给模型前会缩放并写进附件目录")
 	historyStdin := flag.Bool("history-stdin", false, "从stdin读取上次模型上下文JSON，配合-question续聊")
-	appServer := flag.Bool("app-server", false, "以结构化协议与界面通信（JSON-RPC，一行一条）：stdout 只走协议，日志改走 stderr；问题与续聊上下文由 turn/start 给出")
+	agentServer := flag.Bool("agent-server", false, "以结构化协议与界面通信（JSON-RPC，一行一条）：stdout 只走协议，日志改走 stderr；问题与续聊上下文由 turn/start 给出")
 	flag.StringVar(&agent.Continues, "continues", "", "续聊时上一轮的检查点ID：本轮用新ID，记下续接关系，子任务可按 task_id 引用之前各轮派出的子任务")
 	parallel := flag.Int("parallel", 4, "同时执行的工具数，1 到 16")
 	maxSteps := flag.Int("max-steps", 0, "模型请求总次数，包含最终回答和上下文摘要；0 表示不限（靠熔断与停止收住）")
@@ -192,8 +315,8 @@ func run() error {
 		return errors.New("tenant 只能是小写字母、数字和连字符，最长32")
 	}
 	if *resume != "" {
-		if flag.NFlag() != 1+boolInt(*appServer)+boolInt(tenant.Current != "") || flag.NArg() != 0 {
-			return errors.New("resume须单独使用（可以再加 -app-server 与 -tenant）：配置取自检查点里保存的启动参数")
+		if flag.NFlag() != 1+boolInt(*agentServer)+boolInt(tenant.Current != "") || flag.NArg() != 0 {
+			return errors.New("resume须单独使用（可以再加 -agent-server 与 -tenant）：配置取自检查点里保存的启动参数")
 		}
 		cp, err := agent.LoadCheckpoint(*resume)
 		if err != nil {
@@ -211,14 +334,25 @@ func run() error {
 			return fmt.Errorf("任务 %s 这一轮已经撤销，不能续跑", cp.ID)
 		}
 		// 用首次启动的参数重新解析：工具开关、预算、超时都和中断前一致。通信方式以本次命令行为准。
-		wantAppServer := *appServer
+		wantAgentServer := *agentServer
 		if err := flag.CommandLine.Parse(cp.Args); err != nil {
 			return err
 		}
-		*question, *taskID, *historyStdin, *appServer = cp.Question, cp.ID, false, wantAppServer
+		*question, *taskID, *historyStdin, *agentServer = cp.Question, cp.ID, false, wantAgentServer
 		agent.Resume = cp
 	}
-	// -app-server 时 stdout 归协议所有，在任何打印之前分流。
+	// main 已经 chdir 到 TERN_HOME；agent 自己的路径参数按启动时的工作目录转成绝对路径，
+	// 不然工作区、图片、hooks 配置会变成相对 TERN_HOME 去找。子命令的参数不做这一步。
+	if *workspaceDir != "" {
+		*workspaceDir = absFromStart(*workspaceDir)
+	}
+	for i := range imagePaths {
+		imagePaths[i] = absFromStart(imagePaths[i])
+	}
+	if text := strings.TrimSpace(*hooksConfig); text != "" && !strings.HasPrefix(text, "{") {
+		*hooksConfig = absFromStart(text)
+	}
+	// -agent-server 时 stdout 归协议所有，在任何打印之前分流。
 	var history *agent.HistoryInput
 	var turnImages []imageRef // turn/start 带进来的附件引用，与 -image 一样在本轮用户消息里
 	var turnNotes []string    // turn/start 带进来的提醒
@@ -226,7 +360,7 @@ func run() error {
 	interrupted := make(chan struct{})
 	var interruptOnce sync.Once
 	interrupt := func() { interruptOnce.Do(func() { close(interrupted) }) }
-	if *appServer {
+	if *agentServer {
 		// 界面先退出时写协议会失败；忽略 SIGPIPE，让进程照常走第一段收尾，而不是被信号直接杀掉。
 		signal.Ignore(syscall.SIGPIPE)
 		handle := func(m protocol.Message) {
@@ -263,7 +397,7 @@ func run() error {
 			os.Unsetenv("AGENT_APP_SOCKET")
 			conn, err := protocol.Listen(path, os.Getenv("AGENT_PROXY_TOKEN"), handle)
 			if err != nil {
-				return fmt.Errorf("app-server socket：%w", err)
+				return fmt.Errorf("agent-server socket：%w", err)
 			}
 			protocol.Client = conn
 			protocol.CaptureLogs()
@@ -681,7 +815,7 @@ func run() error {
 	}
 	// 每次普通运行都写检查点，并在整个运行期间持有它的锁，同一任务不会被两个进程同时执行。
 	// 通信方式不存进检查点：之后在命令行续跑时，不该变成协议模式。
-	agent.CheckpointID, agent.CheckpointArgs = *taskID, slices.DeleteFunc(slices.Clone(os.Args[1:]), func(a string) bool { return a == "-app-server" || a == "--app-server" })
+	agent.CheckpointID, agent.CheckpointArgs = *taskID, checkpointArgs(os.Args[1:])
 	if agent.CheckpointID == "" {
 		agent.CheckpointID = agent.NewCheckpointID()
 	}

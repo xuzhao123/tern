@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -48,7 +49,7 @@ var ErrContextLength = errors.New("模型服务报告上下文过长")
 type transient struct {
 	error
 	after     time.Duration
-	proxyDown bool // 连不上网页端的模型代理（网页端在重启）：请求根本没发出去
+	proxyDown bool // 连不上 app-server 的模型代理（app-server 在重启）：请求根本没发出去
 }
 
 func (t *transient) Unwrap() error { return t.error }
@@ -95,11 +96,13 @@ func LimitText(limit int) string {
 // 是否截断、有没有回答等检查都等流结束后对完整回复做，和非流式时一样。
 func callModel(ctx context.Context, config Config, history []Message, withTools bool, output int, purpose string, onDelta func(content, reasoning string)) (Reply, error) {
 	endpoint, err := url.Parse(config.APIURL)
-	local := endpoint != nil && endpoint.Scheme == "http" && endpoint.Hostname() == "127.0.0.1"
-	// 明文 HTTP 只用于本机网页端的代理和不要密钥的上游（本机的 Coconut）：密钥不能经明文发出去。
+	// 经 app-server 的代理时地址只是为了凑成一个 HTTP 地址（http://tern/llm/<对话ID>），按“经代理”处理。
+	socket := os.Getenv("AGENT_PROXY_SOCKET")
+	local := socket != "" || (endpoint != nil && endpoint.Scheme == "http" && endpoint.Hostname() == "127.0.0.1")
+	// 明文 HTTP 只用于本机界面的代理和不要密钥的上游（本机的 Coconut）：密钥不能经明文发出去。
 	plain := endpoint != nil && endpoint.Scheme == "http" && (local || config.APIKey == "")
 	if err != nil || (endpoint.Scheme != "https" && !plain) || endpoint.Host == "" || endpoint.User != nil || endpoint.RawQuery != "" {
-		return Reply{}, errors.New("模型地址需要是完整的HTTPS URL；明文HTTP只用于本机网页端的代理和不要密钥的上游")
+		return Reply{}, errors.New("模型地址需要是完整的HTTPS URL；明文HTTP只用于本机界面的代理和不要密钥的上游")
 	}
 	body := map[string]any{"model": config.Model, "messages": prepareHistory(history, config.Vision()), "stream": true, "reasoning_effort": config.Effort,
 		// 流式默认不返回用量；要了它，[DONE] 前会多一个只有 usage 的 chunk，检查点与成本才有数据。
@@ -119,7 +122,7 @@ func callModel(ctx context.Context, config Config, history []Message, withTools 
 	if err != nil {
 		return Reply{}, err
 	}
-	// Responses、Messages 上游：直连时在这里换请求体；经网页端时发 chat 形式，由代理换（存档仍是 chat 形式）。
+	// Responses、Messages 上游：直连时在这里换请求体；经 app-server 的代理时发 chat 形式，由代理换（存档仍是 chat 形式）。
 	if !local {
 		if data, err = ConvertBody(config.Protocol, data); err != nil {
 			return Reply{}, err
@@ -138,30 +141,38 @@ func callModel(ctx context.Context, config Config, history []Message, withTools 
 		if config.Protocol != "" {
 			request.Header.Set("X-Agent-Protocol", config.Protocol)
 		}
-		// 网页端按这个明确标记区分主任务、摘要和记忆辅助调用，不靠回答内容猜测；代理不转发给上游。
+		// app-server 按这个明确标记区分主任务、摘要和记忆辅助调用，不靠回答内容猜测；代理不转发给上游。
 		request.Header.Set("X-Agent-Purpose", purpose)
 		// 任务ID区分父 agent 与子 agent：子进程继承同一个代理地址，靠它才能分开显示。
 		if TaskID != "" {
 			request.Header.Set("X-Agent-Task", TaskID)
 		}
-		// 模型路由：告诉代理这次请求本该发往哪家供应商；代理按它转发，网页端不必知道路由表。
+		// 模型路由：告诉代理这次请求本该发往哪家供应商；代理按它转发，app-server 不必知道路由表。
 		request.Header.Set("X-Agent-Upstream", config.Upstream)
-		// 多租户：网页端启动 agent 时发的令牌，代理据此确认请求来自这条对话的 agent。
+		// 多租户：app-server 启动 agent 时发的令牌，代理据此确认请求来自这条对话的 agent。
 		if token := os.Getenv("AGENT_PROXY_TOKEN"); token != "" {
 			request.Header.Set("X-Agent-Token", token)
 		}
-		// W3C traceparent 头写着这次 chat span 的ID，网页端把截获的原始请求和 span 对上。
+		// W3C traceparent 头写着这次 chat span 的ID，app-server 把截获的原始请求和 span 对上。
 		// 只发给本机代理，不发给供应商：第三方 API 用不上它（Claude Code 默认也只对自家 API 发送）。
 		otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(request.Header))
 	}
 	start := time.Now()
 	client := &http.Client{Timeout: 5 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	// 经 app-server 的模型代理走 Unix socket：没有端口，同一台机器上还可以有好几个 TERN_HOME。
+	if socket != "" {
+		client.Transport = &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			var dialer net.Dialer
+			return dialer.DialContext(ctx, "unix", socket)
+		}}
+	}
 	response, err := client.Do(request)
 	if err != nil {
 		if ctx.Err() != nil {
 			return Reply{}, ctx.Err()
 		}
-		down := os.Getenv("AGENT_PROXY_TOKEN") != "" && errors.Is(err, syscall.ECONNREFUSED)
+		// 连不上代理就是 app-server 在重启：socket 还没建好时是 ENOENT，建好了没人听是 ECONNREFUSED，都算。
+		down := (socket != "" || os.Getenv("AGENT_PROXY_TOKEN") != "") && (errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ENOENT))
 		return Reply{}, &transient{error: errors.New("模型请求失败，请检查网络与超时"), proxyDown: down}
 	}
 	defer response.Body.Close()
@@ -299,7 +310,7 @@ func (c *Client) CallKeeping(ctx context.Context, history []Message, withTools b
 		semconv.GenAIRequestModel(config.Model), attribute.String("agent.purpose", purpose), attribute.Int("agent.request.number", n),
 		attribute.Int("agent.request.input_estimate", ContextTokens(history, withTools)), attribute.String("gen_ai.request.reasoning_effort", config.Effort))
 	telemetry.Content(span, semconv.GenAIInputMessagesKey, history)
-	// 一次模型调用是一个 modelCall Item。完整的请求与响应原文仍由网页端的代理记录，这里只给结构化摘要。
+	// 一次模型调用是一个 modelCall Item。完整的请求与响应原文仍由 app-server 的代理记录，这里只给结构化摘要。
 	item := protocol.Item{ID: fmt.Sprintf("model-%d", n), Type: "modelCall", Data: map[string]any{"purpose": purpose, "number": n, "input_estimate": ContextTokens(history, withTools)}}
 	protocol.ItemStarted(TaskID, item)
 	// 主任务与摘要的增量实时发给界面（item/delta，只用于显示，权威结果仍是 item/completed 与检查点）；
@@ -322,7 +333,7 @@ func (c *Client) CallKeeping(ctx context.Context, history []Message, withTools b
 	}
 	// 暂时故障退避重试（1、2、4 秒，或服务端 Retry-After 要求的时间）；重试不另占请求预算，在 span 上记一个 retry 事件。
 	// 流已经输出了一半再重试时，通知界面清掉这次请求已经显示的部分（item/delta 的 reset），免得同一段话出现两遍。
-	// 经网页端代理时，代理连不上说明网页端在重启：等它回来（最多 protocol.DetachGrace），不算重试次数。
+	// 经 app-server 的代理时，代理连不上说明 app-server 在重启：等它回来（最多 protocol.DetachGrace），不算重试次数。
 	var reply Reply
 	var err error
 	var down time.Time
@@ -332,7 +343,7 @@ func (c *Client) CallKeeping(ctx context.Context, history []Message, withTools b
 		if errors.As(err, &t) && t.proxyDown && ctx.Err() == nil {
 			if down.IsZero() {
 				down = time.Now()
-				fmt.Printf("\nModel proxy unreachable: purpose=%s waiting for tern web (up to %s)\n", purpose, protocol.DetachGrace)
+				fmt.Printf("\nModel proxy unreachable: purpose=%s waiting for tern app-server (up to %s)\n", purpose, protocol.DetachGrace)
 			}
 			if time.Since(down) < protocol.DetachGrace {
 				attempt--

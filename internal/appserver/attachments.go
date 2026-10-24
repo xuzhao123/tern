@@ -1,11 +1,9 @@
-package web
+package appserver
 
 import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,70 +12,81 @@ import (
 
 	"github.com/xuzhao123/tern/internal/audit"
 	"github.com/xuzhao123/tern/internal/llm"
+	"github.com/xuzhao123/tern/internal/protocol"
 	"github.com/xuzhao123/tern/internal/tenant"
 )
 
-// 附图：页面把原图存进当前租户的附件目录（按内容寻址，agent 写入的是同一个目录），
+// 附图：界面把原图存进附件目录（按内容寻址，agent 写入的是同一个目录），
 // 之后的消息、检查点与对话存档里只放 attachment:// 引用。缩放交给 agent 做，界面显示原图。
 //
-// 图是用户的私有数据：目录 0700、文件 0600（llm.StoreAttachment），读取只看当前账号的租户目录；
+// 图是用户的私有数据：目录 0700、文件 0600（llm.StoreAttachment）；
 // 上传与别的会改变状态的操作一样先写审计，写不进审计就不保存。
+// 原图最大 20MB，base64 后超过一行 16MB 的上限，所以按块传（见 chunk.go）。
 
-// attachmentDir 是某个空间的附件目录：租户各自的 .data/tenants/<租户>/attachments，平台是 .data/attachments。
-func (s *server) attachmentDir(space string) string {
-	return filepath.Join(s.agentDir, tenant.Path(space, "attachments"))
+// attachmentDir 是附件目录 .data/attachments。
+func (s *Server) attachmentDir() string {
+	return filepath.Join(s.dir, tenant.Path("", "attachments"))
 }
 
-// 上传附图：请求体是图片字节，文件名放在 ?name=。名字只给模型看的来源和界面说明用，
+// attachment/upload：分块收图片，最后一块带 done 时处理。名字只给模型看的来源和界面说明用，
 // 存下来的名字由内容决定，所以同名不同图、不同名同图都不会打架。
-func (s *server) uploadAttachment(w http.ResponseWriter, req *http.Request) {
-	data, err := io.ReadAll(http.MaxBytesReader(w, req.Body, llm.MaxImageBytes))
-	if err != nil {
-		http.Error(w, "图片不能超过 20 MB", http.StatusRequestEntityTooLarge)
-		return
+func (c *conn) attachmentUpload(m protocol.Message) (any, *protocol.Error) {
+	data, id, done, ferr := c.receive(m, llm.MaxImageBytes)
+	if ferr != nil {
+		return nil, ferr
+	}
+	if !done {
+		return map[string]string{"uploadId": id}, nil
 	}
 	if llm.ImageMIME(data) == "" {
-		http.Error(w, "只支持 PNG、JPEG、GIF、WebP", http.StatusBadRequest)
-		return
+		return nil, bad(400, "只支持 PNG、JPEG、GIF、WebP")
 	}
-	name := attachmentName(req.URL.Query().Get("name"))
-	u := current(req)
-	record := audit.Record{Actor: "user", User: u.Name, Tenant: u.Tenant, Event: "user_attach", Target: name, Detail: "网页端页面"}
+	var input struct {
+		Name string `json:"name"`
+	}
+	if ferr := decode(m, &input); ferr != nil {
+		return nil, ferr
+	}
+	name := attachmentName(input.Name)
+	record := audit.Record{Actor: "user", User: userName(m), Event: "user_attach", Target: name, Detail: c.clientName()}
 	record.Args(string(data))
-	if err := audit.Write(req.Context(), record); err != nil {
-		http.Error(w, "审计日志写入失败，没有保存这张图："+err.Error(), http.StatusInternalServerError)
-		return
+	if err := audit.Write(c.ctx, record); err != nil {
+		return nil, bad(500, "审计日志写入失败，没有保存这张图："+err.Error())
 	}
-	ref, err := llm.StoreAttachment(s.attachmentDir(u.Tenant), data)
+	ref, err := llm.StoreAttachment(c.s.attachmentDir(), data)
 	if err != nil {
-		http.Error(w, "这张图存不下来："+err.Error(), http.StatusInternalServerError)
-		return
+		return nil, bad(500, "这张图存不下来："+err.Error())
 	}
-	json.NewEncoder(w).Encode(map[string]any{"ref": ref, "name": name})
+	return map[string]any{"ref": ref, "name": name}, nil
 }
 
-// 读取附图：引用不合法、文件不存在、内容不是图片都是 404。别的租户的图在本租户目录里本来就找不到，
-// 所以按编号访问的接口这里不需要再比对归属。Content-Type 只取按文件头认出的那一种并禁止嗅探。
-func (s *server) serveAttachment(w http.ResponseWriter, req *http.Request) {
-	path, err := llm.AttachmentPath(s.attachmentDir(current(req).Tenant), "attachment://"+req.PathValue("name"))
+// attachment/read：引用不合法、文件不存在、内容不是图片都是 404。mime 按文件头认，界面禁止嗅探。
+func (c *conn) attachmentRead(m protocol.Message) (any, *protocol.Error) {
+	var input struct {
+		Name   string `json:"name"`
+		Offset int64  `json:"offset"`
+		Length int64  `json:"length"`
+	}
+	if ferr := decode(m, &input); ferr != nil {
+		return nil, ferr
+	}
+	path, err := llm.AttachmentPath(c.s.attachmentDir(), "attachment://"+input.Name)
 	if err != nil {
-		http.NotFound(w, req)
-		return
+		return nil, bad(404, "找不到这张图")
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		http.NotFound(w, req)
-		return
+		return nil, bad(404, "找不到这张图")
 	}
 	mime := llm.ImageMIME(data)
 	if mime == "" {
-		http.NotFound(w, req)
-		return
+		return nil, bad(404, "找不到这张图")
 	}
-	w.Header().Set("Content-Type", mime)
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Cache-Control", "private, max-age=86400")
-	w.Write(data)
+	part, ferr := chunk(data, input.Offset, input.Length)
+	if ferr != nil {
+		return nil, ferr
+	}
+	return map[string]any{"data": part, "size": len(data), "mime": mime}, nil
 }
 
 // attachmentName 把上传时给的文件名收成一层、无控制字符、最长 128 字节；空的就是 image。
@@ -107,24 +116,21 @@ type attachRef struct {
 	Name string `json:"name"`
 }
 
-// checkImages 校验一条消息带的图：最多 llm.MaxImages 张，每个引用都要是本租户附件目录里的文件。
-func (s *server) checkImages(w http.ResponseWriter, space string, images []attachRef) bool {
+// checkImages 校验一条消息带的图：最多 llm.MaxImages 张，每个引用都要是附件目录里的文件。
+func (s *Server) checkImages(images []attachRef) *protocol.Error {
 	if len(images) > llm.MaxImages {
-		http.Error(w, fmt.Sprintf("每条消息最多 %d 张图", llm.MaxImages), http.StatusBadRequest)
-		return false
+		return bad(400, fmt.Sprintf("每条消息最多 %d 张图", llm.MaxImages))
 	}
 	for _, img := range images {
-		path, err := llm.AttachmentPath(s.attachmentDir(space), img.Ref)
+		path, err := llm.AttachmentPath(s.attachmentDir(), img.Ref)
 		if err != nil {
-			http.Error(w, "不是有效的附件引用："+img.Ref, http.StatusBadRequest)
-			return false
+			return bad(400, "不是有效的附件引用："+img.Ref)
 		}
 		if _, err := os.Stat(path); err != nil {
-			http.Error(w, "找不到这张图，请重新上传："+img.Ref, http.StatusBadRequest)
-			return false
+			return bad(400, "找不到这张图，请重新上传："+img.Ref)
 		}
 	}
-	return true
+	return nil
 }
 
 // visionModel 回答“这家供应商的这个模型能不能看图”，规则与 agent 完全一致（llm.Config.Vision）。
@@ -142,7 +148,7 @@ func visionModel(provider, model string) (string, bool) {
 //
 // 没有图片的请求原样返回（纯文字请求的存档与之前逐字节一致）；解析或存储任何一步不顺就保留原来的
 // data URL：存档宁可大一点，也要如实反映模型当时看到了什么。
-func (s *server) archiveImages(space string, body []byte) []byte {
+func (s *Server) archiveImages(body []byte) []byte {
 	if !bytes.Contains(body, []byte(`"data:image/`)) {
 		return body
 	}
@@ -151,7 +157,7 @@ func (s *server) archiveImages(space string, body []byte) []byte {
 	if json.Unmarshal(body, &request) != nil || json.Unmarshal(request["messages"], &messages) != nil {
 		return body
 	}
-	dir := s.attachmentDir(space)
+	dir := s.attachmentDir()
 	changed := false
 	for _, message := range messages {
 		var parts []map[string]json.RawMessage

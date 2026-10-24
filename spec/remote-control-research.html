@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>调研：Claude Code 与 Codex 的远程用法</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;700&display=swap">
+<style>
+/* 与 remote-agent.html 同一套样式：左侧目录 + 单栏正文；红橙只标 tern 自己的方案。 */
+:root {
+  --bg: #f2f4f6;
+  --surface: #ffffff;
+  --ink: #17202a;
+  --muted: #5c6774;
+  --line: #d5dbe2;
+  --accent: #c93e26;
+  --accent-soft: #fbe7e1;
+  --blue: #2b6896;
+  --blue-soft: #e2edf6;
+  --code-bg: #edf0f3;
+  --font-body: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d1217; --surface: #151c23; --ink: #e3e8ed; --muted: #96a2ae; --line: #2a343f;
+    --accent: #ff6b4e; --accent-soft: #3a1d17; --blue: #7ab4df; --blue-soft: #15283a; --code-bg: #1b232c;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d1217; --surface: #151c23; --ink: #e3e8ed; --muted: #96a2ae; --line: #2a343f;
+  --accent: #ff6b4e; --accent-soft: #3a1d17; --blue: #7ab4df; --blue-soft: #15283a; --code-bg: #1b232c;
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.75;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap {
+  max-width: 1160px;
+  margin: 0 auto;
+  padding-block: 48px 96px;
+  display: grid;
+  grid-template-columns: 188px minmax(0, 1fr);
+  gap: 56px;
+}
+nav.toc {
+  position: sticky;
+  top: calc(env(safe-area-inset-top, 0px) + 32px);
+  align-self: start;
+  font-size: 13px;
+  display: grid;
+  gap: 2px;
+}
+nav.toc .toc-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+nav.toc a {
+  color: var(--muted);
+  text-decoration: none;
+  padding: 3px 0 3px 12px;
+  border-left: 2px solid var(--line);
+}
+nav.toc a:hover, nav.toc a:focus-visible { color: var(--ink); border-left-color: var(--accent); outline: none; }
+main { min-width: 0; max-width: 860px; }
+
+header.hero { display: grid; gap: 18px; padding-bottom: 36px; border-bottom: 1px solid var(--line); }
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.status {
+  font-family: var(--font-body);
+  font-size: 12px;
+  letter-spacing: 0;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 999px;
+  padding: 1px 10px;
+}
+h1 {
+  font-size: clamp(28px, 4.4vw, 40px);
+  line-height: 1.25;
+  font-weight: 700;
+  margin: 0;
+  text-wrap: balance;
+}
+.lede { font-size: 17px; margin: 0; max-width: 40em; }
+.facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+  margin: 8px 0 0;
+}
+.facts div { display: grid; gap: 4px; align-content: start; }
+.facts dt { font-weight: 700; font-size: 14px; }
+.facts dd { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
+.facts dt::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-right: 8px; vertical-align: 1px; }
+
+section { padding-top: 48px; }
+section h2 {
+  font-size: 22px;
+  line-height: 1.4;
+  margin: 0 0 14px;
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  text-wrap: balance;
+}
+section h2 .no { font-family: var(--font-mono); font-size: 13px; font-weight: 500; color: var(--muted); }
+h3 { font-size: 16px; margin: 24px 0 8px; }
+p { margin: 0 0 12px; max-width: 42em; }
+ul, ol { margin: 0 0 12px; padding-left: 1.3em; max-width: 42em; }
+li { margin: 4px 0; }
+code, .mono { font-family: var(--font-mono); font-size: 0.88em; }
+:not(pre) > code { background: var(--code-bg); border-radius: 4px; padding: 1px 5px; overflow-wrap: anywhere; }
+a { color: var(--blue); }
+strong { font-weight: 700; }
+
+pre.term {
+  background: var(--ink);
+  color: var(--bg);
+  border-radius: 10px;
+  padding: 16px 18px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.7;
+  overflow-x: auto;
+  margin: 16px 0;
+}
+pre.term .p { color: var(--accent); }
+pre.term .c { opacity: 0.62; }
+.note { font-size: 13px; color: var(--muted); }
+
+figure { margin: 20px 0 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px 18px 14px; }
+figure .scroll { overflow-x: auto; }
+figure svg { display: block; width: 100%; height: auto; min-width: 640px; }
+figcaption { font-size: 13px; color: var(--muted); margin-top: 10px; line-height: 1.6; }
+
+.dg { color: var(--ink); font-family: var(--font-body); }
+.dg text { fill: currentColor; font-size: 12px; }
+.dg .t-title { font-size: 14px; font-weight: 700; }
+.dg .t-label { font-size: 13px; font-weight: 700; }
+.dg .t-muted { fill: var(--muted); }
+.dg .t-small { font-size: 11px; }
+.dg .t-accent { fill: var(--accent); }
+.dg .halo { paint-order: stroke; stroke: var(--surface); stroke-width: 5px; stroke-linejoin: round; }
+.dg .box { fill: var(--bg); stroke: currentColor; stroke-width: 1.2; }
+.dg .box-new { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.8; }
+.dg .zone { fill: none; stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 6 5; }
+.dg .edge { fill: none; stroke: currentColor; stroke-width: 1.5; }
+.dg .edge-new { fill: none; stroke: var(--accent); stroke-width: 2; }
+.dg .mk { fill: currentColor; }
+.dg .mk-new { fill: var(--accent); }
+
+.tbl { overflow-x: auto; margin: 12px 0 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; line-height: 1.6; }
+th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+tr:last-child td { border-bottom: 0; }
+th { font-size: 12px; font-weight: 500; color: var(--muted); background: var(--code-bg); white-space: nowrap; }
+td:first-child { white-space: nowrap; }
+table.wide { min-width: 760px; }
+th.ours, td.ours { background: var(--accent-soft); }
+.chip { display: inline-block; font-size: 12px; line-height: 1.6; padding: 0 9px; border-radius: 999px; white-space: nowrap; }
+.chip.p1 { color: var(--accent); background: var(--accent-soft); }
+.chip.no { color: var(--muted); border: 1px dashed var(--line); }
+
+.split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 12px 0; }
+.split > div { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+.split h3 { margin-top: 0; }
+.split p:last-child, .split ul:last-child { margin-bottom: 0; }
+
+.questions { list-style: none; padding: 0; display: grid; gap: 12px; max-width: none; }
+.questions li { margin: 0; display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.questions .qn { font-family: var(--font-mono); font-size: 13px; color: var(--accent); padding-top: 1px; }
+.questions p { margin: 0; }
+.questions ul { margin: 6px 0 0; }
+.questions .lean { color: var(--muted); font-size: 13px; margin-top: 4px; }
+
+footer { margin-top: 64px; padding-top: 20px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+
+@media (max-width: 980px) {
+  .wrap { grid-template-columns: minmax(0, 1fr); gap: 0; padding-block: 32px 72px; }
+  nav.toc { display: none; }
+}
+@media (max-width: 640px) {
+  body { font-size: 14.5px; }
+  .facts, .split { grid-template-columns: minmax(0, 1fr); }
+  .lede { font-size: 16px; }
+  figure { padding: 14px 12px 12px; }
+  td:first-child { white-space: normal; }
+}
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+section[id], header[id] { scroll-margin-top: 24px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav class="toc" aria-label="目录">
+    <div class="toc-label">目录</div>
+    <a href="#why">为什么调研</a>
+    <a href="#picture">一张图</a>
+    <a href="#claude">Claude Code</a>
+    <a href="#codex">Codex</a>
+    <a href="#protocol">协议层对比</a>
+    <a href="#compare">远程用法对比</a>
+    <a href="#mapping">tern 对应什么</a>
+    <a href="#common">共同点与含义</a>
+    <a href="#questions">要对齐的问题</a>
+    <a href="#sources">资料来源</a>
+  </nav>
+
+  <main>
+    <header class="hero" id="top">
+      <div class="eyebrow"><span>tern · spec/remote-control-research.html</span><span class="status">调研 · 用来对齐需求</span><span>2026-10-23</span></div>
+      <h1>Claude Code 与 Codex 的远程用法</h1>
+      <p class="lede">远程 agent 的设计（<a href="remote-agent-design.md">remote-agent-design.md</a>）写到一半发现需求没聊清楚：用户到底打开服务器上的网页，还是本机的 127.0.0.1？这一页整理 Claude Code 的 Remote Control 和 Codex 的远程连接、app-server 是怎么做的，再和 tern 的设计对照，最后列出要先对齐的产品问题。</p>
+      <dl class="facts">
+        <div><dt>界面都不是本机网页</dt><dd>要么是本机应用（终端、桌面端），要么是厂商托管的网页和手机 App。</dd></div>
+        <div><dt>配置以执行端为准</dt><dd>沙箱、权限、MCP、工具都用执行那台机器的；远程那一端只发消息、点审批。</dd></div>
+        <div><dt>模型由执行端调</dt><dd>用用户自己的账号，因为两家本身就是模型供应商。tern 做不到，只能由服务器代理、加密钥。</dd></div>
+      </dl>
+    </header>
+
+    <section id="why">
+      <h2><span class="no">01</span>为什么调研</h2>
+      <p>设计稿第 1 节写“思路同 Claude Code 的 Remote Control”，同时要求“模型密钥只在服务器上”。核对下来，这里其实混着两个需求：</p>
+      <ul>
+        <li><strong>用户不用自己的模型密钥</strong>：只要这一条，本机跑网页端、服务器只当模型代理就够了。</li>
+        <li><strong>在网页上操作本机代码</strong>：人在服务器的网页上（或换一台设备）看和审批，执行在用户本机。只有这一条才需要 Remote Control 那一套：控制连接、消息转发、断线补齐。</li>
+      </ul>
+      <p>两家的做法能帮我们判断该要哪一个、哪些细节值得照搬。</p>
+    </section>
+
+    <section id="picture">
+      <h2><span class="no">02</span>一张图：人在哪、agent 在哪、模型怎么调</h2>
+      <figure>
+        <div class="scroll">
+          <svg class="dg" viewBox="0 0 960 526" role="img" aria-label="四种形态对比。Claude Remote Control 与 Codex 远程连接：人在网页或手机上，经厂商服务器转发到用户本机，本机向外连接，模型由本机用用户自己的账号调用。tern 现在的设计：人在服务器网页上，本机的连接器向外连 tern web，模型请求经 tern web 代理、由服务器加密钥。方案 B：没有远程界面，本机运行 tern web 和 agent，只有模型请求经服务器代理。">
+            <defs>
+              <marker id="r-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk" d="M0,0 L10,5 L0,10 z"/></marker>
+              <marker id="r-arrow-new" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk-new" d="M0,0 L10,5 L0,10 z"/></marker>
+            </defs>
+            <text class="t-small t-muted" x="16" y="14">操作端（人在哪）</text>
+            <text class="t-small t-muted" x="316" y="14">服务器 / 中转</text>
+            <text class="t-small t-muted" x="696" y="14">用户本机（agent 在哪）</text>
+            <g transform="translate(0,26)">
+              <!-- Claude Remote Control -->
+              <text class="t-label" x="16" y="24">Claude Code · Remote Control</text>
+              <rect class="box" x="16" y="36" width="200" height="76" rx="10"/>
+              <text class="t-title" x="32" y="62">claude.ai/code</text>
+              <text class="t-muted" x="32" y="84">或 Claude 手机 App</text>
+              <rect class="box" x="316" y="36" width="270" height="76" rx="10"/>
+              <text class="t-title" x="332" y="62">Anthropic 服务器</text>
+              <text class="t-muted" x="332" y="84">转发会话 · 存会话记录</text>
+              <text class="t-muted" x="332" y="102">Claude API（模型）</text>
+              <rect class="box" x="696" y="36" width="248" height="76" rx="10"/>
+              <text class="t-title" x="712" y="62">claude remote-control</text>
+              <text class="t-muted" x="712" y="84">执行、文件、MCP 都在本机</text>
+              <text class="t-muted" x="712" y="102">配置、权限以本机为准</text>
+              <line class="edge" x1="216" y1="74" x2="316" y2="74" marker-start="url(#r-arrow)" marker-end="url(#r-arrow)"/>
+              <text class="t-small t-muted halo" x="266" y="66" text-anchor="middle">HTTPS</text>
+              <line class="edge" x1="696" y1="60" x2="588" y2="60" marker-end="url(#r-arrow)"/>
+              <text class="t-small halo" x="641" y="52" text-anchor="middle">会话 · 出站</text>
+              <line class="edge" x1="696" y1="96" x2="588" y2="96" marker-end="url(#r-arrow)"/>
+              <text class="t-small halo" x="641" y="88" text-anchor="middle">模型 · 用户账号</text>
+
+              <!-- Codex 远程连接 -->
+              <text class="t-label" x="16" y="148">Codex · 远程连接</text>
+              <rect class="box" x="16" y="160" width="200" height="76" rx="10"/>
+              <text class="t-title" x="32" y="186">ChatGPT 手机 App</text>
+              <text class="t-muted" x="32" y="208">或另一台电脑的桌面端</text>
+              <rect class="box" x="316" y="160" width="270" height="76" rx="10"/>
+              <text class="t-title" x="332" y="186">OpenAI 中继</text>
+              <text class="t-muted" x="332" y="208">转发会话（存不存记录未写明）</text>
+              <text class="t-muted" x="332" y="226">OpenAI 模型</text>
+              <rect class="box" x="696" y="160" width="248" height="76" rx="10"/>
+              <text class="t-title" x="712" y="186">ChatGPT 桌面端</text>
+              <text class="t-muted" x="712" y="208">内含 app-server，执行在本机</text>
+              <text class="t-muted" x="712" y="226">配置、权限以本机为准</text>
+              <line class="edge" x1="216" y1="198" x2="316" y2="198" marker-start="url(#r-arrow)" marker-end="url(#r-arrow)"/>
+              <text class="t-small t-muted halo" x="266" y="190" text-anchor="middle">经中继</text>
+              <line class="edge" x1="696" y1="184" x2="588" y2="184" marker-end="url(#r-arrow)"/>
+              <text class="t-small halo" x="641" y="176" text-anchor="middle">会话 · 出站</text>
+              <line class="edge" x1="696" y1="220" x2="588" y2="220" marker-end="url(#r-arrow)"/>
+              <text class="t-small halo" x="641" y="212" text-anchor="middle">模型 · 用户账号</text>
+
+              <!-- tern 方案 A -->
+              <text class="t-label t-accent" x="16" y="272">tern · 现在的设计（方案 A）</text>
+              <rect class="box" x="16" y="284" width="200" height="76" rx="10"/>
+              <text class="t-title" x="32" y="310">服务器上的网页</text>
+              <text class="t-muted" x="32" y="332">浏览器，任何设备</text>
+              <rect class="box-new" x="316" y="284" width="270" height="76" rx="10"/>
+              <text class="t-title" x="332" y="310">tern web（服务器）</text>
+              <text class="t-muted" x="332" y="332">转发会话 · 存档 · 下发设置</text>
+              <text class="t-muted" x="332" y="350">模型代理加密钥 → 方舟 / DeepSeek</text>
+              <rect class="box-new" x="696" y="284" width="248" height="76" rx="10"/>
+              <text class="t-title" x="712" y="310">tern connect + agent</text>
+              <text class="t-muted" x="712" y="332">执行在本机</text>
+              <text class="t-muted" x="712" y="350">服务器下发设置，本机再过滤</text>
+              <line class="edge" x1="216" y1="322" x2="316" y2="322" marker-start="url(#r-arrow)" marker-end="url(#r-arrow)"/>
+              <text class="t-small t-muted halo" x="266" y="314" text-anchor="middle">HTTPS</text>
+              <line class="edge-new" x1="696" y1="308" x2="588" y2="308" marker-end="url(#r-arrow-new)"/>
+              <text class="t-small t-accent halo" x="641" y="300" text-anchor="middle">wss · 出站</text>
+              <line class="edge-new" x1="696" y1="344" x2="588" y2="344" marker-end="url(#r-arrow-new)"/>
+              <text class="t-small t-accent halo" x="641" y="336" text-anchor="middle">模型 · 服务器密钥</text>
+
+              <!-- tern 方案 B -->
+              <text class="t-label t-accent" x="16" y="396">tern · 本机打开 127.0.0.1（方案 B）</text>
+              <rect class="zone" x="16" y="408" width="200" height="76" rx="10"/>
+              <text class="t-muted" x="116" y="451" text-anchor="middle">没有远程界面</text>
+              <rect class="box-new" x="316" y="408" width="270" height="76" rx="10"/>
+              <text class="t-title" x="332" y="434">tern web（服务器）</text>
+              <text class="t-muted" x="332" y="456">只当模型代理</text>
+              <text class="t-muted" x="332" y="474">认令牌 · 加密钥 · 按账号计量</text>
+              <rect class="box-new" x="696" y="408" width="248" height="76" rx="10"/>
+              <text class="t-title" x="712" y="434">本机 tern web + agent</text>
+              <text class="t-muted" x="712" y="456">浏览器打开 127.0.0.1</text>
+              <text class="t-muted" x="712" y="474">对话、设置都在本机</text>
+              <line class="edge-new" x1="696" y1="446" x2="588" y2="446" marker-end="url(#r-arrow-new)"/>
+              <text class="t-small t-accent halo" x="641" y="438" text-anchor="middle">模型 · 服务器密钥</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption>箭头方向是谁发起连接：四种形态里，用户本机都只发出站连接、不开端口。两家的模型请求都由本机用用户自己的账号发出；tern 的两种方案都要经服务器代理，由服务器加密钥。</figcaption>
+      </figure>
+    </section>
+
+    <section id="claude">
+      <h2><span class="no">03</span>Claude Code</h2>
+      <h3>几种用法</h3>
+      <div class="tbl">
+        <table class="wide">
+          <thead><tr><th>用法</th><th>agent 在哪跑</th><th>人在哪操作</th><th>模型怎么调</th><th>对话存在哪</th></tr></thead>
+          <tbody>
+            <tr><td>终端 <code>claude</code>、IDE</td><td>本机</td><td>本机终端或 IDE</td><td>本机直接调，用用户自己的 claude.ai 账号</td><td>本机</td></tr>
+            <tr><td>桌面端 Code 页（Local）</td><td>本机</td><td>桌面应用窗口</td><td>同上</td><td>本机</td></tr>
+            <tr><td><strong>Remote Control</strong></td><td>本机</td><td>claude.ai/code 网页、手机 App；本机终端也能同时用</td><td>本机直接调，用用户自己的账号</td><td>本机；连着时 Anthropic 服务器也存一份</td></tr>
+            <tr><td>云端会话</td><td>Anthropic 的虚拟机，代码从 GitHub 克隆</td><td>网页、手机、桌面端、<code>claude --cloud</code></td><td>云端</td><td>服务器</td></tr>
+            <tr><td>自托管环境</td><td>组织自己机器上的 runner</td><td>同云端会话</td><td>runner 起的子进程，用服务器发的会话级短期令牌</td><td>服务器</td></tr>
+            <tr><td>Dispatch</td><td>本机桌面端</td><td>手机上给 Cowork 发任务</td><td>本机</td><td>本机</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">自托管环境只有 Team、Enterprise 能用：runner 一次只服务一个账号，第一次领到任务时锁定在这个账号上，免得不同人的代码混在一台机器上。</p>
+
+      <h3>Remote Control 细节</h3>
+      <ul>
+        <li><strong>三种启动方式</strong>：
+          <ul>
+            <li><code>claude remote-control</code> 是服务模式：在项目目录里跑，一个进程同时服务多条会话（默认最多 32 条）。<code>--spawn same-dir|worktree|session</code> 决定并发会话共用目录、各用一个 git worktree，还是只服务一条。</li>
+            <li><code>claude --remote-control</code> 是交互模式：终端和网页都能打字。</li>
+            <li>已经开着的会话里输入 <code>/remote-control</code>，把当前对话接出去。</li>
+          </ul>
+        </li>
+        <li><strong>配对</strong>：不粘令牌。CLI 先用 claude.ai 账号登录，会话只出现在这个账号的网页和 App 里；终端显示会话链接和二维码。第一次用要确认一次，没信任过的目录也要先确认。API key 登录不能用 Remote Control。</li>
+        <li><strong>连接</strong>：本机只发出站 HTTPS，不开端口。注册到 Anthropic 后轮询任务，服务器在网页和本机会话之间转发消息。凭证有好几个，都是短期的，各管一件事。</li>
+        <li><strong>配置以本机为准</strong>：文件系统、MCP、工具、项目配置都用本机的。权限模式在启动时用 <code>--permission-mode</code> 给，沙箱靠本机设置文件打开。写在 <code>remote-control</code> 前面的全局参数不会带给它起的会话，除非确认不影响会话能做什么，否则直接拒绝启动。网页上能换的是模型和推理强度。</li>
+        <li><strong>审批</strong>：权限请求和提问转发到网页或手机，一直等到人回答；可以配手机推送，在需要决定或任务完成时通知。</li>
+        <li><strong>存储</strong>：连着期间，完整对话（消息、回答、工具活动）存在 Anthropic 服务器上，用于多设备同步和断线重连。执行和文件留在本机。</li>
+        <li><strong>断线</strong>：
+          <ul>
+            <li>笔记本睡眠或断网后自动重连。服务模式断网大约 10 分钟后放弃、进程退出；交互模式一直重试。</li>
+            <li>停掉服务后大约 4 小时内，可以用 <code>--continue</code> 或 <code>--session-id</code> 接回。</li>
+            <li>服务模式下某条会话崩溃了，从网页发一条消息就会重新拉起。</li>
+          </ul>
+        </li>
+        <li><strong>网页上的额外功能</strong>：git 仓库有 diff 面板；附图直接给模型，其他附件下载到本机、按文件引用交给模型。</li>
+        <li><strong>管理</strong>：Team、Enterprise 要管理员打开开关。可选 Trusted Devices：用来操作的浏览器、手机要先登记，登录超过 18 小时要用指纹、面容或通行密钥确认一次。</li>
+      </ul>
+    </section>
+
+    <section id="codex">
+      <h2><span class="no">04</span>Codex</h2>
+      <h3>远程连接：手机或另一台电脑控制主机</h3>
+      <ul>
+        <li><strong>配对</strong>：在主机的 ChatGPT 桌面端打开 设置 → Connections → Control this Mac or PC，屏幕上出二维码；手机扫码后确认是同一账号、同一工作区，再过一遍多因素验证。每台手机要和每台主机分别配对。工作区管理员可能要先打开 Remote Control。</li>
+        <li><strong>连接</strong>：流量走 OpenAI 的“安全中继”，主机不暴露在公网上。文档没写中继存不存对话记录。</li>
+        <li><strong>手机上能做的</strong>：在主机的项目里开新对话或接着聊、插话、回答提问、审批；看 diff、测试结果、终端输出和截图；收通知；在几台主机之间切换。</li>
+        <li><strong>配置以主机为准</strong>：沙箱、审批规则、项目、凭证、插件、本机工具都用主机的。</li>
+        <li><strong>交接</strong>：一条对话可以连同 git 状态在本机和主机之间搬，两边都要有同一个仓库的项目；正在跑的对话会先被中断。</li>
+        <li><strong>限制</strong>：主机目前要求 macOS 或 Windows 上的桌面端，并且保持开机、联网、登录；睡眠或断网就连不上。</li>
+      </ul>
+
+      <h3>另外三条远程路径</h3>
+      <div class="tbl">
+        <table class="wide">
+          <thead><tr><th>路径</th><th>怎么用</th><th>界面与 agent</th></tr></thead>
+          <tbody>
+            <tr><td>SSH 主机</td><td>桌面端读 <code>~/.ssh/config</code>，经 SSH 在远程机器上启动 app-server；远程机器要装好、登录好 Codex</td><td>界面在本机桌面端，agent 在远程机器，方向和上面相反</td></tr>
+            <tr><td>终端直连</td><td><code>codex app-server --listen ws://127.0.0.1:4500</code>，另一边 <code>codex --remote ws://…</code>；跨机器要 <code>wss://</code> 加 <code>--remote-auth-token-env</code></td><td>终端界面连到别处的 app-server；明文 <code>ws://</code> 只适合本机或 SSH 端口转发；标着实验性</td></tr>
+            <tr><td>命令行配对</td><td><code>codex remote-control start</code> 启动本机 app-server 守护进程，<code>codex remote-control pair</code> 打印短期有效的配对码</td><td>给 Linux 和没有图形界面的主机用；实验性，和远程连接文档“只能从桌面端开始配对”的说法矛盾（issue #35928）</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="protocol">
+      <h2><span class="no">05</span>协议层：Codex app-server 与 tern 的 app-server</h2>
+      <p>tern 的协议注释写着“参考 Codex app-server”（<code>internal/protocol/protocol.go</code>），但两者对“对话归谁管”的处理不一样。</p>
+      <div class="tbl">
+        <table class="wide">
+          <thead><tr><th></th><th>Codex app-server</th><th class="ours">tern</th></tr></thead>
+          <tbody>
+            <tr><td>进程</td><td>长期运行；一个进程服务多条对话，多个界面可以同时订阅同一条；没人订阅 30 分钟后卸载</td><td class="ours">一个进程只跑一轮，续聊时重新起进程</td></tr>
+            <tr><td>对话归谁</td><td>归 app-server：本机 JSONL 文件加 SQLite 元数据；<code>thread/start</code>、<code>thread/resume</code>、<code>thread/fork</code>、<code>thread/list</code>、<code>thread/delete</code></td><td class="ours">agent 里没有“对话”：历史在网页端存档里，续聊时放进 <code>turn/start</code> 传给新进程；检查点在 agent 那边</td></tr>
+            <tr><td>单位</td><td>thread（对话）› turn（一问加随后的工作）› item（消息、命令、改文件、工具调用）</td><td class="ours">turn 与 item；对话由网页端拼起来</td></tr>
+            <tr><td>传输</td><td>stdio（默认）；WebSocket（实验性，鉴权用能力令牌或签名令牌，带 Origin 头的请求一律拒绝）；Unix socket 上跑 WebSocket</td><td class="ours">stdio；Unix socket 上一行一条 JSON</td></tr>
+            <tr><td>握手与断线</td><td>先 <code>initialize</code>；断线后 <code>thread/resume</code>，再分页读历史</td><td class="ours"><code>session/attach {token, after}</code>，按序号补发漏掉的消息；没人连着最多等 10 分钟</td></tr>
+            <tr><td>插话与停止</td><td><code>turn/steer</code>（要带 <code>expectedTurnId</code>）、<code>turn/interrupt</code></td><td class="ours"><code>turn/steer</code>、<code>turn/interrupt</code></td></tr>
+            <tr><td>审批与提问</td><td><code>item/commandExecution/requestApproval</code>、<code>item/fileChange/requestApproval</code>（回 accept、acceptForSession、decline、cancel）；<code>item/permissions/requestApproval</code>（网络与文件权限，可按轮或按会话给）；<code>tool/requestUserInput</code>；<code>mcpServer/elicitation/request</code></td><td class="ours"><code>tool/requestApproval</code>（可回 allow_session）、<code>network/requestApproval</code>、<code>user/requestInput</code></td></tr>
+            <tr><td>账号与模型</td><td><code>account/login/start</code>：ChatGPT 网页登录、设备码、API key；模型由 app-server 自己调</td><td class="ours">没有账号接口；模型请求经网页端代理（<code>AGENT_PROXY_URL</code>），或用本机 <code>.env</code> 的密钥</td></tr>
+            <tr><td>配置</td><td><code>config/read</code>、<code>config/value/write</code> 读写本机 <code>config.toml</code>；管理员限制在 <code>requirements.toml</code></td><td class="ours">全靠启动参数，由界面决定（网页端把设置拍成快照传进来）</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>最大的区别：<strong>Codex 的对话归执行端管，tern 的对话归界面（网页端）管</strong>，agent 只是一次一轮的执行者。本机跑网页端时这没有问题；把执行端搬到用户机器、界面留在服务器上时，续聊要从服务器存档还原，检查点却在用户本机，断线重连要两边配合。设计稿里很多复杂度都从这里来。</p>
+    </section>
+
+    <section id="compare">
+      <h2><span class="no">06</span>远程用法对比</h2>
+      <div class="tbl">
+        <table class="wide">
+          <thead><tr><th></th><th>Claude Remote Control</th><th>Codex 远程连接</th><th class="ours">tern 方案 A（现在的设计）</th><th class="ours">tern 方案 B（本机 127.0.0.1）</th></tr></thead>
+          <tbody>
+            <tr><td>本机跑什么</td><td><code>claude remote-control</code>，或在 CLI、桌面端、VS Code 里 <code>/rc</code></td><td>ChatGPT 桌面端，或实验性的 app-server 守护进程</td><td class="ours"><code>tern connect</code>，每条对话一个 agent 进程</td><td class="ours">本机 <code>tern web</code>（含 agent）</td></tr>
+            <tr><td>人在哪操作</td><td>claude.ai/code、手机 App、本机终端</td><td>手机 App、另一台电脑的桌面端</td><td class="ours">服务器上的网页</td><td class="ours">本机浏览器</td></tr>
+            <tr><td>换设备、手机</td><td>能</td><td>能，以手机为主</td><td class="ours">能（浏览器）</td><td class="ours">不能</td></tr>
+            <tr><td>配对</td><td>CLI 登录 claude.ai 账号；会话链接与二维码</td><td>主机出二维码，手机扫码，同一账号加多因素验证</td><td class="ours">网页生成令牌，粘到命令行</td><td class="ours">本机配服务器地址和令牌（未设计）</td></tr>
+            <tr><td>连接</td><td>出站 HTTPS，经 Anthropic 转发</td><td>经 OpenAI 中继</td><td class="ours">出站 WebSocket 连 tern web</td><td class="ours">只有模型请求出站</td></tr>
+            <tr><td>模型请求</td><td>本机直接调，用户自己的订阅</td><td>本机直接调，用户的 ChatGPT 账号</td><td class="ours">经服务器代理，服务器加密钥</td><td class="ours">经服务器代理，服务器加密钥</td></tr>
+            <tr><td>配置以谁为准</td><td>本机</td><td>主机</td><td class="ours">服务器下发，本机再过滤</td><td class="ours">本机</td></tr>
+            <tr><td>对话存在哪</td><td>本机；连着时服务器也存一份</td><td>主机（中继存不存没写）</td><td class="ours">服务器存档；检查点在本机</td><td class="ours">本机</td></tr>
+            <tr><td>本机能否同时操作</td><td>能（交互模式）</td><td>能（主机上的桌面端）</td><td class="ours">不能，只显示日志</td><td class="ours">本来就在本机</td></tr>
+            <tr><td>tern 要做的量</td><td>—</td><td>—</td><td class="ours">大：控制连接、转发、断线补齐、网页端上公网、本机过滤服务器设置</td><td class="ours">小：代理按供应商名路由并加密钥、本机不要求密钥、断网时模型请求等一等</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="mapping">
+      <h2><span class="no">07</span>tern 现有的形态对应两家的什么</h2>
+      <div class="tbl">
+        <table class="wide">
+          <thead><tr><th>tern</th><th>Claude Code</th><th>Codex</th></tr></thead>
+          <tbody>
+            <tr><td><code>tern</code>（一次一个任务）</td><td><code>claude -p</code></td><td><code>codex exec</code></td></tr>
+            <tr><td><code>tern chat</code></td><td><code>claude</code></td><td><code>codex</code> 终端界面</td></tr>
+            <tr><td>本机跑 <code>tern web</code>，打开 127.0.0.1</td><td>桌面端 Code 页的 Local 会话</td><td>桌面端的本机项目</td></tr>
+            <tr><td><code>tern web</code> 部署到服务器给别人用</td><td>云端会话：agent 在服务器上，用服务器上的仓库</td><td>云端环境</td></tr>
+            <tr><td>设计稿里的 <code>tern connect</code>（方案 A）</td><td>Remote Control 服务模式</td><td>远程连接的主机端</td></tr>
+            <tr><td>方案 B</td><td>桌面端 Local 会话，再加上用账号调模型</td><td>桌面端本机项目，再加上用 ChatGPT 账号</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>所以“本机跑完 connect、打开 127.0.0.1”在两家那里对应的不是 Remote Control，而是桌面端的本机会话。两家的桌面端都是原生应用，不是浏览器开本机端口；tern 的本机网页端在这里的位置相当于它们的桌面端。</p>
+    </section>
+
+    <section id="common">
+      <h2><span class="no">08</span>共同点，以及对 tern 的含义</h2>
+      <ol>
+        <li><strong>都没有“本机打开网页”这种形态。</strong>本机用原生应用，远程用厂商托管的网页和手机 App。</li>
+        <li><strong>配对都靠账号登录或短期有效的码</strong>，不用长期令牌。</li>
+        <li><strong>配置、权限、沙箱都以执行端为准。</strong>远程那一端只发消息、点审批。设计稿反过来以服务器设置为准，所以第 8 节要写一整套“本机过滤服务器下发的东西”。</li>
+        <li><strong>模型请求都由执行端自己发，用用户自己的账号</strong>，因为两家就是模型供应商。tern 用方舟和 DeepSeek，没法给每个用户发短期凭证，所以由服务器代理、服务器加密钥。这是 tern 和两家根本不同的地方，无论选 A 还是 B 都要做。</li>
+        <li><strong>本机那一侧都是长期运行的</strong>（Codex 的 app-server 守护进程、Claude 的服务模式），对话归本机进程管。tern 是界面管对话、agent 一次一轮。</li>
+      </ol>
+    </section>
+
+    <section id="questions">
+      <h2><span class="no">09</span>要先对齐的产品问题</h2>
+      <ol class="questions">
+        <li><span class="qn">Q1</span><div><p><strong>给谁用、什么场景？</strong></p>
+          <ul>
+            <li>你自己：在电脑上干活，离开时用手机或别的电脑看进度、点审批。</li>
+            <li>团队或租户：你部署一个 tern web，大家用自己电脑上的代码，用你的模型额度。</li>
+            <li>只是不想让用户自己配模型密钥。</li>
+          </ul>
+          <p class="lean">先定。只要最后一条，方案 B 就够了。</p></div></li>
+        <li><span class="qn">Q2</span><div><p><strong>人主要在哪看、在哪点审批？</strong>本机浏览器、服务器上的网页（换设备也能看），还是手机？</p><p class="lean">先定。要换设备或手机，只能走方案 A，或者先做 B、以后再加 A。</p></div></li>
+        <li><span class="qn">Q3</span><div><p><strong>服务器要提供哪些东西？</strong>模型额度、账号、对话存档和多设备同步、统一的设置、审批入口。</p></div></li>
+        <li><span class="qn">Q4</span><div><p><strong>配置以谁为准？</strong>像两家一样以本机为准，还是保留以服务器设置为准（像现在的 tern web）？</p><p class="lean">决定设计稿第 8 节安全边界怎么写。</p></div></li>
+        <li><span class="qn">Q5</span><div><p><strong>对话归谁管？</strong>继续由网页端管（服务器存档、agent 一次一轮），还是像 Codex 那样归本机（本机存对话，服务器只转发和显示）？</p><p class="lean">影响最大，牵涉到 tern 现有的协议要不要改。</p></div></li>
+        <li><span class="qn">Q6</span><div><p><strong>本机终端要不要也能参与同一条对话？</strong>像 <code>claude --remote-control</code> 那样两边都能打字，还是只显示日志？</p></div></li>
+        <li><span class="qn">Q7</span><div><p><strong>配对方式：</strong>粘贴长期令牌，还是浏览器登录授权或短期配对码？</p></div></li>
+      </ol>
+    </section>
+
+    <section id="sources">
+      <h2><span class="no">10</span>资料来源与不确定的地方</h2>
+      <ul>
+        <li><a href="https://code.claude.com/docs/en/remote-control">Claude Code：Remote Control</a></li>
+        <li><a href="https://code.claude.com/docs/en/claude-code-on-the-web">Claude Code：Use Claude Code in the cloud</a></li>
+        <li><a href="https://code.claude.com/docs/en/self-hosted-environments">Claude Code：Self-hosted environments</a></li>
+        <li><a href="https://code.claude.com/docs/en/desktop">Claude Code：Desktop</a></li>
+        <li><a href="https://developers.openai.com/codex/app-server">Codex：App Server</a>（现在跳到 learn.chatgpt.com/docs/app-server）</li>
+        <li><a href="https://developers.openai.com/codex/remote-connections">Codex：Remote connections</a>（现在跳到 learn.chatgpt.com/docs/remote-connections）</li>
+        <li><a href="https://github.com/openai/codex/issues/35928">openai/codex issue #35928</a>：远程连接文档与 <code>codex remote-control pair</code> 的矛盾</li>
+      </ul>
+      <p>不确定的地方：</p>
+      <ul>
+        <li>Codex 远程连接文档没写中继存不存对话记录，也没写有没有网页界面。</li>
+        <li>Codex 的命令行配对是实验性的，和官方文档的说法矛盾。</li>
+        <li>app-server 文档没有直接说桌面端就是用它；SSH 主机那一节写的是“经 SSH 启动远程的 app-server”。</li>
+        <li>两家的功能更新很快，各项都标了最低版本；这里按 2026-10-23 读到的文档整理。</li>
+      </ul>
+    </section>
+
+    <footer>调研资料，不是设计。对齐后的结论：照 Codex 的 SSH 远程做，设计见同目录的 <a href="app-server-design.md">app-server-design.md</a>。</footer>
+  </main>
+</div>
+</body>
+</html>

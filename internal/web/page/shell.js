@@ -37,7 +37,7 @@ export const TOOL_INFO = {
   calculator: ["计算器", "calculator：四则运算、括号、sqrt 和 floor，只解析数学表达式"],
   get_current_datetime: ["当前时间", "get_current_datetime：Asia/Shanghai 的日期、时间和星期"],
   rag:["知识库检索", "search_docs：检索项目知识库（retrieval/corpus.md）。打开后系统提示词要求知识问题先查资料，所以默认关"],
-  memory: ["长期记忆", "remember / search / forget_memory：新对话开头先召回，要多发几次模型请求，所以默认关；按租户各自一份"],
+  memory: ["长期记忆", "remember / search / forget_memory：新对话开头先召回，要多发几次模型请求，所以默认关"],
   skills: ["Skills", "Skills 中心里启用的 skill：常驻名字和用途，用到时再加载正文"],
   mcp: ["MCP", "MCP 中心里启用的 server，工具注册为 mcp_<名字>"],
   subagents: ["子 agent", "spawn_agent：独立上下文的子进程，继承这里的工具，不继承长期记忆"],

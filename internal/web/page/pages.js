@@ -79,7 +79,7 @@ export async function openMemory(focus) {
 }
 $("skills-hub").onclick = () => openSkills();
 $("mcp-hub").onclick = () => openMCP();
-// 设置页：工具常驻，按 内置默认 → 平台 → 个人 合并；租户策略和本机条件只会关掉工具。改动只影响之后的新对话。
+// 设置页：工具常驻，按 内置默认 → 平台 → 个人 合并；本机条件只会关掉工具。改动只影响之后的新对话。
 const SET_SOURCE = { builtin: "内置默认", platform: "平台", user: "你" };
 export async function openSettings() {
   const panel = await openHubPage("设置", "打开的工具在新对话里都会带上，模型自己决定用不用；每个对话只选模型和工作区。改动只影响之后的新对话，进行中的对话沿用开始时的快照。保存在 .data/settings.json。");
@@ -93,7 +93,7 @@ export async function openSettings() {
   if (!panel.isConnected) return;
   ui.settings = data; syncComposer();
   const e = data.effective, values = { ...e.values };
-  panel.lastChild.replaceWith(el("p", "meta", "生效顺序：内置默认 › 平台 › 你。" + (ui.me && !ui.me.platform ? `租户 ${ui.me.tenant} 没开通的功能会被关掉。` : "")));
+  panel.lastChild.replaceWith(el("p", "meta", "生效顺序：内置默认 › 平台 › 你。"));
   const tag = (key) => el("span", "set-tag" + (e.source[key] === "user" ? " user" : ""), SET_SOURCE[e.source[key]] || e.source[key]);
   const select = (key, options) => {
     const node = el("select");
@@ -120,27 +120,23 @@ export async function openSettings() {
     if (blocked) text.append(el("div", "err", blocked));
   }
   panel.append(tools);
-  panel.append(el("h3", "", "工作区"), el("p", "meta", "对话里只能选这里登记的目录（本机上的 git 仓库）。编码工具只在所选目录里读写，bash 在沙箱里把它挂到 /workspace。只有平台账号能登记。"));
+  panel.append(el("h3", "", "工作区"), el("p", "meta", "对话里只能选这里登记的目录（本机上的 git 仓库）。编码工具只在所选目录里读写，bash 在沙箱里把它挂到 /workspace。"));
   const wsBox = el("div", "set-box");
   if (!e.workspaces.length) wsBox.append(el("div", "set-row", e.blocked.coding ? "编码工具不可用：" + e.blocked.coding : "还没有登记工作区"));
   for (const w of e.workspaces) {
     const row = el("div", "set-row"), text = el("span");
     text.append(el("strong", "", w.name), el("div", "meta", w.path));
     row.append(text, el("span"), el("span"));
-    if (data.can_edit_platform) {
-      const del = el("button", "ghost", "移除");
-      del.onclick = async () => { if (!confirm(`移除工作区 ${w.name}？目录本身不会删除。`)) return; try { await hubCall("DELETE", `/settings/workspaces/${encodeURIComponent(w.name)}`); openSettings(); } catch (err) { alert(err.message); } };
-      row.append(del);
-    } else row.append(el("span"));
+    const del = el("button", "ghost", "移除");
+    del.onclick = async () => { if (!confirm(`移除工作区 ${w.name}？目录本身不会删除。`)) return; try { await hubCall("DELETE", `/settings/workspaces/${encodeURIComponent(w.name)}`); openSettings(); } catch (err) { alert(err.message); } };
+    row.append(del);
     wsBox.append(row);
   }
-  if (data.can_edit_platform) {
-    const form = el("form", "set-row"), path = el("input"), add = el("button", "ghost", "添加");
-    path.placeholder = "仓库目录路径：绝对路径，或相对 agent 目录（如 . 表示本仓库）"; path.style.width = "100%";
-    form.append(path, el("span"), el("span"), add);
-    form.onsubmit = async (ev) => { ev.preventDefault(); add.disabled = true; try { await hubCall("POST", "/settings/workspaces", { path: path.value }); openSettings(); } catch (err) { alert(err.message); add.disabled = false; } };
-    wsBox.append(form);
-  }
+  const form = el("form", "set-row"), path = el("input"), add = el("button", "ghost", "添加");
+  path.placeholder = "仓库目录路径：绝对路径，或相对 agent 目录（如 . 表示本仓库）"; path.style.width = "100%";
+  form.append(path, el("span"), el("span"), add);
+  form.onsubmit = async (ev) => { ev.preventDefault(); add.disabled = true; try { await hubCall("POST", "/settings/workspaces", { path: path.value }); openSettings(); } catch (err) { alert(err.message); add.disabled = false; } };
+  wsBox.append(form);
   panel.append(wsBox);
   panel.append(el("h3", "", "默认值"));
   const grid = el("div", "set-box set-grid"), num = (key, label, hint) => {
@@ -186,11 +182,10 @@ export async function openSettings() {
   const netsWrap = el("span"); netsWrap.append(nets, tag("net_allow"));
   grid.append(el("span", "meta", "沙箱联网白名单"), netsWrap);
   panel.append(grid, el("p", "meta", "沙箱里的命令只能经代理访问白名单里的域名；连到别的域名时代理当场问你，命令等你答复。审批时点“始终允许”会把域名加进你的个人设置。"), el("p", "meta","权限模式在每条对话的输入框旁边还能换（每轮生效）；规则在对话开始时拍进快照。高风险确认（删除记忆、破坏性 MCP、含私有数据后的外发、续跑重做）在全权以外的模式下都询问；全权模式同 Claude Code、Codex，不再询问，由程序放行并写审计（续跑重做不自动做，回填结果未知）。"));
-  // hooks 在本机以网页端的身份运行命令，不在沙箱里，所以只有平台账号能改；个人设置里不生效。
-  panel.append(el("h3", "", "Hooks"), el("p", "meta", "在固定时刻运行本机命令：用户提交（UserPromptSubmit）、工具执行前（PreToolUse）、工具成功后（PostToolUse）、模型准备结束（Stop）。格式同 Claude Code 的 hooks 段；填配置原文，或相对 agent 目录的文件路径（如 hooks/hooks.json）。对话开始时读成原文拍进快照。命令不在沙箱里运行，只有平台账号能设置。"));
+  // hooks 在本机以网页端的身份运行命令，不在沙箱里，所以只从平台设置读；个人设置里不生效。
+  panel.append(el("h3", "", "Hooks"), el("p", "meta", "在固定时刻运行本机命令：用户提交（UserPromptSubmit）、工具执行前（PreToolUse）、工具成功后（PostToolUse）、模型准备结束（Stop）。格式同 Claude Code 的 hooks 段；填配置原文，或相对 agent 目录的文件路径（如 hooks/hooks.json）。对话开始时读成原文拍进快照。命令不在沙箱里运行，只有平台设置里的 hooks 生效。"));
   const hooksBox = el("textarea"); hooksBox.rows = 3; hooksBox.style.width = "100%"; hooksBox.value = values.hooks;
   hooksBox.placeholder = "hooks/hooks.json\n或 {\"hooks\": {\"PostToolUse\": [{\"matcher\": \"edit_file|write_file\", \"hooks\": [{\"type\": \"command\", \"command\": \"...\"}]}]}}";
-  hooksBox.disabled = !data.can_edit_platform;
   hooksBox.oninput = () => { values.hooks = hooksBox.value; };
   const hooksWrap = el("div", "set-box"); hooksWrap.append(hooksBox, tag("hooks"));
   panel.append(hooksWrap);
@@ -199,12 +194,10 @@ export async function openSettings() {
   mine.onclick = () => saveTo("/settings", values);
   reset.onclick = () => { if (confirm("清掉你的个人设置，改用平台默认？")) saveTo("/settings", {}); };
   actions.append(mine, reset);
-  if (data.can_edit_platform) {
-    const plat = el("button", "ghost", "保存为平台默认");
-    plat.title = "所有账号没单独设过的项都跟着变";
-    plat.onclick = () => saveTo("/settings/platform", values);
-    actions.append(plat);
-  }
+  const plat = el("button", "ghost", "保存为平台默认");
+  plat.title = "所有账号没单独设过的项都跟着变";
+  plat.onclick = () => saveTo("/settings/platform", values);
+  actions.append(plat);
   actions.append(el("span", "meta", "只保存和上一层不同的项；标签显示每项来自哪一层"));
   panel.append(actions);
 }

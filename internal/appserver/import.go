@@ -1,60 +1,56 @@
-package web
+package appserver
 
 import (
 	"encoding/json"
-	"io"
-	"net/http"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/xuzhao123/tern/internal/protocol"
 	"github.com/xuzhao123/tern/internal/transcript"
 )
 
-// importRun 导入 Codex / Claude Code 的会话文件：换成和代理记下的同一种存档（request/response 成对），
-// 放进当前租户的 runs 目录，之后和普通对话一样在列表里查看、回放、对比。导入的对话只读：没有检查点，不能续聊。
-func (s *server) importRun(w http.ResponseWriter, req *http.Request) {
-	u := current(req)
-	data, err := io.ReadAll(http.MaxBytesReader(w, req.Body, 128<<20))
-	if err != nil {
-		http.Error(w, "文件读取失败或超过 128 MB："+err.Error(), http.StatusBadRequest)
-		return
+// thread/import：导入 Codex / Claude Code 的会话文件，换成和代理记下的同一种存档（request/response 成对），
+// 放进 .data/runs，之后和普通对话一样在列表里查看、回放、对比。导入的对话只读：没有检查点，不能续聊。
+// 文件最大 128MB，按块收（见 chunk.go），最后一块带 done 时才解析。
+func (c *conn) threadImport(m protocol.Message) (any, *protocol.Error) {
+	data, id, done, ferr := c.receive(m, 128<<20)
+	if ferr != nil {
+		return nil, ferr
 	}
+	if !done {
+		return map[string]string{"uploadId": id}, nil
+	}
+	s := c.s
 	conv, err := transcript.Parse(data)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
+		return nil, bad(400, err.Error())
 	}
 	events := importEvents(conv)
 	if len(events) == 0 {
-		http.Error(w, "文件里没有找到对话", http.StatusBadRequest)
-		return
+		return nil, bad(400, "文件里没有找到对话")
 	}
-	id := uuid.NewString()
-	file, err := s.createRunFile(u.Tenant, id)
+	runID := uuid.NewString()
+	file, err := s.createRunFile(runID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return nil, bad(500, err.Error())
 	}
 	defer file.Close()
-	r := &run{ID: id, Tenant: u.Tenant, Query: events[0].Text, Source: conv.Source, Done: true, changed: make(chan struct{})}
+	r := &run{ID: runID, Query: events[0].Text, Source: conv.Source, Done: true, changed: make(chan struct{})}
 	for _, e := range events {
 		line, _ := json.Marshal(e)
 		if _, err := file.Write(append(line, '\n')); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+			return nil, bad(500, err.Error())
 		}
 		r.calls = max(r.calls, e.Call)
 	}
 	r.events = events
-	s.mu.Lock()
-	s.runs = append(s.runs, r)
-	s.mu.Unlock()
-	writeJSON(w, r.summary())
+	s.addRun(r)
+	return r.summary(), nil
 }
 
 // importEvents 按时间顺序生成事件，时间用记录里的原始时间戳。每一轮以 start/continue 开始、exit 结束，
-// 和网页端自己启动的对话一样；请求只带新增的消息（append），页面接在上一次请求后面还原完整输入。
+// 和自己启动的对话一样；请求只带新增的消息（append），界面接在上一次请求后面还原完整输入。
 func importEvents(conv *transcript.Conversation) []event {
 	var events []event
 	add := func(e event, at time.Time) {
