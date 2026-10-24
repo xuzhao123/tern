@@ -91,6 +91,7 @@ type run struct {
 	ID, Query string
 	Name      string // 人取的名字，存在 .data/runs/<ID>.meta.json；空表示列表显示第一句话
 	Archived  bool   // 已归档：列表默认不显示（见 threads.go）
+	Side      bool   // 旁支提问分出来的对话，同时是已归档，见 thread/fork 的 side
 	Eval      string // 评测发起的试次，见 event.Eval
 	Source    string // 从 Codex / Claude Code 导入的对话，见 event.Source
 	ForkOf    string // 分出来的对话是这个 ID 的原对话，见 fork 事件；其余为空
@@ -800,10 +801,12 @@ func (c *conn) threadRewind(m protocol.Message) (any, *protocol.Error) {
 
 // thread/fork：从第 n 轮之后另起一条对话。前面各轮的事件原样复制进新对话的存档（seq 不改），原对话不变、文件不动；
 // 分支和原对话共用工作区与 bash 沙箱，所以原对话之后各轮改过的文件要列出来，下一轮由 turn/start 提醒模型。
+// side 是旁支提问：分出来的对话不入列表主区域，记 side 并先归档；问题由界面随后发出时再改名。
 func (c *conn) threadFork(m protocol.Message) (any, *protocol.Error) {
 	var input struct {
 		ThreadID string `json:"threadId"`
 		Turn     string `json:"turn"`
+		Side     bool   `json:"side"`
 	}
 	if ferr := decode(m, &input); ferr != nil {
 		return nil, ferr
@@ -878,6 +881,10 @@ func (c *conn) threadFork(m protocol.Message) (any, *protocol.Error) {
 		return nil, bad(500, err.Error())
 	}
 	nr := &run{ID: id, ForkOf: r.ID, Done: true, changed: make(chan struct{})}
+	if input.Side {
+		// 旁支：记下 side 并先归档，列表主区域看不到；问题这时还没发，名字等界面拿到问题后再改。
+		nr.Side, nr.Archived, nr.Name = true, true, "旁支"
+	}
 	var buf bytes.Buffer
 	for _, e := range copied {
 		line, err := json.Marshal(e)
@@ -907,6 +914,13 @@ func (c *conn) threadFork(m protocol.Message) (any, *protocol.Error) {
 		return nil, bad(500, "分叉的对话记录写不进去："+err.Error())
 	}
 	file.Close()
+	// 旁支的 side 与归档写在 .meta.json 旁边：读回来时 summary()、列表与重启后的状态都从这里来。
+	if input.Side {
+		if err := s.writeMeta(id, runMeta{Name: nr.Name, Archived: true, Side: true}); err != nil {
+			os.Remove(filepath.Join(s.runsDir(), id+".jsonl"))
+			return nil, bad(500, "旁支的元数据写不进去："+err.Error())
+		}
+	}
 	s.addRun(nr)
 	return nr.summary(), nil
 }
@@ -1289,9 +1303,9 @@ func (s *Server) loadRuns() {
 			continue
 		}
 		r := &run{s: s, ID: strings.TrimSuffix(filepath.Base(path), ".jsonl"), Done: true, changed: make(chan struct{})}
-		// 名字、归档与排队的消息在旁边的 .meta.json 里；没有这个文件就是没改过名、没归档、没排队。
+		// 名字、归档、旁支与排队的消息在旁边的 .meta.json 里；没有这个文件就是没改过名、没归档、没排队。
 		if meta, err := readMeta(s.metaPath(r.ID)); err == nil {
-			r.Name, r.Archived, r.queue = meta.Name, meta.Archived, meta.Queue
+			r.Name, r.Archived, r.Side, r.queue = meta.Name, meta.Archived, meta.Side, meta.Queue
 		}
 		for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
 			var e event
@@ -1359,6 +1373,10 @@ func (r *run) summary() map[string]any {
 	}
 	if r.Archived {
 		summary["archived"] = true
+	}
+	// 旁支提问分出来的对话（有才带）：页面在已归档里标“旁支”，打开时顶上给一条返回原对话的横幅。
+	if r.Side {
+		summary["side"] = true
 	}
 	// 排队的后续消息（有才带）：页面在待发送区里列出它们，所有打开这条对话的页面看到的一样。
 	if len(r.queue) > 0 {

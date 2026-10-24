@@ -18,12 +18,13 @@ import (
 	"github.com/google/uuid"
 )
 
-// 名字、归档与排队的后续消息放在单独的 .data/runs/<对话ID>.meta.json：
-// {"name": "…", "archived": true, "queue": [{"id": "…", "text": "…", "at": "…"}]}，三项都可以没有。
+// 名字、归档、旁支与排队的后续消息放在单独的 .data/runs/<对话ID>.meta.json：
+// {"name": "…", "archived": true, "side": true, "queue": [{"id": "…", "text": "…", "at": "…"}]}，四项都可以没有。
 // 不写进存档 .jsonl：对话结束后存档文件已经关了（run.add 在 exit 时关），改个名也不该把对话顶到列表最上面。
 type runMeta struct {
 	Name     string      `json:"name,omitempty"`
 	Archived bool        `json:"archived,omitempty"`
+	Side     bool        `json:"side,omitempty"`
 	Queue    []queueItem `json:"queue,omitempty"`
 }
 
@@ -52,10 +53,10 @@ func readMeta(path string) (runMeta, error) {
 }
 
 // writeMeta 先写 .tmp 再 rename，权限和存档一样（0600）：读到的要么是旧内容，要么是新内容。
-// 三项都没有时删掉文件，不留空壳。
+// 四项都没有时删掉文件，不留空壳。
 func (s *Server) writeMeta(id string, meta runMeta) error {
 	path := s.metaPath(id)
-	if meta.Name == "" && !meta.Archived && len(meta.Queue) == 0 {
+	if meta.Name == "" && !meta.Archived && !meta.Side && len(meta.Queue) == 0 {
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
@@ -82,14 +83,14 @@ func (s *Server) writeMeta(id string, meta runMeta) error {
 // setMeta 改一项元数据：先写文件再改内存，写不进去就不改。
 func (s *Server) setMeta(r *run, change func(*runMeta)) *protocol.Error {
 	r.mu.Lock()
-	meta := runMeta{Name: r.Name, Archived: r.Archived, Queue: slices.Clone(r.queue)}
+	meta := runMeta{Name: r.Name, Archived: r.Archived, Side: r.Side, Queue: slices.Clone(r.queue)}
 	r.mu.Unlock()
 	change(&meta)
 	if err := s.writeMeta(r.ID, meta); err != nil {
 		return bad(500, "无法写入对话的元数据："+err.Error())
 	}
 	r.mu.Lock()
-	r.Name, r.Archived, r.queue = meta.Name, meta.Archived, meta.Queue
+	r.Name, r.Archived, r.Side, r.queue = meta.Name, meta.Archived, meta.Side, meta.Queue
 	r.mu.Unlock()
 	return nil
 }

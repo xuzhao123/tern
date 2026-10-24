@@ -97,6 +97,10 @@
     {
       "at": "2026-10-24T20:34:34.801733473Z",
       "text": "spec/remote-setup.md 已实现，F1–F7 全部通过验证；gofmt/vet/build/node --check 通过，工作区只有 8 个改动的文件（未提交）。沙箱里另做了三组自测：假 ssh 测 12 种失败分类、假远端测 InstallRemote/WriteRemoteKeys、headless Chrome 测主机菜单（确认指纹、装到远端、复制密钥三种按钮）；起过临时 web 端测 /hosts 502 JSON 与 /connection 的 kind/hint，临时目录都已删。simulate 里没做的：spec 5.4–5.9（真实模型、真实远端）留给 Claude Code 与用户。下一步（要收尾的人）：照着 spec 5.4–5.9 在真机上跑一遍，特别看已连上远端的“更新远端”之后的事件流是否按预期重连。"
+    },
+    {
+      "at": "2026-10-24T20:43:13.152618845Z",
+      "text": "另一个任务（spec/side-question.md，与上面 remote-setup 的 F1–F7 无关）：旁支提问已实现，未提交。改动 7 个文件：internal/appserver/{server.go,threads.go,AGENTS.md}、internal/web/page/{index.html,shell.js,chat.js}、README.md。gofmt -l . 无输出，go vet ./...、go build ./...、node --check shell.js/chat.js 都通过；另在 /scratch 的临时 TERN_HOME 里用协议级测试验过：带 side 的 thread/fork 回 side:true + archived:true + name「旁支」，.meta.json 写 {\"name\":\"旁支\",\"archived\":true,\"side\":true}，重启后 thread/list 仍带 side，改名后 side 不丢；不带 side 的分叉行为不变。临时目录已删。剩余是 spec 5.3–5.5（真实模型、无头 Chrome：四步、横幅、返回原对话、运行中灰掉），留给 Claude Code 在沙箱外做。"
     }
   ]
 }

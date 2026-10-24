@@ -334,6 +334,20 @@ function forkBanner(r) {
   if (note.files.length) box.append(el("span", "", `原对话之后各轮改过的这些文件仍在磁盘上：${note.files.join("、")}`));
   return box;
 }
+// 旁支提问的横幅：这条对话是从原对话临时分出来问的，问答不回到原对话；点“返回原对话”回去。
+// 原对话的名字或第一句话由 loadRuns 从对话列表里取（summary 只有 fork_of）。
+function sideBanner(r) {
+  const box = el("div", "banner"), from = r.forkOf || r.forkNote?.from || "";
+  box.append(el("span", "", `这是从「${r.forkName || from}」分出来的旁支，问答不会回到原对话。`));
+  if (from) {
+    const a = el("a", "cite", "返回原对话");
+    a.href = `?run=${encodeURIComponent(from)}`;
+    a.title = `打开原对话 ${from}`;
+    a.onclick = (ev) => { ev.preventDefault(); show(from); };
+    box.append(a);
+  }
+  return box;
+}
 export function renderChat() {
   parkViz();
   drawChat();
@@ -352,6 +366,8 @@ function drawChat() {
   const r = ui.run;
   if (!r) { renderSubPanel(); return box.append(welcome()); }
   analyze(r);
+  // 旁支的横幅放在对话最上面：这一整条都是临时分出来问的，问答不回到原对话。
+  if (r.side) box.append(sideBanner(r));
   let group = null, shown = 0;
   const flow = exploreRuns(r, chatFlow(r));
   flow.forEach((f, i) => {

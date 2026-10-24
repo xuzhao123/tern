@@ -29,6 +29,11 @@ export function renderShell() {
   $("files-btn").hidden = !chat || !r?.sandbox;
   $("files-btn").classList.toggle("on", !!ui.filesOpen);
   $("export-btn").hidden = !chat || !r;
+  // 旁支提问：对话停下时才能问，运行中灰掉（见 sideQuestion）；导入的对话与评测的试次不能分叉，不显示。
+  const sideBusy = !!r && (!r.exit || ui.loading || !!ui.replay);
+  $("side-btn").hidden = !chat || !r || !!r.source || !!r.eval;
+  $("side-btn").disabled = sideBusy;
+  $("side-btn").title = sideBusy ? "这一轮跑完才能问旁支问题" : "从这里临时分出去问一句，问答不进这条对话";
   $("diff-btn").hidden = !chat || !r?.workspace;
   $("diff-btn").classList.toggle("on", !!ui.diffOpen);
   const runID = $("run-id");
@@ -262,6 +267,13 @@ export async function loadRuns() {
     if (!current.done && ui.run.exit && !ui.loading) { show(ui.run.id, false); return; }
     ui.run.queue = current.queue || [];
     ui.run.name = current.name || ""; // 列表里的名字（改过名才有）：导出时当标题
+    // 旁支（summary.side）：横幅写从哪条分出来，原对话的名字或第一句话从同一份列表里取。
+    const side = !!current.side, from = side && current.fork_of ? lists[0].find((x) => x.id === current.fork_of) : null;
+    const forkName = from ? from.name || from.query || "" : "";
+    if (side !== !!ui.run.side || (side && ui.run.forkName !== forkName)) {
+      Object.assign(ui.run, { side, forkOf: side ? current.fork_of || "" : "", forkName });
+      render(); // 横幅在对话最上面，重画一次；打开旁支时只变这一次
+    }
     // 服务端说这条对话还能不能接着聊：撤销到第一轮之前以后仍为真（可以在同一条对话里重新开始），
     // 输入框据此判断要不要当成坏了（见 syncComposer 的 broken）。
     if (ui.run.canContinue !== !!current.can_continue) {
@@ -466,7 +478,9 @@ function runRow(r, h, archived = false) {
   const b = el("button"), q = el("span", "q");
   if (!r.done) q.append(el("span", "live"));
   if (SOURCE_LABEL[r.source]) q.append(el("span", "src", SOURCE_LABEL[r.source]));
-  if (r.fork_of) q.append(el("span", "src", "分叉"));
+  // 旁支提问分出来的对话在已归档里，标“旁支”而不是“分叉”：两者都记在 fork_of 上。
+  if (r.side) q.append(el("span", "src", "旁支"));
+  else if (r.fork_of) q.append(el("span", "src", "分叉"));
   // 这条对话在等人：醒目的小标签放标题前面，点进对话就能答复。
   if (r.waiting) q.append(el("span", "wait", r.waiting === "approval" ? "等你审批" : "等你回答"));
   // 有名字就显示名字；悬停里仍是第一句话和对话 ID，看得出这是哪条。
@@ -597,6 +611,8 @@ export function autosize() { const q = $("query"); q.style.height = "auto"; q.st
 $("files-btn").onclick = () => { ui.filesOpen = !ui.filesOpen; if (ui.filesOpen) { ui.subOpen = ui.webOpen = null; ui.diffOpen = false; ui.files.run = null; } renderChat(); renderShell(); };
 // 导出：整条对话在页面里拼成 Markdown 再下载，不经服务端（见 export.js）。
 $("export-btn").onclick = () => exportRun(ui.run);
+// 旁支提问：按钮的显示见 renderShell，四步见 sideQuestion。
+$("side-btn").onclick = sideQuestion;
 $("diff-btn").onclick = () => { ui.diffOpen = !ui.diffOpen; if (ui.diffOpen) { ui.subOpen = ui.webOpen = null; ui.filesOpen = false; ui.diff.run = null; } renderChat(); renderShell(); };
 $("page-chat").onclick = () => { ui.page = "chat"; if (ui.tab === "compare") ui.tab = "trace"; render(); loadRuns(); };
 $("page-observe").onclick = () => { ui.page = "observe"; render(); loadRuns(); };
@@ -721,6 +737,35 @@ export async function forkTurn(r, t) {
     if (!res.ok) throw new Error((await res.text()).trim());
     id = (await res.json()).id;
   } catch (err) { return alert("分叉失败：" + err.message); }
+  show(id);
+}
+// 旁支提问：从最后一轮临时分出去问一句，问答不进这条对话。分出来的对话已归档，名字用问题；四步里
+// 哪一步失败就停下，原因写在输入框下面，已经分出来的旁支留着（在已归档里），不回滚。
+async function sideQuestion() {
+  const r = ui.run;
+  // 和每条回答下的“分叉”一样，分叉带过来的轮次不能再分（它们的撤销会走进原对话）。
+  const turn = [...(r?.turns || [])].reverse().find((t) => t.checkpoint && !t.rewound && !t.inherited);
+  if (!turn) { ui.hint = "这条对话还没有可以分出去的轮次"; syncComposer(); return; }
+  const question = (prompt("旁支问题：临时分出去问一句，问答不会回到这条对话") || "").trim();
+  if (!question) return;
+  const fail = (text) => { ui.hint = text; syncComposer(); };
+  let id;
+  try {
+    const res = await fetch(api(`/runs/${encodeURIComponent(r.id)}/fork`), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ turn: turn.checkpoint, side: true }) });
+    if (!res.ok) throw new Error((await res.text()).trim());
+    id = (await res.json()).id;
+  } catch (err) { return fail("没分成旁支：" + err.message); }
+  // 名字：问题的前 20 个字（按字符数，不按字节）。
+  const name = "旁支：" + [...question].slice(0, 20).join("");
+  try {
+    const res = await fetch(api(`/runs/${encodeURIComponent(id)}/name`), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+    if (!res.ok) throw new Error((await res.text()).trim());
+  } catch (err) { return fail(`旁支已经分出来了（在已归档里），但没改成名字：${err.message}`); }
+  try {
+    // 权限模式、推理强度用输入框旁边当前的选择，和平时续聊一样。
+    const res = await fetch(api(`/runs/${encodeURIComponent(id)}/messages`), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: question, permission: $("perm").value, effort: $("effort").value }) });
+    if (!res.ok) throw new Error((await res.text()).trim());
+  } catch (err) { return fail(`旁支已经分出来了（在已归档里），但问题没发出去：${err.message}`); }
   show(id);
 }
 export async function attribute(runID) {
