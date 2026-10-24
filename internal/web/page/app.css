@@ -468,6 +468,13 @@ select.pick:disabled { background-image: none; padding-right: 8px; }
 .term .cmd { color: var(--term-cmd); }
 .exit-chip { padding: 0 5px; border-radius: 4px; font: 500 10px/1.7 var(--mono); background: var(--soft); color: var(--muted); }
 .exit-chip.bad { background: color-mix(in srgb, var(--err) 12%, transparent); color: var(--err); }
+/* 两轮之间人自己用 ! 跑的命令（见 chat.js 的 shellCard）：命令一行，下面是输出 */
+.shellcard { margin: 10px 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.shellcard > .head { display: flex; align-items: center; gap: 10px; }
+.shellcard > .head .cmd { flex: 1; font: 500 12px/1.6 var(--mono); white-space: pre-wrap; word-break: break-word; }
+.shellcard pre.term { max-height: 360px; }
+.shellcard details > summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+.shellcard > .meta { margin-top: 6px; color: var(--faint); font-size: 12px; }
 .net-card { margin: 8px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); box-shadow: var(--shadow); }
 .net-card b { font: 600 13px var(--mono); }
 .net-card .why { margin: 4px 0 8px; color: var(--muted); font-size: 13px; white-space: pre-wrap; }

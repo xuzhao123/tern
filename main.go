@@ -245,6 +245,7 @@ func run() error {
 	retries := flag.Int("retries", 2, "工具失败后额外重试次数，0 到 5")
 	provider := flag.String("provider", "ark", "模型路由：ark（豆包，方舟）、deepseek、deepseekanthropic（DeepSeek 的 Anthropic 接口）或 coconut（本机 Responses 服务）；地址、模型与密钥见 README")
 	check := flag.String("check", "", "不请求模型，只在沙箱里跑这条校验命令（工作区只读挂载，同 verify_feature），输出 JSON 的退出码与输出后退出；须配合 -workspace 与 -bash")
+	shell := flag.String("shell", "", "不请求模型，只在沙箱里跑这一条命令（工作区按 -permission-mode 决定能不能写，同网页端的 !命令），最后一行输出 JSON 的退出码与输出后退出；须配合 -bash，沙箱目录由 AGENT_SHELL_DIR 指定")
 	// 消融的开关：默认值就是现在的做法。
 	flag.StringVar(&llm.ToolFormat, "tool-format", "json", "消融：工具结果发给模型的格式，json（默认）或 text（只在发请求时换成纯文本，多行原样）")
 	flag.StringVar(&workspace.PromptVariant, "coding-prompt", "default", "消融：编码提示词，minimal（只说工作区）、default、extended（加并行读取、只用编辑工具改、该问就问、没验证不下结论）")
@@ -704,6 +705,24 @@ func run() error {
 	sandbox.Timeout = *bashTimeout
 	if sandbox.Enabled {
 		llm.Tools = append(llm.Tools, sandbox.Definitions()...)
+	}
+	// 人在网页端用 ! 发的命令（-shell）：和模型的 bash 同一个沙箱、同一套执行函数，只是工作区按权限模式决定
+	// 能不能写（-check 一律只读），沙箱目录用那条对话的（app-server 经 AGENT_SHELL_DIR 给出），不另建。
+	// 路径参数的校验已经做完，这里直接跑，最后一行是 JSON。
+	if *shell != "" {
+		if !sandbox.Enabled || *check != "" {
+			return errors.New("shell 须配合 -bash，不能与 check 同时用")
+		}
+		if sandbox.Dir = strings.TrimSpace(os.Getenv("AGENT_SHELL_DIR")); sandbox.Dir == "" {
+			return errors.New("shell 需要 AGENT_SHELL_DIR 指定沙箱目录")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), *bashTimeout+time.Minute)
+		defer cancel()
+		result, err := sandbox.Shell(ctx, "shell", *shell)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(os.Stdout).Encode(result)
 	}
 	// 评测的校验命令。和 verify_feature 一样在工作区只读的沙箱里跑：被测的代码是模型改过的，不在宿主机上直接执行。
 	// 沙箱目录（/scratch）默认每次新建；评测用 AGENT_CHECK_DIR 指定，先把这道题的检查脚本放进去，用完删掉。

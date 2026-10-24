@@ -3,7 +3,7 @@ import { memFields } from "./chat.js";
 import { renderSteers, settleSteers } from "./composer.js";
 import { compact, incomingUsers, parse, textOf, toolText, ui } from "./util.js";
 // ---------- 事件 → 运行模型：只依赖 Chat Completions 协议字段 ----------
-export function newRun(id) { return { id, query: "", t0: null, last: null, tEnd: null, exit: "", logs: [], calls: [], aux: [], turns: [], prevMessages: [], lastMainMessages: [], inputCapacity: 0, mem: [], memTurn: 0, memPhase: "start", skills: [], mcp: [], caps: [], hookCalls: {}, hookAfter: {}, subs: {}, subCalls: {}, subagents: false, browser: false, dsSearch: false, disallowedTools: [], provider: "", model: "", bash: false, sandbox: "", netDecision: {}, web: {}, stopRequested: false, traces: [], spanCalls: {}, protocol: false, netPending: {}, netAsks: {}, approvals: {}, source: "", eval: "", goal: "", lastBody: null, openTools: new Map(), rewindNotes: {}, rewoundAll: false, canContinue: false, forkNote: null, userImages: [], asks: {}, steers: [], askUser: false }; }
+export function newRun(id) { return { id, query: "", t0: null, last: null, tEnd: null, exit: "", logs: [], calls: [], aux: [], turns: [], prevMessages: [], lastMainMessages: [], inputCapacity: 0, mem: [], memTurn: 0, memPhase: "start", skills: [], mcp: [], caps: [], hookCalls: {}, hookAfter: {}, subs: {}, subCalls: {}, subagents: false, browser: false, dsSearch: false, disallowedTools: [], provider: "", model: "", bash: false, sandbox: "", netDecision: {}, web: {}, stopRequested: false, traces: [], spanCalls: {}, protocol: false, netPending: {}, netAsks: {}, approvals: {}, source: "", eval: "", goal: "", lastBody: null, openTools: new Map(), rewindNotes: {}, rewoundAll: false, canContinue: false, forkNote: null, userImages: [], asks: {}, steers: [], shells: [], askUser: false }; }
 export function apply(r, e) {
   const time = Date.parse(e.time);
   if (r.t0 === null) r.t0 = time;
@@ -124,6 +124,8 @@ export function apply(r, e) {
     r.forkNote = { n, from: b.from || e.text || "", files: b.files || [] };
   }
   else if (e.kind === "stop") { r.stopRequested = true; r.logs.push({ ...e, kind: "stdout", text: e.text }); }
+  // 两轮之间人自己用 ! 跑的命令（thread/shellCommand）：记在它跑时已经有的轮次数上，画在那一轮结束之后。
+  else if (e.kind === "shell") r.shells.push({ text: e.text || "", body: e.body || {}, turn: r.turns.length });
   else if (e.kind === "exit") {
     r.exit = e.text || "exit"; r.tEnd = time; r.netPending = {};
     for (const a of Object.values(r.approvals)) if (a.state === "waiting") a.state = "expired";

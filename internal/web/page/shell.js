@@ -254,7 +254,9 @@ export function syncComposer() {
   $("mode-chip").textContent = imported ? `${imported} · ${r.calls.find((c) => c.res?.model)?.res.model || ""}` : "";
   // 只在需要人注意时提示；常规操作说明不放在输入框下面。
   // 发送失败的原因（ui.hint）优先：它要跟着重画留下来，直到打开对话、新对话时清掉。
-  $("hint").textContent = ui.hint || (!r ? "" : imported ? `从 ${imported} 导入的记录，只能查看；系统提示词、工具定义与耗时以记录里有的为准` : ui.replay ? "回放中，结束后可继续提问" :
+  // 输入框以 ! 开头是人在沙箱里跑一条命令（composer.js 的 runShell）：提示行说清它做什么。
+  const shellInput = $("query").value.trimStart().startsWith("!");
+  $("hint").textContent = ui.hint || (shellInput ? (!r ? "先发一句话开个对话，再用 ! 跑命令" : !r.exit ? "这一轮在跑，等它结束再跑命令" : "! 在这条对话的沙箱里跑一条命令，输出下一轮模型也看得到") : !r ? "" : imported ? `从 ${imported} 导入的记录，只能查看；系统提示词、工具定义与耗时以记录里有的为准` : ui.replay ? "回放中，结束后可继续提问" :
     busy ? (r.stopRequested ? "正在停止：agent 回填结果、保存检查点后退出；再点一次强制结束" : "") : broken ? "上次运行未正常结束、也没有检查点，请新建对话" : "");
   updateCtxRing(r);
   // 待发送区跟着当前对话走：换了对话、重新订阅以后，显示的都是这条对话还没送出去的话。

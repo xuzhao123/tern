@@ -105,6 +105,10 @@
     {
       "at": "2026-10-24T21:03:11.098571249Z",
       "text": "spec/copy-workspace.md 已实现（未提交，10 个文件改动）：appserver 的 thread/start copy（makeCopy/dropCopy/gitIn/copyFile、start 事件 copy_of/copy_base、summary copy）、workspace/applyCopy、删除时连副本目录一起删（workDirsOfOthers 保护分叉）、diff.go 用 copy_base、handle.go 方法表、web 的 POST /runs/{id}/apply-copy、页面（副本勾选框、列表标记、#apply-copy-btn、composer 带 copy、app.css）、appserver AGENTS.md 与 README。验收：gofmt/vet/build 与 node --check 通过；在 /scratch 的临时 TERN_HOME 里用协议级测试（python 直连 control.sock）跑通建副本（含未提交与未跟踪的改动、基线提交）、diff 只显示模型改动、applyCopy 后原目录无新提交、409 冲突、删除连副本目录、分叉共用目录时不删；失败路径（非 git 目录）回 500 且不留副本；用无头 Chrome + 打桩 fetch 验过勾选框可用性、列表“副本”、按钮文案/禁用、confirm 文案、成功与冲突提示、发送体里的 copy。临时文件都已删。剩下的 spec 5.3–5.6（真实模型、真网页端）留给 Claude Code 在沙箱外做。"
+    },
+    {
+      "at": "2026-10-24T21:10:48.871770676Z",
+      "text": "spec/shell-command.md 已实现（未提交，11 个文件改动）：main.go 的 -shell（flag+执行分支，要求 -bash、沙箱目录取 AGENT_SHELL_DIR）、sandbox.Shell（走 execute 的可写路径）、appserver 的 thread/shellCommand + shell 事件 + notes() 认它 + lastTurnEvent 跳过它、handle.go 方法表、web 的 POST /runs/{id}/shell、页面（composer.js 的 ! 分支与 runShell、shell.js 的提示行、runs.js 的 shells、chat.js 的 shellCard、app.css）、README（网页端一段 + -shell 参数行）。验收 5.1 全部通过（gofmt 无输出、go vet/go build、四个页面脚本 node --check）；5.2 见本轮回答里的行号。另在沙箱里做了两组自测：临时 TERN_HOME 里造存档 + python 直连 control.sock 跑 thread/shellCommand（400/409 各分支、shell 事件写进 .jsonl、审计 user_shell_command、加过 shell 事件后 can_continue 仍为 true），无头 Chrome 加载真实页面验卡片/折叠/截断/提示行/三条发送分支（临时目录已删）。沙箱里 bwrap 不能嵌套，所以命令本身只跑出 bwrap 的 ENOSPC 报错，真实命令、plan 只读、断网、真实模型留给 spec 5.3–5.7（Claude Code 在沙箱外做）。"
     }
   ]
 }

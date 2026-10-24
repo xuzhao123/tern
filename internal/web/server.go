@@ -181,6 +181,7 @@ func Run(args []string, mcpHandler http.Handler) error {
 	mux.HandleFunc("POST /runs/{id}/approval", s.decideTool)
 	mux.HandleFunc("POST /runs/{id}/answer", s.answerQuestion)
 	mux.HandleFunc("POST /runs/{id}/steer", s.steerRun)
+	mux.HandleFunc("POST /runs/{id}/shell", s.shellRun)
 	mux.HandleFunc("POST /runs/{id}/queue", s.queueRun)
 	mux.HandleFunc("DELETE /runs/{id}/queue/{qid}", s.unqueueRun)
 	mux.HandleFunc("POST /runs/{id}/rewind", s.rewindRun)
@@ -1066,6 +1067,12 @@ func (s *server) stopRun(w http.ResponseWriter, req *http.Request) {
 
 func (s *server) steerRun(w http.ResponseWriter, req *http.Request) {
 	s.replyNone(w, req, "turn/steer", map[string]any{"threadId": req.PathValue("id")})
+}
+
+// ! 命令：请求体是 {command}（去掉开头的 !），人自己的命令在这条对话的沙箱里跑一条（thread/shellCommand）。
+// 回来的结果与存档里的 shell 事件是同一份：退出码、输出、是否截断、用时。
+func (s *server) shellRun(w http.ResponseWriter, req *http.Request) {
+	s.reply(w, req, "thread/shellCommand", map[string]any{"threadId": req.PathValue("id")})
 }
 
 // 排队：这一轮结束后再发（请求体是 {text}，成功回排上的这一项）；删除按项ID，回 204。

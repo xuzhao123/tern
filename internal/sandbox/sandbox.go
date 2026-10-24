@@ -338,6 +338,17 @@ func Run(ctx context.Context, callID, name, arguments string) (any, error) {
 	return execute(ctx, callID, command, ProjectWrite, Timeout)
 }
 
+// Shell 是人在界面上自己发起的一条命令（网页端的 !命令，见 agent 的 -shell）：
+// 和 bash 工具走同一条可写路径，工作区按权限模式挂成可写或只读（plan 模式只读）；
+// 沙箱目录由调用方设好 Dir（对话的沙箱目录），不另建。
+func Shell(ctx context.Context, callID, command string) (map[string]any, error) {
+	result, err := execute(ctx, callID, command, ProjectWrite, Timeout)
+	if err != nil {
+		return nil, err
+	}
+	return result.(map[string]any), nil
+}
+
 // Check 在工作区只读挂载的沙箱里跑一条校验命令（独立验证）：验证命令自己改不了被验证的代码。
 func Check(ctx context.Context, callID, command string) (map[string]any, error) {
 	result, err := execute(ctx, callID, command, false, 0)

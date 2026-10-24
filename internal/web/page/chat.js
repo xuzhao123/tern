@@ -110,7 +110,11 @@ function chatFlow(r) {
     if (c.compact) flow.push({ kind: "compact", call: c });
     else flow.push({ kind: "call", call: c });
     const next = r.calls.find((x) => x.n > c.n);
-    if (next?.turn !== c.turn) flow.push({ kind: "memory", turn: c.turn, phase: "end" }, { kind: "changed", turn: c.turn });
+    if (next?.turn !== c.turn) {
+      flow.push({ kind: "memory", turn: c.turn, phase: "end" }, { kind: "changed", turn: c.turn });
+      // 两轮之间人自己用 ! 跑的命令：在上一轮结束之后、下一轮的问题之前（见 runs.js 的 shell 事件）。
+      for (const s of r.shells.filter((x) => x.turn === c.turn)) flow.push({ kind: "shell", shell: s, turn: c.turn });
+    }
   });
   return flow;
 }
@@ -126,6 +130,23 @@ function turnFiles(r, turn) {
     }
   }
   return files;
+}
+// 两轮之间人自己用 ! 跑的命令（app-server 记下的 shell 事件）：$ 命令、输出、退出码与用时。
+// 输出是命令写的，只当文本放进 pre；超过 30 行先折起来，截断时注明，免得以为命令只输出了这些。
+function shellCard(s) {
+  const b = s.body || {}, output = String(b.output ?? ""), lines = output.split("\n"), code = b.exit_code ?? -1;
+  const card = el("div", "shellcard"), head = el("div", "head");
+  head.append(el("span", "cmd", "$ " + s.text), el("span", "exit-chip" + (code ? " bad" : ""), `退出码 ${code} · 用时 ${sec(b.duration_ms || 0)}`));
+  card.append(head);
+  if (lines.length > 30) {
+    const key = "shell-" + s.text + "-" + lines.length, box = el("details");
+    box.open = ui.open.has(key);
+    box.ontoggle = () => box.open ? ui.open.add(key) : ui.open.delete(key);
+    box.append(el("summary", "", `输出 ${lines.length} 行，展开看全部`), el("pre", "term", output));
+    card.append(box);
+  } else card.append(el("pre", "term", output || "（无输出）"));
+  if (b.truncated) card.append(el("div", "meta", "输出太长，只留了开头 16 KB"));
+  return card;
 }
 // 每轮末尾那一行“这一轮改了 N 个文件：…（看改动）”：只在有成功的改动时出现。
 function changedLine(r, turn) {
@@ -369,6 +390,7 @@ function drawChat() {
   // 旁支的横幅放在对话最上面：这一整条都是临时分出来问的，问答不回到原对话。
   if (r.side) box.append(sideBanner(r));
   let group = null, shown = 0;
+  const drawnShells = new Set();
   const flow = exploreRuns(r, chatFlow(r));
   flow.forEach((f, i) => {
     const at = f.turn ?? f.call?.turn;
@@ -424,6 +446,8 @@ function drawChat() {
       u.append(bubble); box.append(u); group = null;
       return;
     }
+    // 人自己用 ! 跑的命令：不挂在 assistant 那一组里，单独一张卡片。
+    if (f.kind === "shell") { drawnShells.add(f.shell); box.append(shellCard(f.shell)); group = null; return; }
     const fresh = () => { group = el("div", turn?.rewound ? "a rewound" : "a"); box.append(group); return group; };
     if (f.kind === "compact") return box.append(renderCompact(f.call));
     if (f.kind === "aux") { if (!group) fresh(); group.append(auxCard(r, f.call)); return; }
@@ -440,6 +464,8 @@ function drawChat() {
   });
   if (r.forkNote && shown <= r.forkNote.n) box.append(forkBanner(r));
   if (r.rewindNotes[r.turns.length + 1]) box.append(el("div", "banner", r.rewindNotes[r.turns.length + 1]));
+  // 那一轮没有模型请求（比如 agent 一开始就失败）时，命令卡片接不到轮次后面，放在最后，别丢。
+  for (const s of r.shells) if (!drawnShells.has(s)) box.append(shellCard(s));
   if (r.pending) {
     const u = el("div", "u"); u.append(el("div", "", r.pending)); box.append(u);
     const a = el("div", "a");

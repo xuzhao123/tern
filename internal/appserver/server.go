@@ -728,6 +728,123 @@ func (s *Server) followUp(r *run) {
 	r.add(event{Kind: "stdout", Text: "排队的消息没有发出去" + reason + "，放回队首：" + item.Text})
 }
 
+// thread/shellCommand：人在网页端输入框里用 ! 发起的命令，在这条对话的沙箱里跑一条（和模型的 bash 同一个沙箱、
+// 同一套执行函数），不经过模型。起一个 -shell 的 agent 进程跑完，记一条 shell 事件：下一轮的问题里由 notes 带给模型，
+// 页面上是两轮之间的一张卡片。这时没有 agent 在跑，也就没有审批的通道，联网只认这条对话快照里的白名单。
+// 先写审计，写不进去就不跑（和上传、删除一样）。
+func (c *conn) threadShellCommand(m protocol.Message) (any, *protocol.Error) {
+	var input struct {
+		ThreadID string `json:"threadId"`
+		Command  string `json:"command"`
+	}
+	if ferr := decode(m, &input); ferr != nil {
+		return nil, ferr
+	}
+	command := strings.TrimSpace(input.Command)
+	if command == "" || len(command) > 4096 {
+		return nil, bad(400, "command 需要是 1 到 4096 字节的非空字符串")
+	}
+	r, ferr := c.s.threadOf(input.ThreadID)
+	if ferr != nil {
+		return nil, ferr
+	}
+	r.mu.Lock()
+	if r.Eval != "" || r.Source != "" {
+		r.mu.Unlock()
+		return nil, bad(409, "评测的试次、导入的对话不能跑命令")
+	}
+	if r.proc != nil || !r.Done {
+		r.mu.Unlock()
+		return nil, bad(409, "这一轮在跑，等它结束再跑命令")
+	}
+	// 沿用这条对话开始时的设置快照（工作区、权限模式）与最后一条通知里的沙箱目录。
+	var snap event
+	for _, e := range r.events {
+		if e.Kind == "start" || e.Kind == "continue" {
+			snap = e
+		}
+	}
+	dir, task := r.sandboxID(), r.rootTask
+	r.mu.Unlock()
+	if dir == "" {
+		return nil, bad(409, "这条对话没有启用 Bash 沙箱，跑不了命令")
+	}
+	record := audit.Record{Actor: "user", User: userName(m), Event: "user_shell_command", Task: task, Conversation: r.ID, Target: command, Detail: c.clientName()}
+	record.Args(command)
+	if err := audit.Write(c.ctx, record); err != nil {
+		return nil, bad(500, "审计日志写入失败，没有运行命令："+err.Error())
+	}
+	args := []string{"-shell", command, "-bash"}
+	if snap.WorkDir != "" {
+		args = append(args, "-workspace", snap.WorkDir)
+	}
+	if snap.Permission != "" {
+		args = append(args, "-permission-mode", snap.Permission)
+	}
+	for _, domain := range r.netAllow() {
+		args = append(args, "-net-allow", domain)
+	}
+	// 最多等 3 分钟：命令自己的时限由沙箱（-bash-timeout）管，这里只兜住整条。
+	ctx, cancel := context.WithTimeout(c.ctx, 3*time.Minute)
+	defer cancel()
+	cmd := c.s.agentCommand(ctx, args...)
+	cmd.Env = append(os.Environ(), "AGENT_SHELL_DIR="+filepath.Join(c.s.dir, tenant.Path("", "sandbox", dir)))
+	out := &capped{max: 2 << 20}
+	cmd.Stdout, cmd.Stderr = out, out
+	runErr := cmd.Run()
+	// -shell 最后一行是 JSON；之前可能有 “Workspace: …” 一类的日志。
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	var parsed struct {
+		ExitCode  int    `json:"exit_code"`
+		Output    string `json:"output"`
+		Truncated bool   `json:"truncated"`
+		Duration  int64  `json:"duration_ms"`
+	}
+	if json.Unmarshal([]byte(lines[len(lines)-1]), &parsed) != nil {
+		reason := "输出里没有结果"
+		if runErr != nil {
+			reason = runErr.Error()
+		}
+		return nil, bad(500, "命令没有跑起来（"+reason+"）："+strings.Join(lines[max(len(lines)-6, 0):], "\n"))
+	}
+	output, truncated := parsed.Output, parsed.Truncated
+	if len(output) > 16<<10 {
+		output, truncated = strings.ToValidUTF8(output[:16<<10], ""), true
+	}
+	body, _ := json.Marshal(map[string]any{"exit_code": parsed.ExitCode, "output": output, "truncated": truncated, "duration_ms": parsed.Duration})
+	// 对话已经结束，记录文件关了：和联网审批一样临时以追加方式打开，写完再关，重启后卡片还在。
+	r.mu.Lock()
+	if r.Done {
+		file, err := os.OpenFile(filepath.Join(c.s.runsDir(), r.ID+".jsonl"), os.O_WRONLY|os.O_APPEND, 0o600)
+		if err != nil {
+			r.mu.Unlock()
+			return nil, bad(500, "无法写入对话记录")
+		}
+		r.file = file
+		defer file.Close()
+	}
+	r.mu.Unlock()
+	r.add(event{Kind: "shell", Text: command, Body: body})
+	r.s.status(r.ID, r.liveStatus())
+	return map[string]any{"exit_code": parsed.ExitCode, "output": output, "truncated": truncated, "duration_ms": parsed.Duration}, nil
+}
+
+// capped 只留前 max 字节：-shell 的输出已经由沙箱截过，这里再接一层，命令直接打印很多时不占太多内存。
+// 多出来的丢掉，最后的 JSON 行仍在开头这段里。
+type capped struct {
+	max int
+	buf bytes.Buffer
+}
+
+func (w *capped) Write(p []byte) (int, error) {
+	if room := w.max - w.buf.Len(); room > 0 {
+		w.buf.Write(p[:min(len(p), room)])
+	}
+	return len(p), nil
+}
+
+func (w *capped) String() string { return w.buf.String() }
+
 // 每次交互（首问或续聊）一个 trace，根 span 是 app-server 的 interaction；agent 进程的 invoke_agent 挂在它下面。
 // 同一个对话的多个 trace 用 gen_ai.conversation.id（对话ID）归到一起。
 func (r *run) beginTurn(query string) (context.Context, trace.Span) {
@@ -1389,7 +1506,8 @@ func (r *run) pendingGoal() *threadGoal {
 }
 
 // notes 是上一个 start 或 continue 之后的提醒，跟着下一轮的问题交给模型：
-// 分叉、撤销以后它看到的记录和磁盘上的文件对不上；人定的目标设了、改了（或者清除了）也是在这里说一次，
+// 分叉、撤销以后它看到的记录和磁盘上的文件对不上；两轮之间人自己用 ! 跑的命令（shell 事件）也在这里交给它；
+// 人定的目标设了、改了（或者清除了）也是在这里说一次，
 // 说完由 startTurn / threadStart 调 goalSent 记成说过了，不是每轮重复。
 // 不另存，按事件算——事件是唯一的事实来源，重启后算出来的一样；目标是例外，它有自己的 .meta.json，见 threadGoal。
 // 第几轮按 turnIDs 里的位置算，文件清单用“、”连起来。调用方持有 r.mu。
@@ -1412,6 +1530,23 @@ func (r *run) notes() []string {
 	}
 	for _, e := range r.events[from:] {
 		switch e.Kind {
+		case "shell":
+			// 人自己在两轮之间用 ! 跑的命令（见 threadShellCommand）：输出也给它看，最多 2000 字。
+			var p struct {
+				ExitCode int    `json:"exit_code"`
+				Output   string `json:"output"`
+			}
+			if json.Unmarshal(e.Body, &p) != nil {
+				continue
+			}
+			out := strings.TrimSpace(p.Output)
+			if out == "" {
+				out = "（无输出）"
+			}
+			if chars := []rune(out); len(chars) > 2000 {
+				out = string(chars[:2000]) + "…"
+			}
+			notes = append(notes, fmt.Sprintf("用户在两轮之间自己在沙箱里跑了命令 `%s`（退出码 %d），输出：%s", e.Text, p.ExitCode, out))
 		case "fork":
 			var p struct {
 				Turn       string   `json:"turn"`
@@ -1498,11 +1633,11 @@ func (r *run) canContinue() bool {
 	return r.lastCheckpoint() != ""
 }
 
-// 人的网络审批（allow/deny）、撤销（rewind）与分叉（fork）可能追加在 exit 之后，不算对话进程的事件。
-// 返回最后一条对话进程事件的下标，以及它后面有没有撤销。调用方持有 r.mu。
+// 人的网络审批（allow/deny）、撤销（rewind）、分叉（fork）与两轮之间自己用 ! 跑的命令（shell）可能追加在 exit 之后，
+// 不算对话进程的事件。返回最后一条对话进程事件的下标，以及它后面有没有撤销。调用方持有 r.mu。
 func (r *run) lastTurnEvent() (int, bool) {
 	i, rewound := len(r.events)-1, false
-	for i >= 0 && (r.events[i].Kind == "allow" || r.events[i].Kind == "deny" || r.events[i].Kind == "rewind" || r.events[i].Kind == "fork") {
+	for i >= 0 && (r.events[i].Kind == "allow" || r.events[i].Kind == "deny" || r.events[i].Kind == "rewind" || r.events[i].Kind == "fork" || r.events[i].Kind == "shell") {
 		rewound = rewound || r.events[i].Kind == "rewind"
 		i--
 	}
