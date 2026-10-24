@@ -121,6 +121,10 @@
     {
       "at": "2026-10-24T21:53:52.5368562Z",
       "text": "spec/tern-mcp-server.md 已实现，未提交：新包 internal/mcpserver（mcpserver.go、AGENTS.md），main.go 分派 mcp-server 子命令，README “其他入口”加一行 + 新增“## 把 tern 当 MCP server”一节（Claude Code/Codex 配置、与 -mcp-serve、/mcp 的区别）。验收 5.1 通过：gofmt -l . 无输出、go vet ./... 与 go build ./... 通过；5.2 的行号见本轮回答（订阅/exit/end 在 mcpserver.go:214-298，取消发 turn/interrupt 在 :292-295 与 :322-326）。沙箱里另用 tcp 上“只收不答”的假上游（LLM_API_URL）配合真 app-server/真 agent 做了四组自测：tools/list 三个工具、tern_start 返回 {thread_id,outcome:exit status 1,answer:\"\"}、10 秒进度通知“第 1 次模型请求”、cancel 让 turn/interrupt 停下这一轮（存档里 Interrupt: turn/interrupt / Termination: cancelled）、tern_reply 在同一线程续聊并返回本轮（不是上一轮）的结局、线程运行中 reply 回 isError“暂不能续聊”。临时文件已删。没在沙箱里做的：真实模型、网页端列表、answer 的真实取值（spec 5.3-5.6 留给 Claude Code）。"
+    },
+    {
+      "at": "2026-10-24T23:09:23.609994763Z",
+      "text": "spec/macos-sandbox.md 已实现（未提交，10 个文件改动）：internal/sandbox 拆成 sandbox.go（共用）+ launch_linux.go（bwrap/seccomp/systemd-run，行为不变）+ launch_darwin.go + seatbelt.sbpl（go:embed，-D 传路径，WRITE-WORKSPACE 标记按可写/只读拼两份策略）；network.go 在 macOS 上监听 127.0.0.1 随机端口并给 proxyEndpoint；main.go 的 BashMount 在 darwin 上是真实路径；appserver settings 的 unavailable(\"bash\") 认 darwin；sandbox/AGENTS.md 与 README 补 macOS。验收 5.1 全部通过（gofmt -l 无输出；go vet/go build；GOOS=darwin GOARCH=arm64 go build；GOOS=darwin go vet）。5.2 用 HEAD 版与改后版各自 dump bwrapArgs 对比，三种组合（无工作区、工作区可写、工作区只读+tty）输出一字不差；macOS 策略参数见本轮回答。沙箱里另跑了一次 -bash -shell，Linux 路径照旧（bwrap 在这个嵌套沙箱里仍报 ENOSPC）。剩下的 5.3–5.7（真实模型、Mac 上实测）留给 Claude Code 与用户。"
     }
   ]
 }

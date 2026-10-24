@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -711,10 +712,14 @@ func run() error {
 		llm.Tools = append(llm.Tools, workspace.Definitions...)
 		fmt.Printf("Workspace: dir=%s（编码工具只在这里读写）\n", workspace.Dir)
 		if sandbox.Enabled {
-			// bash 看到的 /workspace 就是这个仓库；plan 模式挂成只读。
+			// bash 看到的就是这个仓库；plan 模式挂成只读。macOS 上没有挂载，路径就是它的真实路径。
 			sandbox.Project, sandbox.ProjectWrite, sandbox.GoCache = workspace.Dir, permission.Mode != "plan", tenant.Here("gocache")
-			// 环境信息里写清 bash 里的工作区路径：编码工具用的是宿主机路径，bash 里是 /workspace。
+			// 环境信息里写清 bash 里的工作区路径：编码工具用的是宿主机路径，Linux 的沙箱里是 /workspace，
+			// macOS 的沙箱里仍是真实路径（不用改）。
 			workspace.BashMount = "/workspace"
+			if runtime.GOOS == "darwin" {
+				workspace.BashMount = workspace.Dir
+			}
 		}
 	}
 	// 个人指令和项目指令一样写进系统提示词；和工作区无关，所以放在 workspace.Open 之后（要看 TERN_HOME 是不是工作区根目录），

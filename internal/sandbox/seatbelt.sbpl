@@ -1,0 +1,32 @@
+(version 1)
+(deny default)
+
+; tern 的 macOS 沙箱（Seatbelt）：命令经 /usr/bin/sandbox-exec -p <这份策略> -D <路径> 启动。
+; 没有挂载命名空间，命令看到的是真实路径：工作目录是工作区的真实目录，能写的只有本对话的沙箱目录、
+; 临时目录和（可写时）工作区；读得到整个文件系统，看不到 tern 的运行数据与密钥。
+; 没有 cgroup，内存、CPU 与进程数不限制；没有 seccomp。
+
+; 运行 shell 和常用工具需要的：起进程、发信号、读 sysctl、mach 服务、伪终端。
+; 起进程和 fork 不带过滤器；信号只发给同一个沙箱里的进程，别的沙箱（别的 bash 调用）拦不到。
+(allow process-exec)
+(allow process-fork)
+(allow process-info* (target same-sandbox))
+(allow signal (target same-sandbox))
+(allow sysctl-read mach-lookup ipc-posix-shm file-ioctl pseudo-tty)
+
+; 读：整个文件系统，除了 tern 的运行数据与密钥、项目里的运行数据与密钥（同 Linux 上换成空目录的那几样）。
+(allow file-read*)
+(deny file-read* (subpath (param "TERN_DATA")) (literal (param "TERN_ENV")))
+(deny file-read* (subpath (param "PROJECT_DATA")) (literal (param "PROJECT_ENV")))
+; 本对话的沙箱目录就在运行数据下面：它自己（以及 HOME、临时文件）要能读，这条排在拒绝之后。
+(allow file-read* (subpath (param "SCRATCH")))
+
+; 写：本对话的沙箱目录、临时目录与设备文件（/dev/null、script 开伪终端用的 /dev/ptmx 与 /dev/ttys*）。
+(allow file-write* (subpath (param "SCRATCH")) (subpath (param "TMP")) (subpath "/dev"))
+; WRITE-WORKSPACE
+
+; 网络：只能连本机的地址（命令里起的服务自己连，如 server & sleep 1; curl localhost:8080），
+; 外网只能经 agent 进程里的联网代理：审批、白名单、内网检查都在代理里。
+(allow network-inbound (local ip "localhost:*"))
+(allow network-outbound (remote ip "localhost:*"))
+(allow network-outbound (remote tcp (param "PROXY")))

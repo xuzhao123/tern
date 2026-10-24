@@ -15,12 +15,12 @@ import (
 	"github.com/xuzhao123/tern/internal/protocol"
 )
 
-// 后台命令。bash 带 background=true 时不等它结束：在同样的沙箱里启动（同样的 cgroup 限制、断网与代理），
+// 后台命令。bash 带 background=true 时不等它结束：在同样的沙箱里启动（同样的资源限制、断网与代理），
 // 立刻返回 job_id；之后用 bash_output 读新输出、看结束没有，用 bash_input 回答它的提示，用 bash_kill 停掉。
 // 适合监视文件、跑很久的构建、要回答提示的安装脚本。
 // 每条命令都在自己的沙箱里（自己的进程与网络），后台起的服务，之后的命令看不到也连不上；同 Claude Code 在 Linux 上的沙箱，
 // 启动结果照它的说法告诉模型：要测服务，在同一条命令里起服务再访问；查看和停止只经 bash_output、bash_kill。
-// 后台命令只活到这一轮结束：进程退出前 Close 把还在跑的全部按 cgroup 杀掉，和前台命令被取消时一样，沙箱里不留进程。
+// 后台命令只活到这一轮结束：进程退出前 Close 把还在跑的全部按 cgroup（macOS 上是进程组）杀掉，和前台命令被取消时一样，沙箱里不留进程。
 // 标准输入留着写端（前台命令是 /dev/null）：bash_input 往里写；命令结束、被停掉或 close=true 时关掉写端，命令读到 EOF。
 const (
 	maxJobs       = 4       // 同时在跑的后台命令最多几个

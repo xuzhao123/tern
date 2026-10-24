@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -23,11 +24,14 @@ import (
 	"github.com/xuzhao123/tern/internal/protocol"
 )
 
-// 网络：沙箱在自己的网络 namespace 里，只有回环接口，直接连外网一定失败。
+// 网络：Linux 上沙箱在自己的网络 namespace 里，只有回环接口，直接连外网一定失败。
 // 需要联网时只能走代理：
 //
 //	沙箱内 curl/pip ──HTTP_PROXY──▶ 127.0.0.1:3128（沙箱里的 sandbox-init 转发）
 //	   ──unix socket（挂进沙箱）──▶ agent 进程里的代理 ──白名单 + 拒绝内网地址──▶ 外网
+//
+// macOS 上没有网络命名空间，命令直接连 agent 进程在宿主机回环上监听的代理（随机端口），
+// 出口的检查在同一个代理里。
 //
 // 白名单只能由用户添加（-net-allow，或在网页端的设置、审批里）。连到不在白名单的域名时，代理当场请界面上的人批准，
 // 连接挂起等答复，批准了命令接着执行（同 Claude Code 的沙箱代理）；模型也可以先调用 request_network_access 说明理由。
@@ -47,6 +51,15 @@ func AllowDomain(domain string) {
 }
 
 const proxyPort = "3128"
+
+// proxyEndpoint 是命令该用的代理地址：Linux 上是沙箱里 sandbox-init 转发的 127.0.0.1:3128，
+// macOS 上是代理在宿主机回环上监听的地址。startProxy 之后才有值。
+func proxyEndpoint() string {
+	if proxyHost != "" {
+		return proxyHost
+	}
+	return "127.0.0.1:" + proxyPort
+}
 
 // backgroundHosts 是 Chrome 自己的后台联网会连的域名：组件更新、安全浏览、优化提示、自动填充、同步。
 // 沙箱里的 chrome 已经固定关掉这些（见 sandbox.go 的 chromeWrapper），这张表是兜底：这些请求基本不是任务需要的，
@@ -209,7 +222,8 @@ func paused() time.Duration {
 
 var (
 	proxyOnce sync.Once
-	proxyDir  string
+	proxyDir  string // Linux 上代理监听的 unix socket 所在的临时目录（挂进沙箱的 /.sandbox/net）
+	proxyHost string // macOS 上代理监听的地址：没有网络命名空间，命令经 HTTP_PROXY 直接连它
 	proxyErr  error
 	deniedMu  sync.Mutex
 	denials   []denial // 本次 bash 调用被拒绝的连接（调用串行，所以一份就够）
@@ -272,17 +286,27 @@ func dialChecked(ctx context.Context, network, addr string) (net.Conn, error) {
 	return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
 }
 
-// 代理在 agent 进程里，监听一个临时目录里的 unix socket；目录挂进沙箱的 /.sandbox/net。
-func startProxy() (string, error) {
+// 代理在 agent 进程里：Linux 上监听一个临时目录里的 unix socket，目录挂进沙箱的 /.sandbox/net，
+// 由沙箱里的 sandbox-init 转发到回环的 3128；macOS 上没有网络命名空间，也没有转发，
+// 直接在回环上监听一个随机端口，命令经 HTTP_PROXY 连过来。
+func startProxy() error {
 	proxyOnce.Do(func() {
-		proxyDir, proxyErr = os.MkdirTemp("", "tern-sandbox-net-")
-		if proxyErr != nil {
-			return
-		}
 		var listener net.Listener
-		listener, proxyErr = net.Listen("unix", filepath.Join(proxyDir, "proxy.sock"))
-		if proxyErr != nil {
-			return
+		if runtime.GOOS == "darwin" {
+			listener, proxyErr = net.Listen("tcp", "127.0.0.1:0")
+			if proxyErr != nil {
+				return
+			}
+			proxyHost = listener.Addr().String()
+		} else {
+			proxyDir, proxyErr = os.MkdirTemp("", "tern-sandbox-net-")
+			if proxyErr != nil {
+				return
+			}
+			listener, proxyErr = net.Listen("unix", filepath.Join(proxyDir, "proxy.sock"))
+			if proxyErr != nil {
+				return
+			}
 		}
 		transport := &http.Transport{DialContext: dialChecked, Proxy: nil}
 		go http.Serve(listener, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -320,7 +344,7 @@ func startProxy() (string, error) {
 			io.Copy(w, response.Body)
 		}))
 	})
-	return proxyDir, proxyErr
+	return proxyErr
 }
 
 func pipe(dst io.WriteCloser, src io.Reader) {

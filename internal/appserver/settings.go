@@ -216,11 +216,17 @@ func valid(key, value string, f settingsFile) error {
 func (s *Server) unavailable(key string, skills []string, servers []mcpServer) string {
 	switch key {
 	case "bash":
-		if runtime.GOOS != "linux" {
-			return "Bash 沙箱只支持 Linux"
-		}
-		if _, err := exec.LookPath("bwrap"); err != nil {
-			return "没有找到 bubblewrap（bwrap），请先安装"
+		switch runtime.GOOS {
+		case "linux":
+			if _, err := exec.LookPath("bwrap"); err != nil {
+				return "没有找到 bubblewrap（bwrap），请先安装"
+			}
+		case "darwin":
+			if _, err := os.Stat("/usr/bin/sandbox-exec"); err != nil {
+				return "没有找到 /usr/bin/sandbox-exec"
+			}
+		default:
+			return "Bash 沙箱只支持 Linux 与 macOS"
 		}
 	case "web_search", "open_page":
 		if os.Getenv("CHROME_PATH") != "" {
