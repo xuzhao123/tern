@@ -75,7 +75,7 @@ export function webCard(r, t) {
   card.onclick = () => {
     const last = r.calls.flatMap((c) => c.tools.filter((x) => WEB_TOOLS.includes(x.name))).at(-1);
     ui.webOpen = ui.webOpen?.id === t.id ? null : { id: t.id, follow: t === last };
-    ui.subOpen = null; ui.filesOpen = false; ui.diffOpen = false; renderChat();
+    ui.subOpen = null; ui.filesOpen = false; ui.diffOpen = false; ui.jobsOpen = false; renderChat();
   };
   return card;
 }

@@ -2201,6 +2201,97 @@ func (c *conn) turnSteer(m protocol.Message) (any, *protocol.Error) {
 	return nil, nil
 }
 
+// thread/job/output：看这一轮里一个后台命令最近的输出。只看不消费：不动模型给 bash_output 留的读取位置。
+// 后台命令只活到这一轮结束，agent 已经不在时没有地方可以问，回 409。
+func (c *conn) threadJobOutput(m protocol.Message) (any, *protocol.Error) {
+	var input struct {
+		ThreadID string `json:"threadId"`
+		JobID    string `json:"jobId"`
+	}
+	if ferr := decode(m, &input); ferr != nil {
+		return nil, ferr
+	}
+	r, ferr := c.s.threadOf(input.ThreadID)
+	if ferr != nil {
+		return nil, ferr
+	}
+	return c.jobForward(r, "job/output", input.JobID)
+}
+
+// thread/job/kill：人从网页上停掉模型的一个后台命令，stopped 写“用户在网页上停掉”。
+// 先写审计再转给 agent（同人在输入框里跑 ! 命令），Target 是命令原文，从这一轮的 job/updated 通知里取。
+func (c *conn) threadJobKill(m protocol.Message) (any, *protocol.Error) {
+	var input struct {
+		ThreadID string `json:"threadId"`
+		JobID    string `json:"jobId"`
+		User     string `json:"user"`
+	}
+	if ferr := decode(m, &input); ferr != nil {
+		return nil, ferr
+	}
+	r, ferr := c.s.threadOf(input.ThreadID)
+	if ferr != nil {
+		return nil, ferr
+	}
+	jobID := strings.TrimSpace(input.JobID)
+	if jobID == "" {
+		return nil, bad(400, "需要 jobId")
+	}
+	r.mu.Lock()
+	running, task := r.conn != nil, r.rootTask
+	r.mu.Unlock()
+	if !running {
+		return nil, bad(409, "这一轮已经结束，后台命令也一起结束了")
+	}
+	record := audit.Record{Actor: "user", User: input.User, Event: "user_job_kill", Task: task, Conversation: r.ID, Target: r.jobCommand(jobID), Detail: c.clientName()}
+	if err := audit.Write(c.ctx, record); err != nil {
+		return nil, bad(500, "审计日志写入失败，没有停掉命令："+err.Error())
+	}
+	return c.jobForward(r, "job/kill", jobID)
+}
+
+// jobCommand 从这一轮的 job/updated 通知里取命令原文：审计的 Target 写它，看得出停的是哪条。
+func (r *run) jobCommand(id string) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	command := ""
+	for _, e := range r.events {
+		var p struct {
+			ID      string `json:"id"`
+			Command string `json:"command"`
+		}
+		if e.Kind == "notify" && e.Method == "job/updated" && json.Unmarshal(e.Body, &p) == nil && p.ID == id {
+			command = p.Command
+		}
+	}
+	return command
+}
+
+// jobForward 把一个后台命令的请求转给这一轮的 agent：job 表在 agent 进程里。
+// 这一轮已经结束（agent 不在）时回 409；agent 有话说（比如没有这个 job_id）就照它的话回。
+func (c *conn) jobForward(r *run, method, jobID string) (any, *protocol.Error) {
+	if jobID == "" {
+		return nil, bad(400, "需要 jobId")
+	}
+	r.mu.Lock()
+	conn := r.conn
+	r.mu.Unlock()
+	if conn == nil {
+		return nil, bad(409, "这一轮已经结束，后台命令也一起结束了")
+	}
+	ctx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
+	defer cancel()
+	var result json.RawMessage
+	if err := conn.Call(ctx, method, map[string]string{"id": jobID}, &result); err != nil {
+		var pe *protocol.Error
+		if errors.As(err, &pe) && pe.Message != "" {
+			return nil, bad(409, pe.Message)
+		}
+		return nil, bad(409, "这一轮已经结束，后台命令也一起结束了")
+	}
+	return result, nil
+}
+
 // audit/list：审计页只读。每次都从头校验整条哈希链，返回最近的 500 条（可按任务过滤）。
 func (c *conn) auditList(m protocol.Message) (any, *protocol.Error) {
 	var input struct {

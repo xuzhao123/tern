@@ -457,6 +457,13 @@ select.pick:disabled { background-image: none; padding-right: 8px; }
 .diff-file .q { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .diff-file .sz { color: var(--muted); font: 12px var(--mono); white-space: nowrap; }
 .diff-body { margin: 2px 2px 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--term); color: var(--term-text); font: 12px/1.55 var(--mono); max-height: 360px; overflow: auto; }
+/* 后台命令侧栏：一条命令一块，状态、用时与按钮在下面一行，输出按终端的样子显示。 */
+.job-row { display: grid; gap: 4px; padding: 6px 8px 8px; border-radius: 8px; }
+.job-row.on { background: var(--sel); }
+.job-row .cmd { font: 12.5px/1.5 var(--mono); overflow-wrap: anywhere; }
+.job-row .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.job-row .age { color: var(--muted); font-size: 12px; margin-right: auto; }
+.job-out { margin: 2px 0 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--term); color: var(--term-text); font: 12px/1.55 var(--mono); max-height: 360px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .diff-line { display: block; white-space: pre-wrap; word-break: break-word; }
 .diff-line.add { color: var(--ok); }
 .diff-line.del { color: var(--err); }

@@ -25,6 +25,7 @@ export const ui = {
   replay: null, ctxWindow: Number(load("ctxWindow")) || 128000, queued: false, sending: false, loading: false,
   steers: {}, // 待发送的插话，按对话 ID：{items: [{id, text}], immediate}（见 composer.js）；切换、重新订阅对话时不丢
   inspectorTab: "overview", filesOpen: false, files: {}, diffOpen: false, diff: {}, models: null,
+  jobsOpen: false, jobs: { run: "", open: null, timer: null, output: "", dropped: 0, err: "" }, // 后台命令侧栏（见 jobs.js）
   hosts: [], // /connection 推来的各台主机（含连不上的）：顶栏主机菜单与左侧分组列表用
   updated: {}, // 上次取列表时各条的 updated_at（主机|对话ID → 毫秒）：记“看过”时用它（见 shell.js 的 markCurrentSeen）
   runStates: null, // 上次列表里各条跑完没有、在等什么（同上）：下一次取列表时和它比，决定发不发通知

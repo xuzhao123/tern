@@ -18,7 +18,7 @@ async function loadDiff() {
 // 打开面板并展开这几个文件（每轮末尾“看改动”来的）；和沙箱文件、子 agent、浏览器面板互斥。
 export function openDiff(r, files = []) {
   ui.diffOpen = true;
-  ui.filesOpen = false; ui.subOpen = null; ui.webOpen = null;
+  ui.filesOpen = false; ui.subOpen = null; ui.webOpen = null; ui.jobsOpen = false;
   // 换了对话就丢掉上一条的数据；展开的就是这次要看的文件，面板第一次渲染时别把它清掉（见 renderDiffPanel）。
   if (ui.diff.run !== r.id) { ui.diff.data = null; ui.diff.err = ""; }
   ui.diff.open = new Set(files);

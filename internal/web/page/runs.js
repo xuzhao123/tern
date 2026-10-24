@@ -3,7 +3,7 @@ import { memFields } from "./chat.js";
 import { renderSteers, settleSteers } from "./composer.js";
 import { compact, incomingUsers, parse, textOf, toolText, ui } from "./util.js";
 // ---------- 事件 → 运行模型：只依赖 Chat Completions 协议字段 ----------
-export function newRun(id) { return { id, query: "", t0: null, last: null, tEnd: null, exit: "", logs: [], calls: [], aux: [], turns: [], prevMessages: [], lastMainMessages: [], inputCapacity: 0, mem: [], memTurn: 0, memPhase: "start", skills: [], mcp: [], caps: [], hookCalls: {}, hookAfter: {}, subs: {}, subCalls: {}, subagents: false, browser: false, dsSearch: false, disallowedTools: [], provider: "", model: "", bash: false, sandbox: "", netDecision: {}, web: {}, stopRequested: false, traces: [], spanCalls: {}, protocol: false, netPending: {}, netAsks: {}, approvals: {}, source: "", eval: "", goal: "", lastBody: null, openTools: new Map(), rewindNotes: {}, rewoundAll: false, canContinue: false, forkNote: null, userImages: [], asks: {}, steers: [], shells: [], askUser: false }; }
+export function newRun(id) { return { id, query: "", t0: null, last: null, tEnd: null, exit: "", logs: [], calls: [], aux: [], turns: [], prevMessages: [], lastMainMessages: [], inputCapacity: 0, mem: [], memTurn: 0, memPhase: "start", skills: [], mcp: [], caps: [], hookCalls: {}, hookAfter: {}, subs: {}, subCalls: {}, subagents: false, browser: false, dsSearch: false, disallowedTools: [], provider: "", model: "", bash: false, sandbox: "", netDecision: {}, web: {}, stopRequested: false, traces: [], spanCalls: {}, protocol: false, netPending: {}, netAsks: {}, approvals: {}, source: "", eval: "", goal: "", lastBody: null, openTools: new Map(), rewindNotes: {}, rewoundAll: false, canContinue: false, forkNote: null, userImages: [], asks: {}, steers: [], shells: [], jobs: [], askUser: false }; }
 export function apply(r, e) {
   const time = Date.parse(e.time);
   if (r.t0 === null) r.t0 = time;
@@ -18,7 +18,7 @@ export function apply(r, e) {
   // pending：问题已提交、agent 还没发出第一次请求时，对话流先显示这条消息。
   // 上一轮中途停下：记在新一轮之前，对话流里显示一条中断标记（先记，再重置停止状态）。
   if (e.kind === "continue" && r.exit && r.exit !== "exit 0") (r.interrupted ??= {})[r.turns.length + 1] = r.stopRequested ? "上一轮已按停止按钮中断" : "上一轮未正常结束（" + endLabel(r) + "）";
-  if (e.kind === "start" || e.kind === "continue") { r.memory = !!e.memory; r.memoryTTL = e.memory_ttl || ""; r.memTurn++; r.memPhase = "start"; r.skills = e.skills || []; r.mcp = e.mcp || []; r.subagents = !!e.subagents; r.askUser = !!e.ask_user; r.browser = !!e.browser; r.dsSearch = !!e.ds_search; r.disallowedTools = e.disallowed_tools || []; r.provider = e.provider || "ark"; r.model = e.model || ""; r.bash = !!e.bash; r.rag = !!e.rag; r.workspace = e.workspace || ""; r.maxSteps = e.max_steps || 0; r.permission = e.permission || ""; r.effort = e.reasoning_effort || ""; r.stopRequested = false; r.checkpoint = ""; r.protocol = !!e.protocol; r.source = e.source || ""; if (e.trace) r.traces.push({ turn: r.memTurn, id: e.trace }); }
+  if (e.kind === "start" || e.kind === "continue") { r.memory = !!e.memory; r.memoryTTL = e.memory_ttl || ""; r.memTurn++; r.memPhase = "start"; r.skills = e.skills || []; r.mcp = e.mcp || []; r.subagents = !!e.subagents; r.askUser = !!e.ask_user; r.browser = !!e.browser; r.dsSearch = !!e.ds_search; r.disallowedTools = e.disallowed_tools || []; r.provider = e.provider || "ark"; r.model = e.model || ""; r.bash = !!e.bash; r.rag = !!e.rag; r.workspace = e.workspace || ""; r.maxSteps = e.max_steps || 0; r.permission = e.permission || ""; r.effort = e.reasoning_effort || ""; r.stopRequested = false; r.checkpoint = ""; r.protocol = !!e.protocol; r.source = e.source || ""; if (e.trace) r.traces.push({ turn: r.memTurn, id: e.trace }); r.jobs = []; }
   if (e.kind === "start") { r.query = e.text; r.embedding = e.embedding; r.embeddingExplicit = !!e.embedding; r.pending = e.text; r.turnPending = true; r.pendingTime = time; r.eval = e.eval || ""; }
   else if (e.kind === "continue") {
     r.exit = ""; r.termination = ""; r.finalCheck = null; r.tEnd = null; r.pending = e.text; r.turnPending = true; r.pendingTime = time;
@@ -179,6 +179,12 @@ function applyNotify(r, method, p, time) {
   // 模型请求重试前 agent 发 reset，清掉这次请求已经显示的半段，免得同一段话出现两遍。
   else if (method === "item/delta") { const c = r.calls.at(-1); if (c && !c.end) { if (p.field === "reset") c.live = {}; else { const live = c.live ??= {}; live[p.field] = (live[p.field] || "") + p.delta; } } }
   else if (method === "turn/completed") { r.termination = p.outcome === "no_tool_calls" ? "" : p.outcome + (p.error ? "：" + p.error : ""); r.finalCheck = p.final_check || null; }
+  // 后台命令：模型用 bash 带 background=true 起的命令，启动、自己结束、被停掉时各来一条（见 jobs.js 的侧栏）。
+  // 一轮结束时后台命令一起结束，所以列表在 start/continue 上清空（见上面）。
+  else if (method === "job/updated" && p.id) {
+    const j = r.jobs.find((x) => x.id === p.id);
+    if (j) Object.assign(j, p); else r.jobs.push({ ...p });
+  }
 }
 function subRun(r, task) { return r.subs[task] ??= Object.assign(newRun(task), { isSub: true }); }
 

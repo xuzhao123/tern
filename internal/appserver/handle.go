@@ -121,6 +121,8 @@ var methods = map[string]func(*conn, protocol.Message) (any, *protocol.Error){
 	"turn/start":           (*conn).turnStart,
 	"turn/steer":           (*conn).turnSteer,
 	"turn/interrupt":       (*conn).turnInterrupt,
+	"thread/job/output":    (*conn).threadJobOutput,
+	"thread/job/kill":      (*conn).threadJobKill,
 	"approval/respond":     (*conn).approvalRespond,
 	"settings/read":        (*conn).settingsRead,
 	"settings/write":       (*conn).settingsWrite,

@@ -42,6 +42,8 @@
       <button id="export-btn" class="ghost" type="button" hidden title="把这条对话存成 Markdown 文件：问题、插话、用到的工具次数与回答（不含工具的参数与结果）">导出</button>
       <button id="side-btn" class="ghost" type="button" hidden title="从这里临时分出去问一句，问答不进这条对话">旁支提问</button>
       <button id="diff-btn" class="ghost" type="button" hidden title="工作区相对 HEAD 的改动：所有轮次加人自己的改动">改动</button>
+      <!-- 后台命令：模型用 bash 带 background=true 起的命令，可以看输出、停掉（见 jobs.js）。 -->
+      <button id="jobs-btn" class="ghost" type="button" hidden title="这一轮模型在后台跑的命令：看输出、停掉；这一轮结束后只留着状态">后台命令（0）</button>
       <!-- 副本对话停下以后才有用：把副本里的改动写进原目录的工作区，不提交（见 shell.js 的 applyCopy）。 -->
       <button id="apply-copy-btn" class="ghost" type="button" hidden title="把副本里的改动写进原目录的工作区，不提交">应用到</button>
       <!-- 连的是哪台机器、连上没有：本机或 ssh 别名 · 已连接/重连中/连不上；点开是主机菜单（见 connection.js）。 -->

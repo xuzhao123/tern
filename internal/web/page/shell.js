@@ -36,6 +36,11 @@ export function renderShell() {
   $("side-btn").title = sideBusy ? "这一轮跑完才能问旁支问题" : "从这里临时分出去问一句，问答不进这条对话";
   $("diff-btn").hidden = !chat || !r?.workspace;
   $("diff-btn").classList.toggle("on", !!ui.diffOpen);
+  // 后台命令：这一轮跑过才有；N 是还在跑的条数（见 jobs.js）。
+  const runningJobs = r ? r.jobs.filter((j) => j.state === "running" && !r.exit).length : 0;
+  $("jobs-btn").hidden = !chat || !r?.jobs.length;
+  $("jobs-btn").textContent = `后台命令（${runningJobs}）`;
+  $("jobs-btn").classList.toggle("on", !!ui.jobsOpen);
   // 副本对话：停下以后可以把副本里的改动应用回原目录（见 workspace/applyCopy）；跑着的时候灰着。
   $("apply-copy-btn").hidden = !chat || !r?.copy;
   $("apply-copy-btn").disabled = !r?.exit || !!ui.loading || !!ui.replay;
@@ -655,6 +660,8 @@ $("export-btn").onclick = () => exportRun(ui.run);
 // 旁支提问：按钮的显示见 renderShell，四步见 sideQuestion。
 $("side-btn").onclick = sideQuestion;
 $("diff-btn").onclick = () => { ui.diffOpen = !ui.diffOpen; if (ui.diffOpen) { ui.subOpen = ui.webOpen = null; ui.filesOpen = false; ui.diff.run = null; } renderChat(); renderShell(); };
+// 后台命令（看、停模型用 bash 带 background=true 起的命令）：面板的渲染在 jobs.js。
+$("jobs-btn").onclick = () => { ui.jobsOpen = !ui.jobsOpen; if (ui.jobsOpen) { ui.subOpen = ui.webOpen = null; ui.filesOpen = false; ui.diffOpen = false; } renderChat(); renderShell(); };
 // 副本对话的“应用到”：把副本里的改动写回原目录（只改文件，不提交，见 workspace/applyCopy）。
 // 原目录从 start 事件的 copy_of 取；成功后说改了哪些文件，冲突（409）时把 git apply 的报错原样显示出来。
 $("apply-copy-btn").onclick = async () => {

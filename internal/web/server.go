@@ -188,6 +188,9 @@ func Run(args []string, mcpHandler http.Handler) error {
 	mux.HandleFunc("POST /runs/{id}/fork", s.forkRun)
 	mux.HandleFunc("GET /runs/{id}/files", s.listFiles)
 	mux.HandleFunc("GET /runs/{id}/diff", s.workspaceDiff)
+	// 后台命令：看最近输出、停掉（后台命令只活到这一轮结束，这一轮结束了就回 409）。
+	mux.HandleFunc("GET /runs/{id}/jobs/{jid}/output", s.jobOutput)
+	mux.HandleFunc("POST /runs/{id}/jobs/{jid}/kill", s.killJob)
 	mux.HandleFunc("POST /runs/{id}/apply-copy", s.applyCopy)
 	mux.HandleFunc("GET /runs/{id}/files/{path...}", s.downloadFile)
 	mux.HandleFunc("DELETE /runs/{id}/files/{path...}", s.deleteFile)
@@ -1078,6 +1081,16 @@ func (s *server) shellRun(w http.ResponseWriter, req *http.Request) {
 // 排队：这一轮结束后再发（请求体是 {text}，成功回排上的这一项）；删除按项ID，回 204。
 func (s *server) queueRun(w http.ResponseWriter, req *http.Request) {
 	s.reply(w, req, "thread/queue/add", map[string]any{"threadId": req.PathValue("id")})
+}
+
+// 后台命令：看模型起的某个后台命令最近的输出（只看不消费，模型下次 bash_output 照样读到）、
+// 由人停掉（写审计）。后台命令只活到这一轮结束，这一轮停了这里回 409。
+func (s *server) jobOutput(w http.ResponseWriter, req *http.Request) {
+	s.reply(w, req, "thread/job/output", map[string]any{"threadId": req.PathValue("id"), "jobId": req.PathValue("jid")})
+}
+
+func (s *server) killJob(w http.ResponseWriter, req *http.Request) {
+	s.replyNone(w, req, "thread/job/kill", map[string]any{"threadId": req.PathValue("id"), "jobId": req.PathValue("jid")})
 }
 
 func (s *server) unqueueRun(w http.ResponseWriter, req *http.Request) {

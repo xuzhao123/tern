@@ -373,6 +373,23 @@ func run() error {
 			case "turn/interrupt":
 				interrupt()
 				protocol.Client.Reply(*m.ID, nil, nil)
+			// 网页端看、停模型起的后台命令：job 表在 agent 进程里，界面只能经这两个方法。
+			// job/output 只看不消费，模型下次 bash_output 照常从上次的位置读到。
+			case "job/output", "job/kill":
+				var p struct {
+					ID string `json:"id"`
+				}
+				json.Unmarshal(m.Params, &p)
+				call := sandbox.JobOutput
+				if m.Method == "job/kill" {
+					call = sandbox.JobStop
+				}
+				result, err := call(strings.TrimSpace(p.ID))
+				if err != nil {
+					protocol.Client.Reply(*m.ID, nil, &protocol.Error{Code: -32602, Message: err.Error()})
+					return
+				}
+				protocol.Client.Reply(*m.ID, result, nil)
 			case "turn/steer": // 运行中插话，排进下一次模型请求；这一轮已经结束时如实拒绝，界面改作下一轮的问题
 				var p struct {
 					Text     string `json:"text"`

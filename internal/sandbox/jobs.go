@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/xuzhao123/tern/internal/llm"
+	"github.com/xuzhao123/tern/internal/protocol"
 )
 
 // 后台命令。bash 带 background=true 时不等它结束：在同样的沙箱里启动（同样的 cgroup 限制、断网与代理），
@@ -18,13 +19,16 @@ import (
 // 启动结果照它的说法告诉模型：要测服务，在同一条命令里起服务再访问；查看和停止只经 bash_output、bash_kill。
 // 后台命令只活到这一轮结束：进程退出前 Close 把还在跑的全部按 cgroup 杀掉，和前台命令被取消时一样，沙箱里不留进程。
 const (
-	maxJobs      = 4       // 同时在跑的后台命令最多几个
-	jobOutputMax = 1 << 20 // 每个后台命令最多留 1MB 输出，超出时丢掉最早的
-	maxJobWait   = 20 * time.Second
+	maxJobs       = 4       // 同时在跑的后台命令最多几个
+	jobOutputMax  = 1 << 20 // 每个后台命令最多留 1MB 输出，超出时丢掉最早的
+	maxJobWait    = 20 * time.Second
+	jobPeekMax    = 8 << 10 // 给网页端看时只取最近的 8KB
+	jobCommandMax = 200     // job/updated 里带多少字的命令原文
 )
 
 type job struct {
 	id      string
+	command string // 命令原文（最多 jobCommandMax 个字）：界面靠它认出是哪条
 	cmd     *exec.Cmd
 	unit    string
 	started time.Time
@@ -35,7 +39,9 @@ type job struct {
 	dropped int    // 超过上限被丢掉的字节数（从最早的开始）
 	read    int    // 已经交给模型的位置：按全部输出算的偏移
 	exit    int
-	stopped string // 不是自己结束的：被 bash_kill 停掉，或本轮结束时被终止
+	ended   time.Time // 进程结束的时间
+	stopped string    // 不是自己结束的：被 bash_kill 停掉，或本轮结束时被终止
+	state   string    // 已经发出去的 job/updated 状态：同一个状态不重复发
 }
 
 func (j *job) Write(p []byte) (int, error) {
@@ -69,7 +75,7 @@ func startJob(ctx context.Context, callID, command string) (any, error) {
 		return nil, llm.Permanent(fmt.Errorf("最多同时 %d 个后台命令；先用 bash_kill 停掉不用的", maxJobs))
 	}
 	jobSeq++
-	j := &job{id: fmt.Sprintf("job-%d", jobSeq), started: time.Now(), done: make(chan struct{})}
+	j := &job{id: fmt.Sprintf("job-%d", jobSeq), command: jobCommand(command), started: time.Now(), done: make(chan struct{})}
 	jobsMu.Unlock()
 	// 和前台命令一样在锁里启动（共用工作目录与代理的初始化），启动完就放锁，不占着它等命令结束。
 	mu.Lock()
@@ -82,12 +88,14 @@ func startJob(ctx context.Context, callID, command string) (any, error) {
 	jobsMu.Lock()
 	jobs[j.id] = j
 	jobsMu.Unlock()
+	j.jobUpdated()
 	go func() {
 		cmd.Wait()
 		j.mu.Lock()
-		j.exit = cmd.ProcessState.ExitCode()
+		j.exit, j.ended = cmd.ProcessState.ExitCode(), time.Now()
 		j.mu.Unlock()
 		close(j.done)
+		j.jobUpdated()
 		fmt.Printf("Bash job [%s]: exited exit=%d after=%s\n", j.id, cmd.ProcessState.ExitCode(), time.Since(j.started).Round(time.Millisecond))
 	}()
 	fmt.Printf("Bash job [%s]: started call=%s\n", j.id, callID)
@@ -142,6 +150,83 @@ func (j *job) stop(why string) {
 	j.mu.Unlock()
 	kill(j.cmd, j.unit)
 	<-j.done
+	j.jobUpdated()
+}
+
+// jobUpdated 发一条 job/updated：后台命令启动、自己结束、被停掉时各发一次（见 internal/protocol）。
+// 网页端据此列出这一轮的后台命令、刷新顶栏的数目；同一个状态只发一次：被停掉时 stop 和等进程结束的那一段都会走到这里。
+func (j *job) jobUpdated() {
+	j.mu.Lock()
+	state := "running"
+	p := map[string]any{"id": j.id, "command": j.command, "started_at": j.started}
+	select {
+	case <-j.done:
+		state, p["exit_code"] = "exited", j.exit
+		if !j.ended.IsZero() {
+			p["ended_at"] = j.ended
+		}
+		if j.stopped != "" {
+			state, p["stopped"] = "stopped", j.stopped
+		}
+	default:
+	}
+	if j.state == state {
+		j.mu.Unlock()
+		return
+	}
+	j.state, p["state"] = state, state
+	j.mu.Unlock()
+	protocol.Notify("job/updated", p)
+}
+
+// jobCommand 只留前 jobCommandMax 个字：命令原文可能很长，界面只用它认出是哪条。
+func jobCommand(command string) string {
+	r := []rune(strings.TrimSpace(command))
+	if len(r) <= jobCommandMax {
+		return string(r)
+	}
+	return string(r[:jobCommandMax-1]) + "…"
+}
+
+// jobPeek 交回最近的 jobPeekMax 字节输出，只看不消费：不动 j.read，模型下次 bash_output 照样从上次的位置读到。
+// dropped 是没显示出来的字节数（超过 1MB 被丢掉的，加上更早、这里没取的那部分）。
+func jobPeek(id string) (any, error) {
+	j, err := findJob(id)
+	if err != nil {
+		return nil, err
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	out, dropped := j.buf, j.dropped
+	if extra := len(out) - jobPeekMax; extra > 0 {
+		out, dropped = out[extra:], dropped+extra
+	}
+	state := "running"
+	select {
+	case <-j.done:
+		state = "exited"
+		if j.stopped != "" {
+			state = "stopped"
+		}
+	default:
+	}
+	return map[string]any{"output": strings.ToValidUTF8(string(out), "�"), "dropped": dropped, "state": state}, nil
+}
+
+// JobOutput 是 job/output 用的入口：网页端看一个后台命令最近的输出。
+func JobOutput(id string) (any, error) {
+	return jobPeek(id)
+}
+
+// JobStop 是 job/kill 用的入口：网页端停掉一个后台命令（和 bash_kill 一样按 cgroup 结束），
+// stopped 写“用户在网页上停掉”。交回的输出也不消费，模型下次 bash_output 照样从上次的位置读到。
+func JobStop(id string) (any, error) {
+	j, err := findJob(id)
+	if err != nil {
+		return nil, err
+	}
+	j.stop("用户在网页上停掉")
+	return jobPeek(id)
 }
 
 func (j *job) snapshot() map[string]any {
