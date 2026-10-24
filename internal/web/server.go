@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"embed"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/xuzhao123/tern/internal/appclient"
 	"github.com/xuzhao123/tern/internal/appserver"
+	"github.com/xuzhao123/tern/internal/llm"
 )
 
 // 页面在 page/：外壳 index.html、样式 app.css 和按功能拆开的原生 ES 模块（入口 main.js），不打包，打进同一个程序。
@@ -41,8 +43,18 @@ type server struct {
 	hosts      map[string]*host           // 已连上的主机：别名（本机是空串）→ 连接
 	order      []string                   // 连上的顺序：/connection 按它推，页面按它排组
 	remembered []string                   // 页面上连过的主机：写进 .data/web-hosts.json，下次启动在后台连
-	failed     map[string]string          // 记住了但这次没连上的：别名 → 那次的报错
+	failed     map[string]hostFailure     // 记住了但这次没连上的：别名 → 那次的原因
 	watch      map[chan struct{}]struct{} // 正在等 /connection 的连接
+}
+
+// hostFailure 是一台记住了、这次没连上的主机：kind 是 appclient 的分类（auth、hostkey、
+// no-tern、protocol…），页面按它给按钮；hint 是给人看的下一步，detail 是 ssh 的原文，
+// err 是两段拼起来的一整段话（老页面、别的接口照旧只显示它）。
+type hostFailure struct {
+	err    string
+	kind   string
+	hint   string
+	detail string
 }
 
 // host 是一台主机的连接。state 在 server.mu 下读写；runs 用原子量，因为它从连接的读循环里加。
@@ -88,7 +100,7 @@ func Run(args []string, mcpHandler http.Handler) error {
 	if err != nil {
 		return err
 	}
-	s := &server{auth: authState, hosts: map[string]*host{}, failed: map[string]string{}, watch: map[chan struct{}]struct{}{}}
+	s := &server{auth: authState, hosts: map[string]*host{}, failed: map[string]hostFailure{}, watch: map[chan struct{}]struct{}{}}
 	// 命令行定的主机先连上：不带 -remote 是本机，带了几台就只连这几台（远端的 app-server 由 proxy 自己 start）。
 	targets := []string{""}
 	if len(remotes) > 0 {
@@ -143,6 +155,12 @@ func Run(args []string, mcpHandler http.Handler) error {
 	mux.HandleFunc("GET /hosts", s.listHosts)
 	mux.HandleFunc("POST /hosts", s.connectHost)
 	mux.HandleFunc("DELETE /hosts/{alias}", s.disconnectHost)
+	// 远端专用的几条：装到远端、主机指纹、复制模型密钥。
+	mux.HandleFunc("POST /hosts/{alias}/install", s.installHost)
+	mux.HandleFunc("GET /hosts/{alias}/hostkey", s.getHostKeys)
+	mux.HandleFunc("POST /hosts/{alias}/hostkey", s.trustHostKeys)
+	mux.HandleFunc("GET /hosts/{alias}/keys", s.listLocalKeys)
+	mux.HandleFunc("POST /hosts/{alias}/keys", s.copyKeys)
 	mux.HandleFunc("GET /models", s.listModels)
 	mux.HandleFunc("POST /attachments", s.uploadAttachment)
 	mux.HandleFunc("GET /attachments/{name}", s.serveAttachment)
@@ -343,14 +361,23 @@ const maxBody = 1 << 20
 // ---------- 主机表 ----------
 
 // hostInfo 是 /connection 里的一台主机（spec 第二期第 4 节）。state 除了 connected、reconnecting，
-// 还有 failed：记住了的主机这次没连上，error 是那次的报错。
+// 还有 failed：记住了的主机这次没连上，error 是那次的报错，kind、hint、detail 是它的分类
+// 给人看的说明与 ssh 的原文（页面按 kind 给按钮）。
+// 已连上的远端另带 providers（那边配好密钥的供应商，空就是没配）、home 与 stale
+// （那边的 build 和本机不同：菜单里给“用本机的 tern 更新远端”）。
 type hostInfo struct {
-	Alias  string `json:"alias"`  // ssh 别名；本机是空串
-	Host   string `json:"host"`   // 显示名：本机用 initialize 报的主机名，远端用别名；没连上的本机没有名字
-	Remote bool   `json:"remote"` // 是不是远端
-	State  string `json:"state"`
-	Runs   int64  `json:"runs"`
-	Error  string `json:"error,omitempty"`
+	Alias     string   `json:"alias"`  // ssh 别名；本机是空串
+	Host      string   `json:"host"`   // 显示名：本机用 initialize 报的主机名，远端用别名；没连上的本机没有名字
+	Remote    bool     `json:"remote"` // 是不是远端
+	State     string   `json:"state"`
+	Runs      int64    `json:"runs"`
+	Error     string   `json:"error,omitempty"`
+	Kind      string   `json:"kind,omitempty"`
+	Hint      string   `json:"hint,omitempty"`
+	Detail    string   `json:"detail,omitempty"`
+	Providers []string `json:"providers,omitempty"`
+	Home      string   `json:"home,omitempty"`
+	Stale     bool     `json:"stale,omitempty"`
 }
 
 type connections struct {
@@ -469,8 +496,8 @@ func (s *server) withHosts(next http.Handler) http.Handler {
 		h, failed := s.hosts[alias], s.failed[alias]
 		s.mu.Unlock()
 		if h == nil {
-			if failed != "" {
-				http.Error(w, failed, http.StatusBadGateway)
+			if failed.err != "" {
+				http.Error(w, failed.err, http.StatusBadGateway)
 			} else {
 				http.Error(w, "没有连上主机 "+alias, http.StatusNotFound)
 			}
@@ -536,12 +563,19 @@ func (s *server) connection() connections {
 	out := connections{Hosts: make([]hostInfo, 0, len(s.order)+len(s.failed))}
 	for _, alias := range s.order {
 		h := s.hosts[alias]
-		out.Hosts = append(out.Hosts, hostInfo{Alias: alias, Host: h.client.Host(), Remote: alias != "", State: string(h.state), Runs: h.runs.Load()})
+		info := hostInfo{Alias: alias, Host: h.client.Host(), Remote: alias != "", State: string(h.state), Runs: h.runs.Load()}
+		if alias != "" {
+			// 远端的供应商、数据目录与 build 都来自 initialize：菜单据此提示没配密钥、程序要不要更新。
+			srv := h.client.Info()
+			info.Providers, info.Home, info.Stale = srv.Providers, srv.Home, srv.Build != appserver.Build()
+		}
+		out.Hosts = append(out.Hosts, info)
 	}
 	for _, alias := range s.remembered {
-		if msg, ok := s.failed[alias]; ok {
+		if f, ok := s.failed[alias]; ok {
 			// 记住的本机也没连上时，别名是空串：它不是远端，页面照旧写“本机”。
-			out.Hosts = append(out.Hosts, hostInfo{Alias: alias, Host: alias, Remote: alias != "", State: failedState, Error: msg})
+			out.Hosts = append(out.Hosts, hostInfo{Alias: alias, Host: alias, Remote: alias != "", State: failedState,
+				Error: f.err, Kind: f.kind, Hint: f.hint, Detail: f.detail})
 		}
 	}
 	return out
@@ -584,7 +618,9 @@ func (s *server) listHosts(w http.ResponseWriter, req *http.Request) {
 }
 
 // connectHost 连一台上：空别名是本机（先保证 app-server 在运行），远端经 ssh。已经连上的直接回成功；
-// 连不上回 502，文字是 ssh 的报错。页面上连过的主机记进 .data/web-hosts.json，下次启动自动连。
+// 连不上回 502，响应体是 {error, kind, hint, detail}（error 是原来那段话，页面没升级也能看）。
+// 页面上连过的主机记进 .data/web-hosts.json，下次启动自动连；连不上的也记下来，
+// 菜单里才有那一项可以点“确认指纹”“装到远端”。
 func (s *server) connectHost(w http.ResponseWriter, req *http.Request) {
 	var input struct {
 		Alias string `json:"alias"`
@@ -608,7 +644,12 @@ func (s *server) connectHost(w http.ResponseWriter, req *http.Request) {
 	}
 	client, _, err := dialHost(alias)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		s.mu.Lock()
+		s.failed[alias] = hostFailureOf(err)
+		s.mu.Unlock()
+		s.rememberHost(alias)
+		s.notify()
+		failHost(w, err)
 		return
 	}
 	// 拨号这会儿后台可能已经把这台连上了：addHost 会关掉这条新的、回原来那条。
@@ -643,6 +684,237 @@ func (s *server) disconnectHost(w http.ResponseWriter, req *http.Request) {
 	}
 	s.dropHost(alias)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ---------- 远端：装到远端、主机指纹、复制模型密钥 ----------
+
+// remoteAlias 取这几条远端专用接口的别名：本机没有别名（路径里写 -），这些操作只对远端有意义。
+func remoteAlias(w http.ResponseWriter, req *http.Request) (string, bool) {
+	alias := req.PathValue("alias")
+	if alias == "" || alias == "-" {
+		http.Error(w, "这条接口只对远端主机", http.StatusBadRequest)
+		return "", false
+	}
+	return alias, true
+}
+
+// hostFailureOf 把连不上的错误摊成页面要的几项：appclient 分类过的错误带 kind、hint 与 ssh 原文，
+// 其余的只有整段话（kind 记成 other，页面给“再试一次”）。
+func hostFailureOf(err error) hostFailure {
+	f := hostFailure{err: err.Error(), kind: appclient.RemoteOther}
+	var remote *appclient.RemoteError
+	if errors.As(err, &remote) {
+		f.kind, f.hint, f.detail = remote.Kind, remote.Hint, remote.Detail
+	}
+	return f
+}
+
+// failHost 回 502 与 {error, kind, hint, detail}：页面按 kind 给按钮，别的客户端读 error 也看得懂。
+func failHost(w http.ResponseWriter, err error) {
+	f := hostFailureOf(err)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusBadGateway)
+	json.NewEncoder(w).Encode(map[string]string{"error": f.err, "kind": f.kind, "hint": f.hint, "detail": f.detail})
+}
+
+// installHost 把本机的程序拷到远端（同系统同架构才行），成功以后页面照常连一次：
+// 远端的 proxy 会把那边的 app-server 换成新装的。已经连着的那台先收掉再拨一次，proxy 才会跑起来。
+func (s *server) installHost(w http.ResponseWriter, req *http.Request) {
+	alias, ok := remoteAlias(w, req)
+	if !ok {
+		return
+	}
+	if err := appclient.InstallRemote(alias); err != nil {
+		failHost(w, err)
+		return
+	}
+	if s.connected(alias) != nil {
+		if err := s.redialHost(alias); err != nil {
+			failHost(w, err)
+			return
+		}
+	}
+	writeJSON(w, map[string]any{"installed": alias})
+}
+
+// redialHost 把一台已经连上的主机收掉再连一次：换了远端的程序以后，只有新的连接上
+// proxy 才会把那边的 app-server 换成新的。记住的主机名单不动。
+func (s *server) redialHost(alias string) error {
+	s.mu.Lock()
+	old := s.hosts[alias]
+	delete(s.hosts, alias)
+	s.order = slices.DeleteFunc(s.order, func(a string) bool { return a == alias })
+	s.mu.Unlock()
+	if old != nil {
+		old.client.Close()
+	}
+	client, _, err := dialHost(alias)
+	if err != nil {
+		s.mu.Lock()
+		s.failed[alias] = hostFailureOf(err)
+		s.mu.Unlock()
+		s.notify()
+		return err
+	}
+	s.addHost(alias, client)
+	s.mu.Lock()
+	delete(s.failed, alias)
+	s.mu.Unlock()
+	s.notify()
+	return nil
+}
+
+// getHostKeys 是这台机器现在的主机公钥与指纹，给页面的“确认指纹”列出来核对。
+func (s *server) getHostKeys(w http.ResponseWriter, req *http.Request) {
+	alias, ok := remoteAlias(w, req)
+	if !ok {
+		return
+	}
+	info, err := appclient.HostKeys(alias)
+	if err != nil {
+		failHost(w, err)
+		return
+	}
+	writeJSON(w, info)
+}
+
+// trustHostKeys 把页面刚看到的那几条公钥写进本机的 known_hosts。请求体要带上看到的指纹，
+// 写入前再扫一次核对，中途换了就不写。
+func (s *server) trustHostKeys(w http.ResponseWriter, req *http.Request) {
+	alias, ok := remoteAlias(w, req)
+	if !ok {
+		return
+	}
+	var input struct {
+		Keys []appclient.HostKey `json:"keys"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, req.Body, maxBody)).Decode(&input); err != nil {
+		http.Error(w, "请求必须是JSON", http.StatusBadRequest)
+		return
+	}
+	if len(input.Keys) == 0 {
+		http.Error(w, "没有要确认的主机公钥", http.StatusBadRequest)
+		return
+	}
+	want := make([]string, 0, len(input.Keys))
+	for _, key := range input.Keys {
+		want = append(want, key.Fingerprint)
+	}
+	if err := appclient.TrustHostKeys(alias, want); err != nil {
+		failHost(w, err)
+		return
+	}
+	writeJSON(w, map[string]any{"trusted": len(want)})
+}
+
+// listLocalKeys 是本机有值的密钥名（路由表里各家的 KeyVars，环境变量优先，其次 TERN_HOME/.env）：
+// 页面把它们列出来给人勾选，再经 POST 写进远端。只有用户点了才读。
+func (s *server) listLocalKeys(w http.ResponseWriter, req *http.Request) {
+	if _, ok := remoteAlias(w, req); !ok {
+		return
+	}
+	env := localEnv()
+	names := []string{}
+	seen := map[string]bool{}
+	for _, p := range llm.Providers {
+		for _, name := range p.KeyVars {
+			if seen[name] {
+				continue
+			}
+			seen[name] = true
+			if keyValue(env, name) != "" {
+				names = append(names, name)
+			}
+		}
+	}
+	writeJSON(w, map[string]any{"names": names})
+}
+
+// copyKeys 把这几个密钥写进远端的 ~/.tern/.env：网页端读本机的值，经 ssh 的标准输入传过去，
+// 远端合并、chmod 600。写完新起的对话就能用。
+func (s *server) copyKeys(w http.ResponseWriter, req *http.Request) {
+	alias, ok := remoteAlias(w, req)
+	if !ok {
+		return
+	}
+	var input struct {
+		Names []string `json:"names"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, req.Body, 4096)).Decode(&input); err != nil {
+		http.Error(w, "请求必须是JSON", http.StatusBadRequest)
+		return
+	}
+	values, err := localKeyValues(input.Names)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if len(values) == 0 {
+		http.Error(w, "本机没有这几个密钥的值", http.StatusBadRequest)
+		return
+	}
+	path, err := appclient.WriteRemoteKeys(alias, values)
+	if err != nil {
+		failHost(w, err)
+		return
+	}
+	writeJSON(w, map[string]any{"written": len(values), "path": path})
+}
+
+// localEnv 是 TERN_HOME/.env 里的 KEY=value：只给“从本机复制密钥”用，读法同 llm 读配置。
+func localEnv() map[string]string {
+	values := map[string]string{}
+	f, err := os.Open(".env")
+	if err != nil {
+		return values
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		text := strings.TrimSpace(scanner.Text())
+		if text == "" || strings.HasPrefix(text, "#") {
+			continue
+		}
+		name, value, ok := strings.Cut(text, "=")
+		if !ok {
+			continue
+		}
+		values[strings.TrimSpace(name)] = strings.Trim(strings.TrimSpace(value), "\"'")
+	}
+	return values
+}
+
+// keyValue 是一个密钥在本机的值：同名环境变量优先，其次 .env（和 llm 读配置的规则一致）。
+func keyValue(env map[string]string, name string) string {
+	if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+		return value
+	}
+	return env[name]
+}
+
+// localKeyValues 取这几个密钥在本机的值。名字只认 KEY 的样子，值里不能有换行：写进去的是一行一个 KEY=value。
+func localKeyValues(names []string) (map[string]string, error) {
+	env := localEnv()
+	values := map[string]string{}
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		for _, r := range name {
+			if !(r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_') {
+				return nil, fmt.Errorf("不是密钥的名字：%s", name)
+			}
+		}
+		value := keyValue(env, name)
+		if strings.ContainsAny(value, "\r\n") {
+			return nil, fmt.Errorf("%s 的值里有换行，写不进 .env", name)
+		}
+		if value != "" {
+			values[name] = value
+		}
+	}
+	return values, nil
 }
 
 // ---------- 记住的主机 ----------
@@ -711,7 +983,7 @@ func (s *server) dialRemembered() {
 		client, _, err := dialHost(alias)
 		if err != nil {
 			s.mu.Lock()
-			s.failed[alias] = err.Error()
+			s.failed[alias] = hostFailureOf(err)
 			s.mu.Unlock()
 			s.notify()
 			continue

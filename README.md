@@ -57,9 +57,17 @@ go run . web -remote devbox -remote devbox2   # 一次连几台；启动后也�
 
 ### 远程（SSH）
 
-`go run . web -remote devbox`、`go run . chat -remote devbox`：界面在本机，对话、agent、代码、模型密钥都在远端。本机用系统的 ssh 连远端，跑的是 `ssh -T -o BatchMode=yes devbox 'exec "$SHELL" -lc "tern app-server proxy"'`，用它的标准输入输出说协议：不开端口、不需要公网，鉴权就是 SSH，也不需要在本机放模型密钥。
+`go run . web -remote devbox`、`go run . chat -remote devbox`：界面在本机，对话、agent、代码、模型密钥都在远端。本机用系统的 ssh 连远端，`ssh -T -o BatchMode=yes devbox <命令>`，<命令> 是 `exec "$SHELL" -lc 'bin="$HOME/.tern/bin/tern"; [ -x "$bin" ] || bin=tern; exec "$bin" app-server proxy'`，用它的标准输入输出说协议：不开端口、不需要公网，鉴权就是 SSH，也不需要在本机放模型密钥。登录 shell 里优先用 `~/.tern/bin/tern`（网页里“装到远端”装的就是那里），没有才用 PATH 上的 `tern`。
 
-远端的准备：装好 tern（协议版本和本机一致，对不上时 `initialize` 会报出两边的版本；远端重新安装以后，下一次连接时远端的 `proxy` 会把那边的 app-server 换成新装的，规则同上），tern 在登录 shell 的 PATH 上（proxy 走登录 shell，`~/.profile` 里设的 PATH 和 `TERN_HOME` 才生效），`TERN_HOME` 里有 `.env`（模型密钥），工作区在远端的设置页里登记（网页端的设置页改的就是远端的设置）。第一次连某台机器要先在终端里手动 `ssh devbox` 一次：确认主机指纹、登录，之后的连接带 `BatchMode=yes`，不会在后台卡在输密码或确认指纹那一步。
+远端的准备：装好 tern（协议版本和本机一致，对不上时 `initialize` 会报出两边的版本；远端重新安装以后，下一次连接时远端的 `proxy` 会把那边的 app-server 换成新装的，规则同上），tern 在登录 shell 的 PATH 上或者 `~/.tern/bin/tern` 里（proxy 走登录 shell，`~/.profile` 里设的 PATH 和 `TERN_HOME` 才生效），`TERN_HOME` 里有 `.env`（模型密钥），工作区在远端的设置页里登记（网页端的设置页改的就是远端的设置）。
+
+第一次连某台机器要在终端里手动 `ssh devbox` 一次（确认主机指纹、登录），之后的连接带 `BatchMode=yes`，不会在后台卡在输密码或确认指纹那一步。下面这几样也可以在网页的主机菜单里补（只在网页端，chat 没有）：
+
+- 远端没装 tern（菜单写“远端找不到 tern”），或者已连上的那台程序不是本机的：菜单里有“装到远端”“用本机的 tern 更新远端”，把本机正在跑的程序拷到远端的 `~/.tern/bin/tern`。只拷同系统同架构的，不同会提示在远端安装（在源码目录里 `go install .`）；装完自动重连，远端的 proxy 会把那边的 app-server 换成新的，正在跑的对话不会被打断。
+- 第一次连这台机器（菜单写“还没确认过这台机器的主机指纹”）：点“确认指纹”，列出 `ssh-keyscan` 取到的公钥类型与指纹，和你在那台机器上看到的一致再确认，就写进本机的 `~/.ssh/known_hosts`（写入前再扫一次核对，中途换了就不写）。
+- 远端没有配模型密钥（菜单写“远端没有配模型密钥”）：点“从本机复制密钥”，勾上本机 `.env` 里有值的几个（`ARK_API_KEY`、`DEEPSEEK_API_KEY`…），确认后经 ssh 的标准输入写进远端 `TERN_HOME` 的 `.env`（已有同名的行替换、没有的追加，权限 0600；那台机器上能读你文件的人都看得到），新起的对话就生效。
+- 连不上的原因会写明是哪一步：SSH 认证失败（`auth`）、还没确认主机指纹（`hostkey`）、解析不了或连不上（`unreachable`）、远端找不到 tern（`no-tern`）、两边的协议版本不一致（`protocol`），认不出的只给 ssh 的原文（`other`）。网页端 `POST /hosts` 连不上回 502 与 JSON `{error, kind, hint, detail}`。
+
 `-remote` 只认 `~/.ssh/config` 里具体的 Host 别名或 `user@host`：带通配符的 `Host` 会匹配到别的机器，以 `-` 开头的会被 ssh 当成选项，都拒绝。
 远程模式下网页端内置的计算器 MCP（`/mcp`）在本机的网页端进程里，远端的 agent 连不到，这一期不处理：要用就在远端另起一个网页端。
 

@@ -1,0 +1,102 @@
+{
+  "goal": "照 spec/remote-setup.md 实现：远端安装 tern、连不上分类与提示、网页里确认主机指纹、复制模型密钥",
+  "features": [
+    {
+      "id": "F1",
+      "desc": "gofmt 干净，go vet ./... 与 go build ./... 通过（spec 5.1 的一部分）",
+      "check": "cd /workspace \u0026\u0026 test -z \"$(gofmt -l .)\" \u0026\u0026 go vet ./... \u0026\u0026 go build ./...",
+      "passing": true,
+      "verified": {
+        "at": "2026-10-24T20:33:38.395717696Z",
+        "verifier": "ark/doubao-seed-2.1-pro",
+        "exit_code": 0,
+        "verdict": "pass",
+        "reason": "校验命令退出码为 0，说明 gofmt 无待格式化文件，且 go vet ./... 与 go build ./... 均通过。"
+      }
+    },
+    {
+      "id": "F2",
+      "desc": "appclient/ssh.go：proxy 命令优先 $HOME/.tern/bin/tern；RemoteError 六种 kind；InstallRemote 只拷同系统同架构；HostKeys/TrustHostKeys/WriteRemoteKeys 存在",
+      "check": "cd /workspace \u0026\u0026 go build ./internal/appclient \u0026\u0026 grep -q 'bin=\"$HOME/.tern/bin/tern\"' internal/appclient/ssh.go \u0026\u0026 for k in auth hostkey unreachable no-tern protocol other; do grep -q \"Remote.*= \\\"$k\\\"\" internal/appclient/ssh.go || exit 1; done \u0026\u0026 grep -q 'func InstallRemote' internal/appclient/ssh.go \u0026\u0026 grep -q 'func HostKeys' internal/appclient/ssh.go \u0026\u0026 grep -q 'func TrustHostKeys' internal/appclient/ssh.go \u0026\u0026 grep -q 'func WriteRemoteKeys' internal/appclient/ssh.go",
+      "passing": true,
+      "verified": {
+        "at": "2026-10-24T20:33:49.317837118Z",
+        "verifier": "ark/doubao-seed-2.1-pro",
+        "exit_code": 0,
+        "verdict": "pass",
+        "reason": "校验命令退出码为 0，go build 成功，且 ssh.go 中存在指定 proxy 路径、六种 RemoteError kind 以及 InstallRemote、HostKeys、TrustHostKeys、WriteRemoteKeys 函数。"
+      }
+    },
+    {
+      "id": "F3",
+      "desc": "手机关（DialRemote 失败）返回 *RemoteError，握手时识别协议版本不一致",
+      "check": "cd /workspace \u0026\u0026 grep -q 'func dialError' internal/appclient/ssh.go \u0026\u0026 grep -q 'dialError(' internal/appclient/rpc.go \u0026\u0026 grep -q '协议版本不一致' internal/appclient/ssh.go \u0026\u0026 go build ./...",
+      "passing": true,
+      "verified": {
+        "at": "2026-10-24T20:33:56.555645954Z",
+        "verifier": "ark/doubao-seed-2.1-pro",
+        "exit_code": 0,
+        "verdict": "pass",
+        "reason": "校验命令退出码为 0，且相关代码包含 dialError、调用点及“协议版本不一致”提示，go build 成功。"
+      }
+    },
+    {
+      "id": "F4",
+      "desc": "appserver 的 ServerInfo 加 Providers，对路由表每家调 llm.LoadConfig 列出配好密钥的",
+      "check": "cd /workspace \u0026\u0026 grep -q 'Providers \\[\\]string' internal/appserver/handle.go \u0026\u0026 grep -q 'llm.LoadConfig' internal/appserver/handle.go \u0026\u0026 go build ./internal/appserver",
+      "passing": true,
+      "verified": {
+        "at": "2026-10-24T20:34:01.617999582Z",
+        "verifier": "ark/doubao-seed-2.1-pro",
+        "exit_code": 0,
+        "verdict": "pass",
+        "reason": "校验命令退出码为 0，证明 handle.go 中包含 Providers 字段和 llm.LoadConfig 调用，且 appserver 构建成功。"
+      }
+    },
+    {
+      "id": "F5",
+      "desc": "网页端：/hosts 失败回 JSON {error,kind,hint,detail}；/connection 带 kind、hint；新路由 install、hostkey(GET/POST)、keys(GET/POST)",
+      "check": "cd /workspace \u0026\u0026 for r in 'POST /hosts/{alias}/install' 'GET /hosts/{alias}/hostkey' 'POST /hosts/{alias}/hostkey' 'GET /hosts/{alias}/keys' 'POST /hosts/{alias}/keys'; do grep -qF \"$r\" internal/web/server.go || exit 1; done \u0026\u0026 grep -q 'Kind ' internal/web/server.go \u0026\u0026 grep -q 'hostFailure' internal/web/server.go \u0026\u0026 go build ./internal/web",
+      "passing": true,
+      "verified": {
+        "at": "2026-10-24T20:34:09.278395627Z",
+        "verifier": "ark/doubao-seed-2.1-pro",
+        "exit_code": 0,
+        "verdict": "pass",
+        "reason": "校验命令退出码为 0，指定的 install、hostkey、keys 路由及相关标识均存在，且 internal/web 构建成功。"
+      }
+    },
+    {
+      "id": "F6",
+      "desc": "connection.js 按 kind 显示 hint/detail 与按钮（再试一次、确认指纹、装到远端/更新远端、复制密钥），语法通过 node --check",
+      "check": "cd /workspace \u0026\u0026 node --check internal/web/page/connection.js \u0026\u0026 grep -q 'hostkey' internal/web/page/connection.js \u0026\u0026 grep -q '确认指纹' internal/web/page/connection.js \u0026\u0026 grep -q '从本机复制密钥' internal/web/page/connection.js \u0026\u0026 grep -q 'hm-hint' internal/web/page/app.css",
+      "passing": true,
+      "verified": {
+        "at": "2026-10-24T20:34:15.369175922Z",
+        "verifier": "ark/doubao-seed-2.1-pro",
+        "exit_code": 0,
+        "verdict": "pass",
+        "reason": "node --check 语法校验通过，且 connection.js 与 app.css 中均包含要求的关键字和样式标识。"
+      }
+    },
+    {
+      "id": "F7",
+      "desc": "README 远程一节与 internal/web/AGENTS.md 补上：装到远端、连不上说原因、确认指纹、复制密钥",
+      "check": "cd /workspace \u0026\u0026 grep -q '装到远端' README.md \u0026\u0026 grep -q '确认指纹' README.md \u0026\u0026 grep -q '复制' README.md \u0026\u0026 grep -q '复制密钥' internal/web/AGENTS.md",
+      "passing": true,
+      "verified": {
+        "at": "2026-10-24T20:34:21.298073674Z",
+        "verifier": "ark/doubao-seed-2.1-pro",
+        "exit_code": 0,
+        "verdict": "pass",
+        "reason": "校验命令退出码为 0，且 README.md 与 internal/web/AGENTS.md 均包含要求的关键内容。"
+      }
+    }
+  ],
+  "notes": [
+    {
+      "at": "2026-10-24T20:34:34.801733473Z",
+      "text": "spec/remote-setup.md 已实现，F1–F7 全部通过验证；gofmt/vet/build/node --check 通过，工作区只有 8 个改动的文件（未提交）。沙箱里另做了三组自测：假 ssh 测 12 种失败分类、假远端测 InstallRemote/WriteRemoteKeys、headless Chrome 测主机菜单（确认指纹、装到远端、复制密钥三种按钮）；起过临时 web 端测 /hosts 502 JSON 与 /connection 的 kind/hint，临时目录都已删。simulate 里没做的：spec 5.4–5.9（真实模型、真实远端）留给 Claude Code 与用户。下一步（要收尾的人）：照着 spec 5.4–5.9 在真机上跑一遍，特别看已连上远端的“更新远端”之后的事件流是否按预期重连。"
+    }
+  ]
+}

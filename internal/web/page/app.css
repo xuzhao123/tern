@@ -135,6 +135,15 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
 .hm-off:hover { background: var(--hover); color: var(--text); }
 .hm-cand { width: 100%; padding: 6px 10px; border: 0; border-radius: 8px; background: none; text-align: left; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hm-cand:hover { background: var(--hover); }
+/* 连不上的那台写清是哪一步、该做什么；连着的远端可以更新程序、复制密钥。 */
+.hm-more { padding: 0 10px 6px; }
+.hm-hint { color: var(--text); font-size: 12px; line-height: 1.5; }
+.hm-detail { margin-top: 2px; color: var(--faint); font-size: 11.5px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
+.hm-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.hm-btn { padding: 3px 9px; border: 1px solid var(--line); border-radius: 7px; background: none; color: var(--text); font-size: 12px; }
+.hm-btn:hover { background: var(--hover); }
+.hm-keys { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
+.hm-key { display: flex; align-items: center; gap: 6px; font-size: 12px; font-family: var(--mono); }
 #hm-form { display: flex; gap: 6px; padding: 6px 2px 2px; }
 #hm-form input { flex: 1; min-width: 0; padding: 5px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
 #hm-form button { flex: none; padding: 5px 10px; border: 0; border-radius: 8px; background: var(--text); color: var(--bg); font-size: 12.5px; }
