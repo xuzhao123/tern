@@ -109,6 +109,10 @@
     {
       "at": "2026-10-24T21:10:48.871770676Z",
       "text": "spec/shell-command.md 已实现（未提交，11 个文件改动）：main.go 的 -shell（flag+执行分支，要求 -bash、沙箱目录取 AGENT_SHELL_DIR）、sandbox.Shell（走 execute 的可写路径）、appserver 的 thread/shellCommand + shell 事件 + notes() 认它 + lastTurnEvent 跳过它、handle.go 方法表、web 的 POST /runs/{id}/shell、页面（composer.js 的 ! 分支与 runShell、shell.js 的提示行、runs.js 的 shells、chat.js 的 shellCard、app.css）、README（网页端一段 + -shell 参数行）。验收 5.1 全部通过（gofmt 无输出、go vet/go build、四个页面脚本 node --check）；5.2 见本轮回答里的行号。另在沙箱里做了两组自测：临时 TERN_HOME 里造存档 + python 直连 control.sock 跑 thread/shellCommand（400/409 各分支、shell 事件写进 .jsonl、审计 user_shell_command、加过 shell 事件后 can_continue 仍为 true），无头 Chrome 加载真实页面验卡片/折叠/截断/提示行/三条发送分支（临时目录已删）。沙箱里 bwrap 不能嵌套，所以命令本身只跑出 bwrap 的 ENOSPC 报错，真实命令、plan 只读、断网、真实模型留给 spec 5.3–5.7（Claude Code 在沙箱外做）。"
+    },
+    {
+      "at": "2026-10-24T21:22:57.828240774Z",
+      "text": "spec/bash-interactive.md 已实现（未提交，6 个文件改动：internal/sandbox/{jobs.go,sandbox.go,network.go}、internal/agent/{toolspec.go,dispatch.go}、README.md）。验收 5.1 通过：gofmt -l . 无输出，go vet ./...、go build ./... 通过；5.2 是读代码报告（见本轮回答：stdin 写端在命令结束/被停/close=true 时由 j.closeInput 关掉，tty 命令行是 sandbox-init script -q -f -e -c \u003c命令\u003e /dev/null）。沙箱里 bwrap 不能嵌套（--unshare-all 报 ENOSPC），所以没有实跑；另做了两项机制自测：宿主机上用真管道 + script 验过“写 y\\n 回答 read -p”“python3 -i -q 输入后 close 读到 EOF”“退出码”（临时目录已删），并在临时 clone 里用 package 内的假 job 跑通 bash_input 的写、close（命令读到 EOF）、已结束报错、空参数、超过 64KB、没有这个 job 五条分支。剩下的 spec 5.3–5.5（真实模型跑 read -p、python3 -i、已结束再写）留给 Claude Code 在沙箱外做。"
     }
   ]
 }

@@ -108,7 +108,7 @@ tern -question '计算 1231+23123'
 | 本地向量模型 | 不需要 embedding API 密钥；首次使用会下载模型 | `-embedding local`；聊天请求仍使用选定的线上模型 |
 | 浏览器 | 本机安装 Chrome/Chromium；`CHROME_PATH` 可指定可执行文件 | `-browser`；仅环境变量读取浏览器配置 |
 | DeepSeek 搜索 | 与 DeepSeek 聊天模型共用 `DEEPSEEK_API_KEY`；Search/Fetch 按成功请求计费 | `-ds-search`；与选用哪家聊天模型无关 |
-| Bash 沙箱 | Linux、bubblewrap；cgroup 资源限制依赖 systemd 用户会话 | `-bash` |
+| Bash 沙箱 | Linux、bubblewrap；cgroup 资源限制依赖 systemd 用户会话；后台命令可以用 `bash_input` 写输入，`tty=true` 开伪终端（需要 `script`） | `-bash` |
 | 网页端登录 | 账号在 `.data/users.json`，用 `go run . web -add-user` 添加 | 没有账号时网页端拒绝启动 |
 | 调用链追踪 | 无需配置，span 写入 `.data/traces/`；`OTEL_EXPORTER_OTLP_ENDPOINT` 另发给 Jaeger 等 OTLP 平台；`OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true` 采集提示词与工具内容 | 默认只记元数据 |
 

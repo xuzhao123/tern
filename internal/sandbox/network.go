@@ -355,7 +355,8 @@ func Init(args []string) int {
 		}()
 	}
 	cmd := exec.Command(args[0], args[1:]...)
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, os.Stdout, os.Stderr
+	// 标准输入原样交下去：前台命令那边是 /dev/null（和以前一样读到 EOF），后台命令是 bash_input 写的那根管道。
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := cmd.Run(); err != nil {
 		if exit, ok := err.(*exec.ExitError); ok {
 			return exit.ExitCode()

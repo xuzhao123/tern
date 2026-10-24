@@ -43,6 +43,7 @@ var specs = map[string]Spec{
 	"ds_fetch":               {ReadOnly: true, Repeatable: true, Outbound: true, Permission: "WebFetch"},
 	"bash_output":            {ReadOnly: true, Repeatable: true, Poll: true, Private: "bash"},                  // 读后台命令的输出，和 bash 同样算私有
 	"bash_kill":              {Repeatable: true},                                                               // 停掉已经停掉的命令什么也不做
+	"bash_input":             {Serial: true, Poll: true, Permission: "Bash"},                                   // 连着回答几次同一个 y 是正常的，不算重复动作；权限规则按 Bash(...) 一类处理
 	"progress":               {Serial: true, Private: "workspace"},                                             // 进度文件只由 harness 写
 	"verify_feature":         {Serial: true, Repeatable: true, Private: "workspace", Timeout: 6 * time.Minute}, // 跑校验命令再请验证者判定
 	"spawn_agent":            {Repeatable: true, Private: "subagent"},                                          // 子任务ID是幂等键；只在子 agent 读过私有数据时才算，见 trackPrivate

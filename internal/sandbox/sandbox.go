@@ -172,6 +172,7 @@ func Definitions() []map[string]any {
 	}
 	bash += "每次调用是新的 shell（cd 和环境变量不保留），/tmp 每次都是空的。不能写其他位置，默认不能联网。" +
 		"单条命令最多 " + Timeout.String() + "，到时整条命令被终止，返回终止前的输出。要跑得更久的（长时间构建、监视）设 background=true：立刻返回 job_id，用 bash_output 读输出，用 bash_kill 停掉。" +
+		"要回答提示的程序（交互式安装、python -i 一类）用 background=true（需要终端的加 tty=true），再用 bash_input 写输入；前台命令的标准输入是 /dev/null，读不到输入。" +
 		"每条命令（包括后台命令）都在自己的沙箱里，只看得到自己的进程和网络：之后的命令看不到、也连不上后台命令和它起的服务。要测一个服务，在同一条命令里起服务再访问（如 server & sleep 1; curl …）；整个过程超过时限，就把这一整条放到后台。"
 	job := map[string]any{"type": "string", "description": "bash 带 background=true 时返回的 job_id"}
 	return []map[string]any{
@@ -180,6 +181,7 @@ func Definitions() []map[string]any {
 			"properties": map[string]any{
 				"command":    map[string]string{"type": "string"},
 				"background": map[string]string{"type": "boolean", "description": "true 时在后台运行、立刻返回 job_id，不等它结束；后台命令只活到这一轮结束，最多同时 4 个"},
+				"tty":        map[string]string{"type": "boolean", "description": "background=true 时给命令一个伪终端（它以为自己在终端里，能显示提示）；默认 false，标准输入是管道"},
 			},
 			"required": []string{"command"},
 		}},
@@ -193,6 +195,15 @@ func Definitions() []map[string]any {
 		}},
 		{"name": "bash_kill", "description": "停掉一个后台命令（连同它起的进程），返回剩下的输出。", "parameters": map[string]any{
 			"type": "object", "properties": map[string]any{"job_id": job}, "required": []string{"job_id"},
+		}},
+		{"name": "bash_input", "description": "往一个后台命令的标准输入写 text（原样写，要回车就自己带 \\n）；close=true 时写完关掉标准输入（发 EOF）。返回写之后 1 秒内的新输出，格式和 bash_output 一样。命令已经结束时报错。一次最多写 64KB。", "parameters": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"job_id": job,
+				"text":   map[string]string{"type": "string", "description": "要写进去的字，原样写，要回车就自己带 \\n"},
+				"close":  map[string]string{"type": "boolean", "description": "true 时写完关掉标准输入，命令读到 EOF；默认 false"},
+			},
+			"required": []string{"job_id"},
 		}},
 		{"name": "request_network_access", "description": "请求用户允许沙箱访问一个域名（如 pypi.org）。由用户在界面上批准：用户当场批准时本轮接下来就能访问；没有界面或用户未答复时返回 pending。", "parameters": map[string]any{
 			"type": "object",
@@ -281,19 +292,21 @@ func Run(ctx context.Context, callID, name, arguments string) (any, error) {
 		return nil, llm.Permanent(errors.New("沙箱只支持 Linux（bubblewrap）"))
 	}
 	var args struct {
-		Command, Domain, Reason string
-		Background              bool
-		JobID                   string `json:"job_id"`
-		Wait                    int
+		Command, Domain, Reason, Text string
+		Background, Tty, Close        bool
+		JobID                         string `json:"job_id"`
+		Wait                          int
 	}
 	if err := json.Unmarshal([]byte(arguments), &args); err != nil {
-		return nil, llm.Permanent(errors.New("参数类型不对：command、domain、reason、job_id 是字符串，background 是布尔值，wait 是整数"))
+		return nil, llm.Permanent(errors.New("参数类型不对：command、domain、reason、job_id、text 是字符串，background、tty、close 是布尔值，wait 是整数"))
 	}
 	switch name {
 	case "bash_output":
 		return jobOutput(args.JobID, args.Wait)
 	case "bash_kill":
 		return jobKill(args.JobID)
+	case "bash_input":
+		return jobInput(args.JobID, args.Text, args.Close)
 	}
 	if name == "request_network_access" {
 		domain := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(args.Domain)), ".")
@@ -333,7 +346,7 @@ func Run(ctx context.Context, callID, name, arguments string) (any, error) {
 		return nil, llm.Permanent(errors.New("command 需要是1到16KB的非空字符串"))
 	}
 	if args.Background {
-		return startJob(ctx, callID, command)
+		return startJob(ctx, callID, command, args.Tty)
 	}
 	return execute(ctx, callID, command, ProjectWrite, Timeout)
 }
@@ -374,7 +387,7 @@ func execute(ctx context.Context, callID, command string, writable bool, limit t
 	deniedMu.Unlock()
 	out := &capture{}
 	start := time.Now()
-	cmd, unit, err := launch(ctx, callID, command, out, writable)
+	cmd, unit, err := launch(ctx, callID, command, out, nil, false, writable)
 	if err != nil {
 		return nil, err
 	}
@@ -473,8 +486,9 @@ wait:
 }
 
 // launch 建好一次沙箱执行并启动它：bwrap + seccomp，有 systemd 用户会话时放进一个有名字的 scope（cgroup），
-// 输出写到 out。返回进程和 scope 名（没有 cgroup 时为空）；前台命令等它结束，后台命令交给 jobs.go 管。
-func launch(ctx context.Context, callID, command string, out io.Writer, writable bool) (*exec.Cmd, string, error) {
+// 输出写到 out，标准输入接 stdin（nil 表示 /dev/null，前台命令就是这样）；tty 时在沙箱里用 script 包一层，
+// 给命令一个伪终端。返回进程和 scope 名（没有 cgroup 时为空）；前台命令等它结束，后台命令交给 jobs.go 管。
+func launch(ctx context.Context, callID, command string, out io.Writer, stdin io.Reader, tty, writable bool) (*exec.Cmd, string, error) {
 	workspace, err := filepath.Abs(Dir)
 	if err == nil {
 		err = os.MkdirAll(workspace, 0o755)
@@ -524,7 +538,7 @@ func launch(ctx context.Context, callID, command string, out io.Writer, writable
 	}
 
 	// 和 Claude Code 给 Bash 子进程设 TRACEPARENT 一样：沙箱里的程序愿意的话，可以把自己的 span 接到这次执行下面。
-	argv := bwrapArgs(workspace, netDir, self, command, telemetry.Env(ctx), writable)
+	argv := bwrapArgs(workspace, netDir, self, command, telemetry.Env(ctx), tty, writable)
 	unit := ""
 	if cgroupOK() {
 		// 每次执行一个有名字的 scope（一个 cgroup）：超时时按 cgroup 整体杀掉。
@@ -547,6 +561,7 @@ func launch(ctx context.Context, callID, command string, out io.Writer, writable
 		cmd.ExtraFiles = append(cmd.ExtraFiles, wrapper) // fd 4：chrome 的包装脚本（--ro-bind-data 4）
 	}
 	cmd.Stdout, cmd.Stderr = out, out
+	cmd.Stdin = stdin // nil 时子进程拿到 /dev/null，和以前一样
 	// 自己的进程组：没有 cgroup 时退而求其次，杀掉整组（bwrap 带 --die-with-parent，沙箱里的进程随之结束）。
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
@@ -563,7 +578,7 @@ func kill(cmd *exec.Cmd, unit string) {
 	syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 }
 
-func bwrapArgs(workspace, netDir, self, command string, env []string, writable bool) []string {
+func bwrapArgs(workspace, netDir, self, command string, env []string, tty, writable bool) []string {
 	args := []string{"bwrap",
 		// 新的用户、PID、网络、IPC、UTS、cgroup namespace；禁止沙箱里再建 user namespace；去掉全部特权。
 		"--unshare-all", "--unshare-user", "--disable-userns", "--cap-drop", "ALL",
@@ -655,11 +670,23 @@ func bwrapArgs(workspace, netDir, self, command string, env []string, writable b
 		"--clearenv", "--setenv", "PATH", path, "--setenv", "HOME", home, "--setenv", "LANG", "C.UTF-8", "--setenv", "TMPDIR", "/tmp",
 		"--setenv", "HTTP_PROXY", proxy, "--setenv", "HTTPS_PROXY", proxy, "--setenv", "http_proxy", proxy, "--setenv", "https_proxy", proxy, "--setenv", "NO_PROXY", "localhost,127.0.0.1",
 	)
+	if tty {
+		// script 用 $SHELL 跑命令（不设就是 sh），设成 bash：命令的写法和前台一致（前台是 /bin/bash -c）。
+		args = append(args, "--setenv", "SHELL", "/bin/bash")
+	}
 	for _, pair := range append(extraEnv, env...) {
 		name, value, _ := strings.Cut(pair, "=")
 		args = append(args, "--setenv", name, value)
 	}
-	args = append(args, "--seccomp", "3", "/.sandbox/agent", "sandbox-init", "/bin/bash", "-c", command)
+	args = append(args, "--seccomp", "3", "/.sandbox/agent", "sandbox-init")
+	if tty {
+		// 命令放进 script，由它开一个伪终端：命令以为自己在终端里。-e 让退出码是命令的（不然总是 0）；
+		// -f 每条输出立刻交出来。script 用 $SHELL 跑命令（不设就是 sh），上面设成 bash，命令的写法和前台一致。
+		// 命令原样作为一个参数传，不经 shell 再转一层。
+		args = append(args, "script", "-q", "-f", "-e", "-c", command, "/dev/null")
+	} else {
+		args = append(args, "/bin/bash", "-c", command)
+	}
 	return args
 }
 
