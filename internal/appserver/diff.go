@@ -13,6 +13,7 @@ import (
 )
 
 // workspace/diff：这条对话的工作区相对 HEAD 的改动，网页端的“改动”面板据此显示整份 diff。
+// 副本对话（见 thread/start 的 copy）相对 copy_base：基线里已经有原目录那些没提交的改动，面板只显示这条对话自己改的。
 // 已跟踪的文件取 git diff HEAD，未跟踪的文件按“新增”给出内容；命令只读，带 GIT_OPTIONAL_LOCKS=0 不碰仓库里的锁。
 // 文件内容由模型或 git 提供，页面只用 textContent 显示。
 const (
@@ -35,6 +36,26 @@ func (r *run) workDir() string {
 			if e.WorkDir != "" {
 				return e.WorkDir
 			}
+		}
+	}
+	return ""
+}
+
+// copyOf、copyBase 是副本对话在原目录与副本基线（提交号）上的记录；不是副本对话时都是空。调用方持有 r.mu。
+// 只看 start 事件：副本是开对话时建的，续聊照快照沿用。
+func (r *run) copyOf() string {
+	for i := len(r.events) - 1; i >= 0; i-- {
+		if e := r.events[i]; e.Kind == "start" && e.CopyOf != "" {
+			return e.CopyOf
+		}
+	}
+	return ""
+}
+
+func (r *run) copyBase() string {
+	for i := len(r.events) - 1; i >= 0; i-- {
+		if e := r.events[i]; e.Kind == "start" && e.CopyBase != "" {
+			return e.CopyBase
 		}
 	}
 	return ""
@@ -69,7 +90,7 @@ func (c *conn) workspaceDiff(m protocol.Message) (any, *protocol.Error) {
 		return nil, ferr
 	}
 	r.mu.Lock()
-	dir := r.workDir()
+	dir, base := r.workDir(), r.copyBase()
 	r.mu.Unlock()
 	if dir == "" {
 		return nil, bad(400, "这条对话没有工作区")
@@ -86,13 +107,17 @@ func (c *conn) workspaceDiff(m protocol.Message) (any, *protocol.Error) {
 		head = strings.TrimSpace(out)
 	}
 	// 仓库还没有提交时 HEAD 不存在：改看暂存区加工作区，两部分接起来（顺序与 numstat 一致）。
+	rev := "HEAD"
+	if base != "" {
+		rev = base // 副本对话：基线提交里已经有原目录没提交的改动
+	}
 	type gitCall struct {
 		out  *strings.Builder
 		args []string
 	}
 	var patch, numstat strings.Builder
-	calls := []gitCall{{&patch, []string{"diff", "HEAD", "--no-color", "--no-ext-diff"}}, {&numstat, []string{"diff", "HEAD", "--numstat", "-z"}}}
-	if _, err := c.git(dir, "rev-parse", "--verify", "HEAD"); err != nil {
+	calls := []gitCall{{&patch, []string{"diff", rev, "--no-color", "--no-ext-diff"}}, {&numstat, []string{"diff", rev, "--numstat", "-z"}}}
+	if _, err := c.git(dir, "rev-parse", "--verify", rev); err != nil {
 		calls = []gitCall{{&patch, []string{"diff", "--cached", "--no-color", "--no-ext-diff"}}, {&patch, []string{"diff", "--no-color", "--no-ext-diff"}},
 			{&numstat, []string{"diff", "--cached", "--numstat", "-z"}}, {&numstat, []string{"diff", "--numstat", "-z"}}}
 	}

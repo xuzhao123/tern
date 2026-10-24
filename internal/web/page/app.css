@@ -328,6 +328,9 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
 select.pick { appearance: none; -webkit-appearance: none; padding-right: 22px; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M2 3.5l3 3 3-3' fill='none' stroke='%23999' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 7px center; }
 select.pick:hover:not(:disabled) { background-color: var(--hover); }
 select.pick:disabled { background-image: none; padding-right: 8px; }
+/* “副本”勾选框：跟工作区下拉排在一起，勾了就在这个工作区的副本里开对话（见 shell.js 的 syncComposer）。 */
+#copy-pick { display: flex; align-items: center; gap: 3px; user-select: none; }
+#copy-pick:has(input:disabled) { color: var(--faint); cursor: default; }
 .set-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 12px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--line); }
 .set-row:first-child { border-top: 0; }
 .set-row .sub { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 4px; }

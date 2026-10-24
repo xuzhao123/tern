@@ -95,7 +95,7 @@ $("composer").onsubmit = (ev) => {
   }
   ui.chatFollow = true;
   const images = attached.map(({ ref, name }) => ({ ref, name }));
-  const body = ui.run ? { query, permission: $("perm").value, effort: $("effort").value } : { query, provider: $("provider").value, model: $("model").hidden ? "" : $("model").value, workspace: $("workspace").disabled ? "" : $("workspace").value, permission: $("perm").value, effort: $("effort").value };
+  const body = ui.run ? { query, permission: $("perm").value, effort: $("effort").value } : { query, provider: $("provider").value, model: $("model").hidden ? "" : $("model").value, workspace: $("workspace").disabled ? "" : $("workspace").value, copy: $("copy").checked && !!$("workspace").value, permission: $("perm").value, effort: $("effort").value };
   start(ui.run ? `/runs/${ui.run.id}/messages` : "/runs", images.length ? { ...body, images } : body);
 };
 async function steer(text) {
@@ -254,6 +254,8 @@ $("send").onclick = async (ev) => {
 $("provider").onchange = () => { ui.picked.provider = true; ui.picked.model = false; syncComposer(); };
 $("model").onchange = () => { ui.picked.model = true; syncComposer(); };
 $("workspace").onchange = () => { ui.picked.workspace = true; syncComposer(); };
+// 副本：勾了就在这个工作区的副本里开对话（thread/start 的 copy），开完对话后不能再改（见 syncComposer）。
+$("copy").onchange = () => { ui.picked.copy = $("copy").checked; syncComposer(); };
 $("perm").onchange = () => { ui.picked.permission = true; syncComposer(); };
 $("effort").onchange = () => { ui.picked.effort = true; syncComposer(); };
 $("settings").onclick = () => openSettings();

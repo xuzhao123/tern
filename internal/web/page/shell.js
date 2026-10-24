@@ -36,6 +36,11 @@ export function renderShell() {
   $("side-btn").title = sideBusy ? "这一轮跑完才能问旁支问题" : "从这里临时分出去问一句，问答不进这条对话";
   $("diff-btn").hidden = !chat || !r?.workspace;
   $("diff-btn").classList.toggle("on", !!ui.diffOpen);
+  // 副本对话：停下以后可以把副本里的改动应用回原目录（见 workspace/applyCopy）；跑着的时候灰着。
+  $("apply-copy-btn").hidden = !chat || !r?.copy;
+  $("apply-copy-btn").disabled = !r?.exit || !!ui.loading || !!ui.replay;
+  $("apply-copy-btn").textContent = r?.copy ? `应用到 ${r.workspace || "原目录"}` : "";
+  $("apply-copy-btn").title = r?.exit ? "把副本里的改动写进原目录的工作区，不提交" : "这一轮跑完才能应用";
   const runID = $("run-id");
   runID.hidden = !r;
   runID.textContent = r ? r.id.slice(0, 8) : "";
@@ -236,6 +241,12 @@ export function syncComposer() {
   for (const id of ["provider", "perm", "effort"]) $(id).hidden = !!imported;
   // 模型与工作区上面已按清单和对话决定是否显示，这里只在导入的对话里再藏起来，不能把它们重新显示出来。
   if (imported) $("model").hidden = $("workspace").hidden = true;
+  // 副本（thread/start 的 copy）：选了工作区才能勾，开对话之前把副本建好，之后这条对话只碰副本。
+  // 已有对话按它实际的（summary 的 copy）显示，并且不能再改。
+  const cp = $("copy");
+  cp.disabled = !!r || !!imported || !codingOK || !ws.value || ws.value === ADD_WORKSPACE;
+  cp.checked = r ? !!r.copy : !!ui.picked.copy;
+  $("copy-pick").hidden = ws.hidden || !!imported;
   $("query").disabled = !!imported;
   $("send").disabled = running ? false : ui.sending || !!busy || !!broken || !!ui.replay || !!imported || !$("query").value.trim();
   $("query").placeholder = imported ? "导入的对话只能查看" : running ? "补充或纠正，agent 做完这一步就会看到（Tab 排到这一轮之后） · Esc 打断" : r ? "继续提问" : "给 agent 布置一个任务，/ 选命令";
@@ -288,6 +299,8 @@ export async function loadRuns() {
       ui.run.canContinue = !!current.can_continue;
       syncComposer();
     }
+    // 副本对话（summary.copy）：顶栏给“应用到”，输入框的勾选框按这条对话显示；打开时只变这一次。
+    if (!!ui.run.copy !== !!current.copy) { ui.run.copy = !!current.copy; render(); }
     renderSteers();
   }
   // 各条的 updated_at 留着记“看过”（markCurrentSeen、runRow 都读它）：先把正在看的这条记成看过，
@@ -505,6 +518,8 @@ function runRow(r, h, archived = false) {
   // 旁支提问分出来的对话在已归档里，标“旁支”而不是“分叉”：两者都记在 fork_of 上。
   if (r.side) q.append(el("span", "src", "旁支"));
   else if (r.fork_of) q.append(el("span", "src", "分叉"));
+  // 副本对话：在工作区的副本里跑，改动要人点“应用到”才回原目录。
+  if (r.copy) q.append(el("span", "src", "副本"));
   // 这条对话在等人：醒目的小标签放标题前面，点进对话就能答复。
   if (r.waiting) q.append(el("span", "wait", r.waiting === "approval" ? "等你审批" : "等你回答"));
   // 有名字就显示名字；悬停里仍是第一句话和对话 ID，看得出这是哪条。
@@ -638,6 +653,21 @@ $("export-btn").onclick = () => exportRun(ui.run);
 // 旁支提问：按钮的显示见 renderShell，四步见 sideQuestion。
 $("side-btn").onclick = sideQuestion;
 $("diff-btn").onclick = () => { ui.diffOpen = !ui.diffOpen; if (ui.diffOpen) { ui.subOpen = ui.webOpen = null; ui.filesOpen = false; ui.diff.run = null; } renderChat(); renderShell(); };
+// 副本对话的“应用到”：把副本里的改动写回原目录（只改文件，不提交，见 workspace/applyCopy）。
+// 原目录从 start 事件的 copy_of 取；成功后说改了哪些文件，冲突（409）时把 git apply 的报错原样显示出来。
+$("apply-copy-btn").onclick = async () => {
+  const r = ui.run;
+  if (!r?.copy) return;
+  const dir = ui.events.find((e) => e.kind === "start" && e.copy_of)?.copy_of || r.workspace;
+  if (!confirm(`把副本里的改动应用到 ${dir}？只改原目录的文件，不提交。`)) return;
+  try {
+    const res = await fetch(api(`/runs/${encodeURIComponent(r.id)}/apply-copy`), { method: "POST" });
+    const text = (await res.text()).trim();
+    if (!res.ok) return alert("应用失败：" + text);
+    const files = JSON.parse(text).files || [];
+    alert(`已应用 ${files.length} 个文件：` + files.join("、"));
+  } catch (err) { alert("应用失败：" + err.message); }
+};
 $("page-chat").onclick = () => { ui.page = "chat"; if (ui.tab === "compare") ui.tab = "trace"; render(); loadRuns(); };
 $("page-observe").onclick = () => { ui.page = "observe"; render(); loadRuns(); };
 $("run-id").onclick = async () => {

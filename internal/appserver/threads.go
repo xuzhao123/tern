@@ -541,6 +541,14 @@ func (s *Server) drop(r *run, turns []string) error {
 		delAll(s.abs(tenant.Path("", "outputs", turns[0])))
 		del(s.abs(tenant.Path("", "sessions", turns[0]+".jsonl")))
 	}
+	// 副本对话的副本目录是整个 app-server 建的（有自己的 .git），连它一起删掉；分叉复制了原对话的快照，
+	// 别的对话还用着这个目录时留着（同上面共用轮次的做法）。
+	r.mu.Lock()
+	copyOf, dir := r.copyOf(), r.workDir()
+	r.mu.Unlock()
+	if copies := s.abs(tenant.Path("", "copies")) + string(os.PathSeparator); copyOf != "" && strings.HasPrefix(dir, copies) && !s.workDirsOfOthers(r)[dir] {
+		delAll(dir)
+	}
 	if failure != nil {
 		return failure
 	}
@@ -573,4 +581,23 @@ func (s *Server) turnsOfOthers(except *run) map[string]bool {
 		other.mu.Unlock()
 	}
 	return taken
+}
+
+// workDirsOfOthers 是除这条对话以外，其余对话快照里的工作区目录：副本对话的副本目录被分叉的快照用着时不删（见 drop）。
+func (s *Server) workDirsOfOthers(except *run) map[string]bool {
+	s.mu.Lock()
+	runs := append([]*run(nil), s.runs...)
+	s.mu.Unlock()
+	dirs := map[string]bool{}
+	for _, other := range runs {
+		if other == except {
+			continue
+		}
+		other.mu.Lock()
+		if dir := other.workDir(); dir != "" {
+			dirs[dir] = true
+		}
+		other.mu.Unlock()
+	}
+	return dirs
 }
