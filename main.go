@@ -30,6 +30,7 @@ import (
 	"github.com/xuzhao123/tern/internal/hooks"
 	"github.com/xuzhao123/tern/internal/llm"
 	"github.com/xuzhao123/tern/internal/mcp"
+	"github.com/xuzhao123/tern/internal/mcpserver"
 	"github.com/xuzhao123/tern/internal/memory"
 	"github.com/xuzhao123/tern/internal/metrics"
 	"github.com/xuzhao123/tern/internal/permission"
@@ -78,6 +79,10 @@ func main() {
 	// 常驻的 app-server：一个 TERN_HOME 一个，界面经控制 socket 连它；start、stop、proxy 是客户端那一侧（internal/appclient）。
 	if len(os.Args) > 1 && os.Args[1] == "app-server" {
 		run, service = func() error { return appServer(os.Args[2:]) }, "app-server"
+	}
+	// 把 tern 当 MCP server（stdio）：别的 agent 客户端把一件事交给 tern 做，对话开在 app-server 里。
+	if len(os.Args) > 1 && os.Args[1] == "mcp-server" {
+		run, service = func() error { return mcpserver.Run(os.Args[2:]) }, "mcp-server"
 	}
 	// 评测集与回归；归因卡片与回放验证。
 	if len(os.Args) > 1 && os.Args[1] == "eval" {

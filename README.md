@@ -265,8 +265,26 @@ tern -question '计算 1231+23123'
 | `go run . app-server start [-dev]` | 幂等启动：控制 socket 能答 `initialize`、是同一个程序（或者比这个进程晚启动）就直接返回；是另一个程序、又比这个进程先启动，就让它退出，换成这个程序（见上面“改了代码以后重新起界面就行”，有评测在跑时不换）；没在运行就以新会话（setsid）在后台起一个，把 `-dev` 传给它，输出写 `.data/app-server/app-server.log`，等它能握手再返回（最多 30 秒）；子进程提前退出就不再等，报错并带上日志的最后几行。同一个 `TERN_HOME` 里同时启动的排队（`.data/app-server/start.lock`）。输出一行 JSON：socket、pid、version、build，换了或者没换的原因在 `notice` |
 | `go run . app-server stop` | 发 `server/shutdown`，按 pid 文件等进程真的不在才返回（socket 与 pid 文件都已删掉）；没有在运行的 app-server 时提示“没有在运行的 app-server”，正常退出 |
 | `go run . app-server proxy` | 经 SSH 时由界面调用：先做一次 start，再把标准输入输出与控制 socket 原样转发，任何一边断开就退出；stdout 只走协议 |
+| `go run . mcp-server [-remote 别名]` | 把 tern 当 MCP server（stdio）：名字 `tern`，版本是程序的版本。别的 agent 客户端（Claude Code、Codex）把一件事交给 tern 做，tern 经 app-server 开对话（和网页端、chat 一样，所以对话进列表、审批在网页端答），等这一轮结束再返回 `{thread_id, outcome, answer}`。三个工具：`tern_start`（`prompt`，可选 `workspace`、`provider`、`model`、`permission`）、`tern_reply`（`thread_id`、`prompt`，可选 `permission`）、`tern_threads`（`limit`，默认 20）。等的时候每 10 秒发一次进度通知（第几次模型请求；在等审批时写“去网页端答复”），调用方取消这次调用就发 `turn/interrupt` 停这一轮。`-remote` 经 ssh 连远端的 app-server（同 `tern web -remote`）。怎么配进客户端见下面“把 tern 当 MCP server” |
 | `go run . queue` | 任务队列：按 `queue/tasks.jsonl` 逐个执行，每个任务一个 agent 子进程，同一个 id 只执行一次；用仓库里的 `queue/tasks.jsonl` 要 `TERN_HOME=$PWD` |
 | `go run . metrics [-since 168h] [-prefix ID前缀] [-tenant 租户] [-json]` | 统计完成率、耗时、成本等核心指标，只读 `.data/` |
 | `go run . eval` / `go run . eval -cases eval/coding-cases.jsonl` | 评测：通用评测集（每题 k 次、DeepSeek 评审，需要 `DEEPSEEK_API_KEY`）或编码任务评测（每个试次一份新的仓库拷贝，校验命令在沙箱里只读运行）；`eval triage`、`eval replay` 做失败归因与回放；网页端左侧“评测与归因”是同一功能的页面；用仓库里的 `eval/*.jsonl` 要 `TERN_HOME=$PWD` |
 | `go run . audit [-tenant 租户] [-task ID] [-verify]` | 列出并校验审计日志（只追加、哈希链）；网页端左侧“审计日志”是只读页面 |
 | `go run . rewind [-tenant 租户] [-dry-run] [-mode both\|files\|chat] <轮次ID>` | 撤销这一轮及之后各轮用编码工具改过的文件，对话退回上一轮；`-mode files` 只退文件、`chat` 只退对话；网页端每轮问题下的“撤销”对话框（三种选法）和 chat 的 `/rewind <轮> [both\|files\|chat]` 是同一功能 |
+
+## 把 tern 当 MCP server
+
+`tern mcp-server` 是 stdio 上的 MCP server，让别的 agent 客户端把一件事交给 tern 做：开一条对话、等这一轮结束、把最终回答交回去。它连的是本机的 app-server（带 `-remote 别名` 时经 ssh 连远端），所以用之前网页端（或 `app-server start`）那边不用特意准备，`tern mcp-server` 自己会先做一次 start；工作区要先在网页端登记，用的时候只填名字。一轮可能跑很多分钟：客户端要支持长时间的工具调用，中途收到的是进度通知；遇到联网或工具审批时，去网页端答复（MCP 这一侧答不了审批）。
+
+- Claude Code：`claude mcp add tern -- tern mcp-server`（远端：`claude mcp add tern -- tern mcp-server -remote devbox`）。
+- Codex：`~/.codex/config.toml` 里
+
+  ```toml
+  [mcp_servers.tern]
+  command = "tern"
+  args = ["mcp-server"]
+  ```
+
+- 其他客户端：MCP 配置里 command 写 `tern`，args 写 `["mcp-server"]`。
+
+这和另外两样 MCP 不是一回事：`-mcp-serve` 是 tern 作为 MCP 客户端时顺带提供的计算器 server（`internal/mcp`），网页端的 `/mcp` 是给远端 agent 用的内置 server；`tern mcp-server` 反过来，把 tern 自己给别的客户端当工具用。

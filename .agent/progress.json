@@ -117,6 +117,10 @@
     {
       "at": "2026-10-24T21:42:47.367759799Z",
       "text": "spec/mcp-oauth.md 已实现，未提交（10 个改动文件 + 新文件 internal/mcp/oauth.go）。验收 5.1 通过：gofmt -l . 无输出、go vet ./... 与 go build ./... 通过、node --check internal/web/page/pages.js 通过。沙箱里另做了四组自测（临时 TERN_HOME + python 写的假 MCP/OAuth server，文件都已删）：① 协议级：hub/mcp/test 回 auth=required 且输出“MCP 需要登录…”，hub/mcp/login/start 动态注册（cid-1）→ PKCE S256 + state，令牌文件 0600（.lock 也 0600）、hub.json 不变，login/finish 换到 tkn-1，hub/enabled 与 hub/list 的 auth=logged_in，带令牌 -mcp-list 成功（发 Bearer tkn-1），logout 删掉整项、auth 变回 required，state 复用与错 state 都回 400；② 过期令牌：手改成 expired + 有 refresh_token，-mcp-list 自动 refresh，文件里变成 tkn-2；③ 不支持动态注册的 server：回 400“这个 MCP server 不支持自动注册客户端…”，带 client_id/client_secret 再点就能走，凭据只进令牌文件；④ 真网页端 + 无头 Chrome：登录后 POST /hub/mcp/fake/login，回调 GET /mcp-oauth/callback（不带 cookie）回 200“已登录 fake”并带 postMessage，bogus state 回 400，审计有 user_mcp_login/user_mcp_logout（Target=fake，带登录名）；页面打桩验过三种卡片（需要登录+登录+两个可选输入 / 已登录+退出登录 / stdio 没有登录行）、测试连接后原地变成“需要登录”、登录时 POST 体带 redirect 与 client_id、postMessage 会刷新 MCP 中心。剩下的 spec 5.3–5.7（真实 OAuth MCP、真浏览器授权）留给用户自己测。实现时对 spec 的几处取舍写在回答里（agent 侧提示用 URL 而不是 hub 名字；auth=required 只在 app-server 内存里；回调路由免登录；logout 删整项；另外动了 spec 文件表没列的 internal/web/auth.go 与 app.css）。"
+    },
+    {
+      "at": "2026-10-24T21:53:52.5368562Z",
+      "text": "spec/tern-mcp-server.md 已实现，未提交：新包 internal/mcpserver（mcpserver.go、AGENTS.md），main.go 分派 mcp-server 子命令，README “其他入口”加一行 + 新增“## 把 tern 当 MCP server”一节（Claude Code/Codex 配置、与 -mcp-serve、/mcp 的区别）。验收 5.1 通过：gofmt -l . 无输出、go vet ./... 与 go build ./... 通过；5.2 的行号见本轮回答（订阅/exit/end 在 mcpserver.go:214-298，取消发 turn/interrupt 在 :292-295 与 :322-326）。沙箱里另用 tcp 上“只收不答”的假上游（LLM_API_URL）配合真 app-server/真 agent 做了四组自测：tools/list 三个工具、tern_start 返回 {thread_id,outcome:exit status 1,answer:\"\"}、10 秒进度通知“第 1 次模型请求”、cancel 让 turn/interrupt 停下这一轮（存档里 Interrupt: turn/interrupt / Termination: cancelled）、tern_reply 在同一线程续聊并返回本轮（不是上一轮）的结局、线程运行中 reply 回 isError“暂不能续聊”。临时文件已删。没在沙箱里做的：真实模型、网页端列表、answer 的真实取值（spec 5.3-5.6 留给 Claude Code）。"
     }
   ]
 }
