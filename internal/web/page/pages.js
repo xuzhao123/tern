@@ -79,8 +79,9 @@ export async function openMemory(focus) {
 }
 $("skills-hub").onclick = () => openSkills();
 $("mcp-hub").onclick = () => openMCP();
-// 设置页：工具常驻，按 内置默认 → 平台 → 个人 合并；本机条件只会关掉工具。改动只影响之后的新对话。
-const SET_SOURCE = { builtin: "内置默认", platform: "平台", user: "你" };
+// 设置页：工具常驻，按 内置默认 → 平台 → 项目 → 个人 合并；项目是所选工作区里的 .agents/tern.json。
+// 本机条件只会关掉工具。改动只影响之后的新对话。
+const SET_SOURCE = { builtin: "内置默认", platform: "平台", project: "项目", user: "你" };
 export async function openSettings() {
   const panel = await openHubPage("设置", "打开的工具在新对话里都会带上，模型自己决定用不用；每个对话只选模型和工作区。改动只影响之后的新对话，进行中的对话沿用开始时的快照。保存在 .data/settings.json。");
   if (!panel) return;
@@ -88,12 +89,17 @@ export async function openSettings() {
   // 否则设置页会只剩一个“ark”，看起来像没有第二级。
   if (!ui.models) await loadModels();
   let data;
-  try { data = await (await hubCall("GET", "/settings")).json(); }
+  // 项目层按页面上新对话下拉里选中的工作区算：没选工作区的对话读不到项目配置（服务端按登记解析目录）。
+  const pickedWs = ui.run ? "" : $("workspace").value;
+  try { data = await (await hubCall("GET", "/settings?workspace=" + encodeURIComponent(pickedWs))).json(); }
   catch (err) { panel.lastChild.replaceWith(el("div", "err", "读取失败：" + err.message)); return; }
   if (!panel.isConnected) return;
   ui.settings = data; syncComposer();
   const e = data.effective, values = { ...e.values };
-  panel.lastChild.replaceWith(el("p", "meta", "生效顺序：内置默认 › 平台 › 你。"));
+  // 来源一栏多了“项目”：所选工作区里 .agents/tern.json 的键；不生效的键与整份没读进来的原因也在这里说明。
+  const projectNote = e.project_error ? `项目配置整份没生效：${e.project_error}。`
+    : (e.project_ignored || []).length ? `项目配置里这些键不生效：${e.project_ignored.join("、")}。` : "";
+  panel.lastChild.replaceWith(el("p", "meta", "生效顺序：内置默认 › 平台 › 项目 › 你。项目是工作区里的 .agents/tern.json，只在对话选了这个工作区时生效，permission_rules 与 net_allow 是追加。" + projectNote));
   const tag = (key) => el("span", "set-tag" + (e.source[key] === "user" ? " user" : ""), SET_SOURCE[e.source[key]] || e.source[key]);
   const select = (key, options) => {
     const node = el("select");
@@ -134,6 +140,12 @@ export async function openSettings() {
     const row = el("div", "set-row"), text = el("span");
     text.append(el("strong", "", w.name));
     if (!w.git) text.append(el("span", "set-tag bad", "不是 git 仓库"));
+    // 有 .agents/tern.json 的工作区标出来，悬停列出生效的键（这个文件在仓库里，用编辑器改，页面只显示）。
+    if (w.project) {
+      const proj = el("span", "set-tag", "有项目配置");
+      proj.title = "这个工作区的 .agents/tern.json：" + w.project;
+      text.append(proj);
+    }
     text.append(el("div", "meta", w.path));
     row.append(text, el("span"));
     // 改名：只改设置里登记的名字，目录、已有对话的快照与目录都不动。

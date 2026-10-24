@@ -120,6 +120,15 @@ tern -question '计算 1231+23123'
 
 推理强度默认 `high`。API 输出上限默认省略，显式设置 `-max-output-tokens` 才发送；本地上下文规划仍保留输出空间，省略 API 参数不代表无限输出。向量检索直接在 agent 进程内执行。
 
+设置分四层：内置默认 › 平台 › 项目 › 个人，后面的覆盖前面的。项目层是工作区根目录的 `.agents/tern.json`，一个扁平的 JSON 对象，键和设置页一样、值都是字符串，例如：
+
+```json
+{"provider": "deepseek", "reasoning_effort": "medium", "web_search": "off",
+ "permission_rules": "deny Bash(git push *)", "net_allow": "proxy.golang.org", "max_steps": "200"}
+```
+
+能放 `provider`、`model`、`reasoning_effort`、`permission_mode`、`permission_rules`、`net_allow`、`max_steps`、`context_window`、`tool_output` 和工具开关（`rag`、`memory`、`skills`、`mcp`、`subagents`、`ask_user`、`bash`、`web_search`、`open_page`、`ds_search`、`coding`）。`permission_rules`、`net_allow` 是追加不是覆盖：项目的规则接在平台规则后面，白名单取并集。`hooks` 会在宿主机上跑命令，只能在平台设置里配；`workspace`、`embedding`、`memory_ttl` 也不收。不生效的键、值不合规的那一项、不是合法 JSON 的整份文件都不生效，设置页的“来源”里会说明；工作区列表里给这些工作区标“有项目配置”，悬停列出生效的键。项目配置只在对话选了这个工作区时生效：新对话开始时读一次、拍进快照，续聊照快照不重读；已登记的工作区就当作信任，第一轮之前页面顶部一条横幅说明它改了哪些设置，不拦。chat 与命令行 agent 不读项目配置。
+
 ## 代码结构
 
 一个 Go 模块、一个入口 `main.go`，代码按功能放在 `internal/` 下。

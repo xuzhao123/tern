@@ -87,6 +87,9 @@ type event struct {
 	Protocol   bool            `json:"protocol,omitempty"`         // start/continue 上标记这一轮经协议运行；之前的存档没有，界面据此启用旧存档兼容
 	Eval       string          `json:"eval,omitempty"`             // 由评测发起的试次（评测ID · 用例 #序号），对话列表里不显示
 	Source     string          `json:"source,omitempty"`           // 导入的对话：codex 或 claude-code，记在 start 上；只读，不能续聊
+
+	// 项目配置：start 上记工作区 .agents/tern.json 里生效的键值，页面在第一轮之前告诉人（见 settings.go 的 projectConfig）。
+	ProjectConfig map[string]string `json:"project_config,omitempty"`
 }
 
 type run struct {
@@ -179,8 +182,28 @@ func (c *conn) threadStart(m protocol.Message) (any, *protocol.Error) {
 		return nil, ferr
 	}
 	name := userName(m)
-	settings, _, err := s.effectiveFor(name)
+	settings, _, err := s.effectiveFor(name, "")
 	if err != nil {
+		return nil, bad(500, "无法读取设置："+err.Error())
+	}
+	// 工作区只能从设置里登记的列表里挑；界面给的是名字，目录由服务端按登记解析。
+	// 项目配置（工作区里的 .agents/tern.json）只在选了工作区时生效，所以先定工作区，再带着它的目录合并一次设置，
+	// 后面的默认值与快照都用合并后的结果。
+	workspace := settings.Values["workspace"]
+	if input.Workspace != nil {
+		workspace = *input.Workspace
+	}
+	var workDir string
+	if workspace != "" {
+		i := slices.IndexFunc(settings.Workspaces, func(w workspaceDir) bool { return w.Name == workspace })
+		if i < 0 || !settings.on("coding") {
+			return nil, bad(400, "不能使用工作区 "+workspace+"：没有登记或编码工具没打开")
+		}
+		workDir = settings.Workspaces[i].Path
+	} else {
+		workspace = ""
+	}
+	if settings, _, err = s.effectiveFor(name, workDir); err != nil {
 		return nil, bad(500, "无法读取设置："+err.Error())
 	}
 	if input.Embedding == "" {
@@ -222,21 +245,6 @@ func (c *conn) threadStart(m protocol.Message) (any, *protocol.Error) {
 			return nil, bad(400, "模型 "+model+" 不能看图，换一个能看图的模型再附图")
 		}
 	}
-	// 工作区只能从设置里登记的列表里挑；界面给的是名字，目录由服务端按登记解析。
-	workspace := settings.Values["workspace"]
-	if input.Workspace != nil {
-		workspace = *input.Workspace
-	}
-	var workDir string
-	if workspace != "" {
-		i := slices.IndexFunc(settings.Workspaces, func(w workspaceDir) bool { return w.Name == workspace })
-		if i < 0 || !settings.on("coding") {
-			return nil, bad(400, "不能使用工作区 "+workspace+"：没有登记或编码工具没打开")
-		}
-		workDir = settings.Workspaces[i].Path
-	} else {
-		workspace = ""
-	}
 	// 设置快照：这一刻打开的工具，写进 start 事件，续聊沿用。
 	snap := event{Kind: "start", RAG: settings.on("rag"), Memory: settings.on("memory"), MemoryTTL: settings.Values["memory_ttl"], Subagents: settings.on("subagents"), AskUser: settings.on("ask_user"),
 		Browser: settings.on("web_search") || settings.on("open_page"), DSSearch: settings.on("ds_search"), Provider: input.Provider, Model: input.Model, Bash: settings.on("bash"), Workspace: workspace, WorkDir: workDir,
@@ -246,6 +254,8 @@ func (c *conn) threadStart(m protocol.Message) (any, *protocol.Error) {
 			snap.Disallowed = append(snap.Disallowed, tool)
 		}
 	}
+	// 项目配置改了哪些设置也记进快照：第一轮之前页面据此告诉人。已登记的工作区就当人信任它，只告知、不拦。
+	snap.ProjectConfig = settings.Project
 	if input.Permission != "" {
 		if valid("permission_mode", input.Permission, settingsFile{}) != nil {
 			return nil, bad(400, "permission 取 plan、ask、edit 或 full")

@@ -369,6 +369,14 @@ function sideBanner(r) {
   }
   return box;
 }
+// 项目配置的横幅：新对话用的工作区里有 .agents/tern.json，开始前把改了哪些设置告诉人——已登记的工作区就当人信任它，
+// 只告知，不拦。内容来自 start 事件的 project_config：续聊沿用快照，所以它只出现在第一轮之前。
+function projectBanner(r) {
+  const keys = Object.keys(r.projectConfig || {});
+  if (!keys.length) return null;
+  const changes = keys.map((key) => `${key}=${String(r.projectConfig[key]).replaceAll("\n", " ")}`);
+  return el("div", "banner", `这个工作区的 .agents/tern.json 改了这些设置：${changes.join("、")}`);
+}
 export function renderChat() {
   parkViz();
   drawChat();
@@ -389,6 +397,9 @@ function drawChat() {
   analyze(r);
   // 旁支的横幅放在对话最上面：这一整条都是临时分出来问的，问答不回到原对话。
   if (r.side) box.append(sideBanner(r));
+  // 项目配置的横幅同样在第一轮之前：新对话用的工作区里有 .agents/tern.json，开始前告诉人它改了哪些设置。
+  const project = projectBanner(r);
+  if (project) box.append(project);
   let group = null, shown = 0;
   const drawnShells = new Set();
   const flow = exploreRuns(r, chatFlow(r));

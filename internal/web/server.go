@@ -1274,7 +1274,8 @@ func (s *server) listAudit(w http.ResponseWriter, req *http.Request) {
 // ---------- 设置、工作区、命令 ----------
 
 func (s *server) getSettings(w http.ResponseWriter, req *http.Request) {
-	s.reply(w, req, "settings/read", nil)
+	// workspace：页面上新对话下拉里选中的工作区，给了就按它的 .agents/tern.json 加上项目层。
+	s.reply(w, req, "settings/read", map[string]any{"workspace": req.URL.Query().Get("workspace")})
 }
 
 func (s *server) putSettings(layer string) http.HandlerFunc {

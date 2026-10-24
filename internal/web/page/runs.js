@@ -19,7 +19,7 @@ export function apply(r, e) {
   // 上一轮中途停下：记在新一轮之前，对话流里显示一条中断标记（先记，再重置停止状态）。
   if (e.kind === "continue" && r.exit && r.exit !== "exit 0") (r.interrupted ??= {})[r.turns.length + 1] = r.stopRequested ? "上一轮已按停止按钮中断" : "上一轮未正常结束（" + endLabel(r) + "）";
   if (e.kind === "start" || e.kind === "continue") { r.memory = !!e.memory; r.memoryTTL = e.memory_ttl || ""; r.memTurn++; r.memPhase = "start"; r.skills = e.skills || []; r.mcp = e.mcp || []; r.subagents = !!e.subagents; r.askUser = !!e.ask_user; r.browser = !!e.browser; r.dsSearch = !!e.ds_search; r.disallowedTools = e.disallowed_tools || []; r.provider = e.provider || "ark"; r.model = e.model || ""; r.bash = !!e.bash; r.rag = !!e.rag; r.workspace = e.workspace || ""; r.maxSteps = e.max_steps || 0; r.permission = e.permission || ""; r.effort = e.reasoning_effort || ""; r.stopRequested = false; r.checkpoint = ""; r.protocol = !!e.protocol; r.source = e.source || ""; if (e.trace) r.traces.push({ turn: r.memTurn, id: e.trace }); r.jobs = []; }
-  if (e.kind === "start") { r.query = e.text; r.embedding = e.embedding; r.embeddingExplicit = !!e.embedding; r.pending = e.text; r.turnPending = true; r.pendingTime = time; r.eval = e.eval || ""; }
+  if (e.kind === "start") { r.query = e.text; r.embedding = e.embedding; r.embeddingExplicit = !!e.embedding; r.pending = e.text; r.turnPending = true; r.pendingTime = time; r.eval = e.eval || ""; r.projectConfig = e.project_config || {}; }
   else if (e.kind === "continue") {
     r.exit = ""; r.termination = ""; r.finalCheck = null; r.tEnd = null; r.pending = e.text; r.turnPending = true; r.pendingTime = time;
     // 撤销到第一轮之前以后又开始了新一轮（服务端允许在同一条对话里重新开始）：不再当成“请新建对话”。
