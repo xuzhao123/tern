@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -43,6 +45,49 @@ func ValidAlias(alias string) error {
 		}
 	}
 	return nil
+}
+
+// SSHHosts 列出 ~/.ssh/config 里具体的 Host 别名：网页端主机菜单的候选（桌面端以后也要用）。
+// 只认 Host 那一行，`Host a b` 与 `Host=a` 两种写法都认：带 * ? ! 的值跳过（那是通配或排除规则，
+// 不是某台具体的机器），再过一遍 ValidAlias。去重，按出现的顺序排；文件不存在就是空列表。
+// 不展开 Include、不看 Match：要的是候选，不是 ssh 最终会用的配置。
+func SSHHosts() []string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".ssh", "config"))
+	if err != nil {
+		return nil
+	}
+	var hosts []string
+	seen := map[string]bool{}
+	for _, line := range strings.Split(string(data), "\n") {
+		if i := strings.IndexByte(line, '#'); i >= 0 {
+			line = line[:i]
+		}
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		names := fields[1:]
+		if key, value, ok := strings.Cut(fields[0], "="); ok {
+			if !strings.EqualFold(key, "host") {
+				continue
+			}
+			names = append([]string{value}, names...)
+		} else if !strings.EqualFold(fields[0], "host") {
+			continue
+		}
+		for _, name := range names {
+			if strings.ContainsAny(name, "*?!") || ValidAlias(name) != nil || seen[name] {
+				continue
+			}
+			seen[name] = true
+			hosts = append(hosts, name)
+		}
+	}
+	return hosts
 }
 
 // dialSSH 起 ssh，把它的标准输入输出当协议通道。

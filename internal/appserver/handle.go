@@ -93,6 +93,7 @@ var methods = map[string]func(*conn, protocol.Message) (any, *protocol.Error){
 	"thread/resume":      (*conn).threadResume,
 	"thread/unsubscribe": (*conn).threadUnsubscribe,
 	"thread/rewind":      (*conn).threadRewind,
+	"thread/fork":        (*conn).threadFork,
 	"thread/import":      (*conn).threadImport,
 	"thread/attribute":   (*conn).threadAttribute,
 	"turn/start":         (*conn).turnStart,

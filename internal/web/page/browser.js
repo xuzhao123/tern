@@ -1,5 +1,5 @@
 import { renderChat } from "./chat.js";
-import { $, clip, el, parse, pretty, ui } from "./util.js";
+import { $, api, clip, el, parse, pretty, ui } from "./util.js";
 // ---------- 浏览器 ----------
 // agent 把 screencast 帧不断覆盖写到 .data/browser/<任务ID>/<调用ID>.jpg，结束时写入最终截图。
 // 运行中的调用每 700ms 取一次（实时画面），结束后再取一次就固定下来。取回的图存成 blob URL，
@@ -25,7 +25,7 @@ async function pullFrame(key, done) {
   if (f.busy || f.done) return;
   f.busy = true;
   try {
-    const res = await fetch(`/browser/${key}.jpg?t=${Date.now()}`);
+    const res = await fetch(api(`/browser/${key}.jpg?t=${Date.now()}`));
     if (res.ok) {
       const url = URL.createObjectURL(await res.blob());
       if (f.url) URL.revokeObjectURL(f.url);

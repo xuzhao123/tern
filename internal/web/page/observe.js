@@ -3,7 +3,7 @@ import { fetchEvents, stopReplay } from "./follow.js";
 import { render, schedule } from "./render.js";
 import { apply, newRun } from "./runs.js";
 import { loadRuns } from "./shell.js";
-import { $, AUX_LABEL, callPosition, clip, compact, el, esc, fold, ico, kfmt, legend, message, pretty, rawIO, save, sec, section, ui } from "./util.js";
+import { $, AUX_LABEL, api, callPosition, clip, compact, el, esc, fold, ico, kfmt, legend, message, pretty, rawIO, save, sec, section, ui } from "./util.js";
 // ---------- 视图一：Trajectory 事件账本 + 瀑布时间轴 ----------
 export function renderTrace(r, a, list) {
   const view = $("view");
@@ -127,7 +127,7 @@ export function renderSpans(r) {
   const live = !r.exit;
   // 运行中工具可能长时间没有新事件：定时重读，新结束的 span 才会出现。
   if (live && !ui.spanTimer) ui.spanTimer = setTimeout(() => { ui.spanTimer = null; if (ui.tab === "spans" && ui.page === "observe") schedule(); }, 1600);
-  const metrics = fetchCached(metricCache, (ui.metricsAll ? "*" : r.id) + (live ? "" : ":done"), "/trace-metrics" + (ui.metricsAll ? "" : "?conversation=" + encodeURIComponent(r.id)), live);
+  const metrics = fetchCached(metricCache, (ui.metricsAll ? "*" : r.id) + (live ? "" : ":done"), api("/trace-metrics" + (ui.metricsAll ? "" : "?conversation=" + encodeURIComponent(r.id))), live);
   box.append(renderSpanMetrics(metrics));
   if (!r.traces.length) {
     box.append(el("div", "empty", "这条对话产生于调用链功能之前，没有调用链记录；新提问或续聊后会出现。"));
@@ -136,7 +136,7 @@ export function renderSpans(r) {
   let selected = null;
   for (const t of r.traces) {
     // 结束后换一个缓存键再读一次：根 span 在进程退出时才写入。读到之前先显示运行中最后一次的结果。
-    const spans = fetchCached(spanCache, t.id + (live ? "" : ":done"), "/traces/" + t.id, live) || spanCache[t.id]?.data || [];
+    const spans = fetchCached(spanCache, t.id + (live ? "" : ":done"), api("/traces/" + t.id), live) || spanCache[t.id]?.data || [];
     const head = el("div", "span-trace");
     const start = Math.min(...spans.map((s) => Date.parse(s.start))), end = Math.max(...spans.map((s) => Date.parse(s.end)));
     head.append(el("strong", "", `Turn ${t.turn}`), el("span", "meta", `trace ${t.id}`), el("span", "meta", spans.length ? `${spans.length} 个 span · ${sec(end - start)}` : "等待 span 写入…"));

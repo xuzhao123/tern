@@ -3,11 +3,12 @@ import { analyze, endLabel, tokenParts, toolResult } from "./analysis.js";
 import { WEB_TOOLS, webCard } from "./browser.js";
 import { start } from "./composer.js";
 import { exploreCall, exploreLabel } from "./explore.js";
+import { show } from "./follow.js";
 import { claimViz, md, parkViz } from "./md.js";
 import { openMCP, openMemory, openSkills } from "./pages.js";
 import { render } from "./render.js";
 import { approvalCard, askCard, bashCard, netCard, proxyNetCards } from "./sandbox.js";
-import { loadRuns, rewindTurn, syncComposer, toolOn } from "./shell.js";
+import { forkTurn, loadRuns, rewindTurn, syncComposer, toolOn } from "./shell.js";
 import { $, AUX_LABEL, MEM_KIND, MEM_STATUS, MEM_TYPE, callPosition, clip, compact, el, fold, ico, idleText, kfmt, parse, pretty, rawIO, sec, textOf, ui, userPictures } from "./util.js";
 // agent 终端行形如 "Memory recall: id=M1 kind=semantic score=0.48 content=…"；content 放在最后，可含空格。
 export function memFields(text) {
@@ -285,6 +286,21 @@ function welcome() {
   }
   return box;
 }
+// 分叉的横幅：这一段是从原对话第 n 轮之后分出来的，后面接回原对话；
+// 原对话之后各轮改过的文件仍在磁盘上（两边共用工作区），一并列出来。
+function forkBanner(r) {
+  const note = r.forkNote, box = el("div", "banner");
+  box.append(el("span", "", `从原对话第 ${note.n} 轮之后分出来`));
+  if (note.from) {
+    const a = el("a", "cite", "原对话");
+    a.href = `?run=${encodeURIComponent(note.from)}`;
+    a.title = `打开原对话 ${note.from}`;
+    a.onclick = (ev) => { ev.preventDefault(); show(note.from); };
+    box.append(a);
+  }
+  if (note.files.length) box.append(el("span", "", `原对话之后各轮改过的这些文件仍在磁盘上：${note.files.join("、")}`));
+  return box;
+}
 export function renderChat() {
   parkViz();
   drawChat();
@@ -301,9 +317,13 @@ function drawChat() {
   const r = ui.run;
   if (!r) { renderSubPanel(); return box.append(welcome()); }
   analyze(r);
-  let group = null;
+  let group = null, shown = 0;
   const flow = exploreRuns(r, chatFlow(r));
   flow.forEach((f, i) => {
+    const at = f.turn ?? f.call?.turn;
+    // 分叉的横幅接在分叉点那一轮后面：再往后的轮次是分支自己跑的。
+    if (r.forkNote && at && shown <= r.forkNote.n && at > r.forkNote.n) { box.append(forkBanner(r)); group = null; }
+    if (at) shown = at;
     if (f.kind === "user" && r.interrupted?.[f.turn]) box.append(el("div", "banner", r.interrupted[f.turn]));
     if (f.kind === "user" && r.rewindNotes[f.turn]) box.append(el("div", "banner", r.rewindNotes[f.turn]));
     const turn = r.turns[(f.turn ?? f.call?.turn) - 1];
@@ -322,10 +342,18 @@ function drawChat() {
         tools.append(info);
       }
       // 有工作区的对话，每一轮都可以撤销（连同之后各轮）；正在运行、回放中、导入的对话不行。
-      if (turn?.checkpoint && !turn.rewound && r.workspace && r.exit && !r.source && !ui.replay && !ui.loading) {
+      // 分叉时带过来的轮次只能到原对话里撤销（agent 的撤销会顺着续接链走进原对话）。
+      if (turn?.checkpoint && !turn.rewound && !turn.inherited && r.workspace && r.exit && !r.source && !ui.replay && !ui.loading) {
         const b = el("button", "link", "撤销");
         b.title = "撤销到这一轮之前：把这一轮及之后用 edit_file / write_file 改过的文件放回去，对话退回上一轮";
         b.onclick = () => rewindTurn(r, turn);
+        tools.append(b);
+      }
+      // 从这一轮之后另起一段对话：前面各轮带过去，原对话不变、文件不动，所以不要求有工作区。
+      if (turn?.checkpoint && !turn.rewound && r.exit && !r.source && !r.eval && !ui.replay && !ui.loading) {
+        const b = el("button", "link", "分叉");
+        b.title = "从这一轮之后另起一段对话：前面各轮带过去，原对话不变，文件不动";
+        b.onclick = () => forkTurn(r, turn);
         tools.append(b);
       }
       if (tools.childNodes.length) box.append(tools);
@@ -350,6 +378,7 @@ function drawChat() {
     }
     renderCall(group, r, f.call, i === flow.length - 1);
   });
+  if (r.forkNote && shown <= r.forkNote.n) box.append(forkBanner(r));
   if (r.rewindNotes[r.turns.length + 1]) box.append(el("div", "banner", r.rewindNotes[r.turns.length + 1]));
   if (r.pending) {
     const u = el("div", "u"); u.append(el("div", "", r.pending)); box.append(u);

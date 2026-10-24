@@ -7,6 +7,7 @@ tern 是用 Go 实现的 agent harness，由 learning-agent 演变而来。启�
 - 一个模块 `github.com/xuzhao123/tern`、一个入口 `main.go`：`go run .` 是 agent，子命令 `app-server`（常驻，管对话，含模型代理）、`web`（网页端，含内置 MCP）、`chat`、`queue`、`metrics`、`eval`、`audit`、`rewind`。代码按功能放在 `internal/` 各包，不另建 go.mod。
 - 对话归 app-server：网页端和 chat 都是它的界面，界面这一侧在 `internal/appclient`，自己不启动 agent，也不读写 `.data/` 里的对话与设置。agent 的模型请求经 app-server 的模型代理走 `.data/app-server/llm.sock`（`AGENT_PROXY_SOCKET`），不再经过网页端。
 - 远程：界面带 `-remote <ssh 别名>` 时用系统 ssh 连远端的 app-server（`ssh -T -o BatchMode=yes <别名> 'exec "$SHELL" -lc "tern app-server proxy"'`），拿 ssh 的标准输入输出当协议通道；不开端口，鉴权就是 SSH。断线重连也在 `internal/appclient`：本机、远程都按 1、2、4…秒退避、最多 30 秒，本机每次先 `app-server start`、远程重新起 ssh；重连期间请求立刻失败（网页端回 503“正在重连 <host>”，顶栏显示重连中），正在推送的订阅不结束，连上后按最后收到的 seq 重新 `thread/resume` 补齐。
+- 网页端可以同时连几台主机，一台一条连接：远端主机的页面与接口带 `/h/<别名>/` 前缀，页面上连过的主机记在 `.data/web-hosts.json`，下次启动在后台自动连，主机菜单里可以断开。
 - agent 的协议 socket 参数叫 `-agent-server`；app-server 启动 agent 时不传 `-tenant`，这一版只有平台空间。
 - **各包目录下的 AGENTS.md 写着那个包的约束。**tern 读写那个目录的文件时会自动加载；设计或修改某个包之前，先读它的那份。
 - 设计在 `spec/`，索引见 `spec/README.md`。`skills/`、`hooks/`、`commands/` 只放真实使用的；`eval/`、`queue/` 里的题目和示例任务是任务输入，要提交。

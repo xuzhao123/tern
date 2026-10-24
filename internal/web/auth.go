@@ -265,6 +265,20 @@ func public(path string) bool {
 	return path == "/login" || path == "/mcp"
 }
 
+// pagePath 是页面本身，不是接口：本机是 `/`，远端是 `/h/<别名>/`（不带结尾的斜杠也认）。
+// 没登录时打开它们跳到登录页；存下来的远端链接点开不会只看到一行“请先登录”。
+func pagePath(path string) bool {
+	if path == "/" {
+		return true
+	}
+	rest, ok := strings.CutPrefix(path, "/h/")
+	if !ok {
+		return false
+	}
+	alias, tail, _ := strings.Cut(rest, "/")
+	return alias != "" && tail == ""
+}
+
 // protect 包住整个路由表：没登录的页面请求跳到登录页，接口返回 401；
 // 会改变状态的请求另外要求同源（Cookie 设了 SameSite=Strict，这里再挡一层跨站请求）。
 func (s *server) protect(next http.Handler) http.Handler {
@@ -275,7 +289,7 @@ func (s *server) protect(next http.Handler) http.Handler {
 		}
 		u := s.auth.lookup(req)
 		if u == nil {
-			if req.Method == http.MethodGet && req.URL.Path == "/" {
+			if req.Method == http.MethodGet && pagePath(req.URL.Path) {
 				http.Redirect(w, req, "/login", http.StatusSeeOther)
 				return
 			}

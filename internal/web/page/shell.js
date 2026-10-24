@@ -6,7 +6,7 @@ import { show, startReplay, stopReplay, syncRunURL } from "./follow.js";
 import { openCompare, select } from "./observe.js";
 import { render } from "./render.js";
 import { apply, newRun } from "./runs.js";
-import { $, MAX_IMAGES, el, ui } from "./util.js";
+import { $, HOST, HOST_STATE, MAX_IMAGES, api, el, hostAPI, hostURL, ui } from "./util.js";
 // ---------- 外壳：顶栏、输入框与对话列表 ----------
 export function renderShell() {
   const r = ui.run, chat = ui.page === "chat";
@@ -62,13 +62,13 @@ export function toolOn(key) {
   return key !== "coding" || !!$("workspace").value;
 }
 export async function loadSettings() {
-  try { const res = await fetch("/settings"); if (res.ok) ui.settings = await res.json(); } catch {}
+  try { const res = await fetch(api("/settings")); if (res.ok) ui.settings = await res.json(); } catch {}
   syncComposer();
 }
 // 第二级模型下拉的清单：路由表只在 llm 包里，页面从 /models 读它，前端不抄一份。
 export async function loadModels() {
   try {
-    const res = await fetch("/models");
+    const res = await fetch(api("/models"));
     if (res.ok) ui.models = new Map((await res.json()).map((p) => [p.name, p]));
   } catch {}
   syncComposer();
@@ -220,35 +220,68 @@ function relTime(r) {
   const today = new Date().toDateString() === t.toDateString();
   return (today ? "" : `${p(t.getMonth() + 1)}-${p(t.getDate())} `) + `${p(t.getHours())}:${p(t.getMinutes())}`;
 }
+// 左侧列表：只连一台主机时和原来一样；连了几台时按主机分组，当前主机排在最上面。
+// 同一台的对话点了就地打开；别的主机的整页跳到那台的地址——页面状态（ui.run、各处的缓存）都假定只有一台主机。
 export async function loadRuns() {
-  const runs = await (await fetch("/runs")).json();
-  const observe = ui.page === "observe";
+  const hosts = ui.hosts.length ? ui.hosts : [{ alias: HOST, host: HOST, remote: !!HOST, state: "connected" }];
+  const mine = hosts.find((h) => h.alias === HOST);
+  const groups = mine ? [mine, ...hosts.filter((h) => h !== mine)] : hosts;
+  const lists = await Promise.all(groups.map(runList));
+  $("runs").replaceChildren(...groups.map((h, i) => groupRows(h, lists[i], groups.length > 1)));
+}
+// runList 是一台主机的对话列表：取不到（在重连、连不上）就是 null，那一组只显示标题和状态。
+async function runList(h) {
+  if (h.state === "failed") return null;
+  try {
+    const res = await fetch(h.alias === HOST ? api("/runs") : hostAPI(h.alias, "/runs"));
+    return res.ok ? await res.json() : null;
+  } catch { return null; }
+}
+// 一组：标题写“主机 · 状态”，下面是那台的对话；只有一台主机时不出标题，也不加分组的框。
+function groupRows(h, runs, grouped) {
+  const box = el("div", grouped ? "host-group" : "");
+  if (grouped) {
+    const name = el("div", "host-name" + (h.state === "connected" ? "" : " bad"), `${h.alias || "本机"} · ${HOST_STATE[h.state] || h.state}`);
+    name.title = h.error || "";
+    box.append(name);
+  }
+  const rows = (runs || []).filter((r) => !r.eval).reverse().map((r) => runRow(r, h));
+  if (rows.length) box.append(...rows);
+  return box;
+}
+function runRow(r, h) {
+  const current = h.alias === HOST, observe = ui.page === "observe";
   // 评测发起的试次不进对话列表，从“评测”页面打开。
-  $("runs").replaceChildren(...runs.filter((r) => !r.eval).reverse().map((r) => {
-    const row = el("div", "runitem" + (ui.run && r.id === ui.run.id && !(observe && ui.tab === "compare") ? " active" : ""));
-    if (observe) {
-      const box = el("input");
-      box.type = "checkbox";
-      box.checked = ui.checked.has(r.id);
-      box.title = "加入对比";
-      box.onchange = () => {
-        if (box.checked && ui.checked.size >= 5) { box.checked = false; return; }
-        box.checked ? ui.checked.add(r.id) : ui.checked.delete(r.id);
-        if (ui.tab !== "compare") return render();
-        if (ui.checked.size >= 2) openCompare(); else { ui.tab = "trace"; render(); }
-      };
-      row.append(box);
-    }
-    const b = el("button"), q = el("span", "q");
-    if (!r.done) q.append(el("span", "live"));
-    if (SOURCE_LABEL[r.source]) q.append(el("span", "src", SOURCE_LABEL[r.source]));
-    q.append(r.query || "（无问题）");
-    b.title = `${r.query}\n对话 ID：${r.id}`;
-    b.append(q, el("small", "", relTime(r)));
-    b.onclick = () => { document.body.classList.remove("nav-open"); if (ui.tab === "compare") ui.tab = "trace"; show(r.id); };
-    row.append(b);
-    return row;
-  }));
+  const row = el("div", "runitem" + (current && ui.run && r.id === ui.run.id && !(observe && ui.tab === "compare") ? " active" : ""));
+  // 观测页的“加入对比”只出现在当前主机这一组：对比的是同一台上的运行。
+  if (observe && current) {
+    const box = el("input");
+    box.type = "checkbox";
+    box.checked = ui.checked.has(r.id);
+    box.title = "加入对比";
+    box.onchange = () => {
+      if (box.checked && ui.checked.size >= 5) { box.checked = false; return; }
+      box.checked ? ui.checked.add(r.id) : ui.checked.delete(r.id);
+      if (ui.tab !== "compare") return render();
+      if (ui.checked.size >= 2) openCompare(); else { ui.tab = "trace"; render(); }
+    };
+    row.append(box);
+  }
+  const b = el("button"), q = el("span", "q");
+  if (!r.done) q.append(el("span", "live"));
+  if (SOURCE_LABEL[r.source]) q.append(el("span", "src", SOURCE_LABEL[r.source]));
+  if (r.fork_of) q.append(el("span", "src", "分叉"));
+  q.append(r.query || "（无问题）");
+  b.title = `${r.query}\n对话 ID：${r.id}`;
+  b.append(q, el("small", "", relTime(r)));
+  b.onclick = () => {
+    document.body.classList.remove("nav-open");
+    if (!current) { location.href = hostURL(h.alias, r.id); return; }
+    if (ui.tab === "compare") ui.tab = "trace";
+    show(r.id);
+  };
+  row.append(b);
+  return row;
 }
 export function autosize() { const q = $("query"); q.style.height = "auto"; q.style.height = q.scrollHeight + "px"; }
 
@@ -285,38 +318,82 @@ $("attribute").onclick = async () => {
   const r = ui.run;
   if (!r) return;
   try {
-    const old = (await (await fetch("/evals")).json()).find((e) => e.kind === "attribution" && e.run === r.id);
+    const old = (await (await fetch(api("/evals"))).json()).find((e) => e.kind === "attribution" && e.run === r.id);
     if (old) return openEvals(old.id);
   } catch {}
   attribute(r.id);
 };
-// 先预览（dry_run）列出会恢复、删除的文件；有冲突就不做，没有冲突再由人确认执行。
+// 撤销：三种退法在对话框里选，每换一种就按这个 mode 重新 dry_run 一次，预览跟着变。
+// 有冲突只挡“一起退”和“只退文件”：只退对话不动文件，冲突不影响。执行后同原来，重新读这条对话。
 export async function rewindTurn(r, t) {
-  const call = async (dryRun) => {
-    const res = await fetch(`/runs/${encodeURIComponent(r.id)}/rewind`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ turn: t.checkpoint, dry_run: dryRun }) });
+  const dialog = $("rewind-dialog"), preview = $("rw-preview"), apply = $("rw-apply");
+  const mode = () => dialog.querySelector('input[name="rw-mode"]:checked').value;
+  const call = async (dryRun, m) => {
+    const res = await fetch(api(`/runs/${encodeURIComponent(r.id)}/rewind`), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ turn: t.checkpoint, dry_run: dryRun, mode: m }) });
     const text = await res.text();
     let data = null;
     try { data = JSON.parse(text); } catch {}
     if (!res.ok) throw new Error(data?.error || text);
     return data;
   };
-  const list = (label, xs) => xs?.length ? `\n${label}：\n  ${xs.join("\n  ")}` : "";
-  let plan;
-  try { plan = await call(true); } catch (err) { return alert(err.message); }
-  if (plan.conflicts?.length) return alert(`不能撤销：这些文件在 agent 最后一次编辑之后又被改过（bash、人或别的程序），撤销会覆盖那些改动。${list("冲突", plan.conflicts)}`);
-  const n = plan.turns.length, none = !plan.restore.length && !plan.delete.length;
-  const text = `撤销第 ${t.n} 轮${n > 1 ? `及之后，共 ${n} 轮` : ""}：文件放回这一轮开始之前，对话${plan.continues ? "退回上一轮" : "也全部撤销，之后需要新建对话"}。`
-    + list("恢复", plan.restore) + list("删除（这几轮新建的）", plan.delete) + (none ? "\n这几轮没有用编码工具改过文件。" : "")
-    + list("bash 改过、不会还原（没有快照）", plan.unsnapshotted)
-    + "\n\n只撤销 edit_file、write_file 的改动；bash 改的文件没有快照。确定？";
-  if (!confirm(text)) return;
-  try { await call(false); } catch (err) { return alert(err.message); }
-  show(r.id, false);
+  const files = (out, label, xs) => { if (xs?.length) out.push(el("div", "meta", label), el("pre", "", xs.join("\n"))); };
+  let seq = 0;
+  const refresh = async () => {
+    const m = mode(), mine = ++seq;
+    preview.replaceChildren(el("div", "meta", "正在预览…"));
+    apply.disabled = true;
+    let plan;
+    try { plan = await call(true, m); } catch (err) { if (mine === seq) preview.replaceChildren(el("div", "err", err.message)); return; }
+    if (mine !== seq) return; // 换得快，只显示最后一次的预览
+    const box = [], total = plan.turns.length;
+    if (m === "files") {
+      box.push(el("p", "", `只撤销第 ${t.n} 轮及之后的文件改动，文件放回这一轮开始之前；对话不退，下一轮会告诉模型这些文件已经恢复。`));
+      files(box, "恢复", plan.restore); files(box, "删除（这几轮新建的）", plan.delete);
+      files(box, "bash 改过、不会还原（没有快照）", plan.unsnapshotted);
+    } else if (m === "chat") {
+      box.push(el("p", "", `对话退回第 ${t.n} 轮之前，文件不动；下一轮会告诉模型之后各轮改过的文件还在。`));
+      files(box, "这几轮改过的文件", [...(plan.restore || []), ...(plan.delete || []), ...(plan.unsnapshotted || [])]);
+    } else {
+      box.push(el("p", "", `撤销第 ${t.n} 轮${total > 1 ? `及之后，共 ${total} 轮` : ""}：文件放回这一轮开始之前，对话${plan.continues ? "退回上一轮" : "也全部撤销，之后需要新建对话"}。`));
+      files(box, "恢复", plan.restore); files(box, "删除（这几轮新建的）", plan.delete);
+      if (!plan.restore.length && !plan.delete.length) box.push(el("div", "meta", "这几轮没有用编码工具改过文件。"));
+      files(box, "bash 改过、不会还原（没有快照）", plan.unsnapshotted);
+      box.push(el("div", "meta", "只撤销 edit_file、write_file 的改动；bash 改的文件没有快照。"));
+    }
+    if (m !== "chat" && plan.conflicts?.length) {
+      box.push(el("div", "err", "这些文件在 agent 最后一次编辑之后又被改过（bash、人或别的程序），撤销会覆盖那些改动："));
+      files(box, "冲突", plan.conflicts);
+    }
+    preview.replaceChildren(...box);
+    apply.disabled = m !== "chat" && !!plan.conflicts?.length;
+  };
+  $("rw-title").textContent = `撤销第 ${t.n} 轮及之后`;
+  dialog.querySelector('input[name="rw-mode"][value="both"]').checked = true;
+  dialog.querySelectorAll('input[name="rw-mode"]').forEach((x) => { x.onchange = refresh; });
+  $("rw-cancel").onclick = () => dialog.close();
+  apply.onclick = async () => {
+    apply.disabled = true;
+    try { await call(false, mode()); } catch (err) { preview.append(el("div", "err", err.message)); apply.disabled = false; return; }
+    dialog.close();
+    show(r.id, false);
+  };
+  dialog.showModal();
+  refresh();
+}
+// 分叉：从这一轮的检查点另起一条对话，点完不再确认；成功后打开新对话（show 也会刷新列表）。
+export async function forkTurn(r, t) {
+  let id;
+  try {
+    const res = await fetch(api(`/runs/${encodeURIComponent(r.id)}/fork`), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ turn: t.checkpoint }) });
+    if (!res.ok) throw new Error((await res.text()).trim());
+    id = (await res.json()).id;
+  } catch (err) { return alert("分叉失败：" + err.message); }
+  show(id);
 }
 export async function attribute(runID) {
   if (!confirm("自动归因这段对话的最后一轮：\n1. DeepSeek 读完整轨迹，判断成败、写出评分标准，指出决定性的那一步和原因；\n2. 失败时从那一步之前分叉回放：插入纠正跑 3 次、插入“继续。”作对照跑 3 次，按这段对话当时的模型真实调用。\n开始？")) return;
   try {
-    const res = await fetch(`/runs/${encodeURIComponent(runID)}/attribute`, { method: "POST" });
+    const res = await fetch(api(`/runs/${encodeURIComponent(runID)}/attribute`), { method: "POST" });
     if (!res.ok) throw new Error(await res.text());
     openEvals((await res.json()).id);
   } catch (err) { alert("归因失败：" + err.message); }
@@ -342,7 +419,7 @@ $("import-file").onchange = async () => {
   const label = $("import").lastChild.textContent;
   $("import").lastChild.textContent = "导入中…";
   try {
-    const res = await fetch("/runs/import", { method: "POST", body: file });
+    const res = await fetch(api("/runs/import"), { method: "POST", body: file });
     if (!res.ok) throw new Error(await res.text());
     document.body.classList.remove("nav-open");
     ui.page = "chat";

@@ -33,9 +33,9 @@ const help = `命令：
   /mode [plan|ask|edit|full] 查看或切换之后各轮的权限模式
   /approve [补充]            批准计划：切到 edit，并按计划开始执行
   /compact                   下一条消息发出前先压缩上下文
-  /rewind <n>                撤销第 n 轮及之后：文件与对话一起退（/turns 查看编号）
+  /fork <n>                  从第 n 轮之后另起一支（后面各轮留在原处，文件不动）
+  /rewind <n> [both|files|chat]  撤销第 n 轮及之后：文件与对话一起退（默认）、只退文件、只退对话
   /resume <对话ID>            接着某条对话聊（网页端或其他终端开的那条也行）
-  /fork                      第二期再做：协议还没有 thread/fork
   /new                       开始新对话
   /exit                      退出
 运行中：直接输入的话会排进 agent 的下一次模型请求（插话）；Ctrl+C 停止这一轮，再按一次强制结束。
@@ -180,11 +180,26 @@ func Run(args []string) error {
 	}
 	for {
 		// 先把手上的话发完（接一条已结束的对话时，标准输入可能已经到了），再看标准输入是不是结束了。
+		// 排着的行逐行按收到的顺序看：以 / 开头的按命令执行，连着的普通输入拼成一个问题——
+		// 接上一条对话时补齐事件的那一会儿，标准输入里的命令也会排进这里，不能一起当成问题发给 agent。
 		if len(s.next) > 0 {
-			question := strings.Join(s.next, "\n")
-			s.next = nil
-			fmt.Printf("› %s\n", question)
-			s.turn(question)
+			var lines []string
+			for len(s.next) > 0 && !strings.HasPrefix(s.next[0], "/") {
+				lines = append(lines, s.next[0])
+				s.next = s.next[1:]
+			}
+			if len(lines) > 0 {
+				question := strings.Join(lines, "\n")
+				fmt.Printf("› %s\n", question)
+				s.turn(question)
+				continue
+			}
+			line := s.next[0]
+			s.next = s.next[1:]
+			if quit := s.command(line); quit {
+				s.quit()
+				return nil
+			}
 			continue
 		}
 		if s.eof {
@@ -248,6 +263,18 @@ func (s *session) quit() {
 
 // ---------- 会话命令 ----------
 
+// readLine 读一行给命令自己用（撤销的“确认？[y/N]”）：先取接上对话时排着的输入，排完了再读标准输入。
+// 标准输入可能整个已经到了、都在 next 里，只读标准输入会一直等到输入结束，把确认判成“没有撤销”。
+func (s *session) readLine() (string, bool) {
+	if len(s.next) > 0 {
+		line := s.next[0]
+		s.next = s.next[1:]
+		return line, true
+	}
+	line, ok := <-s.lines
+	return line, ok
+}
+
 func (s *session) command(line string) (quit bool) {
 	fields := strings.Fields(line)
 	switch fields[0] {
@@ -309,8 +336,7 @@ func (s *session) command(line string) (quit bool) {
 	case "/rewind":
 		s.rewind(fields)
 	case "/fork":
-		// 另起一支要 thread/fork，协议还没有；第二期和网页端的分叉一起做。
-		fmt.Println("/fork 第二期再做：协议还没有 thread/fork。")
+		s.fork(fields)
 	default:
 		fmt.Println("不认识的命令；/help 查看")
 	}
@@ -334,6 +360,8 @@ func (s *session) newThread() {
 //
 // 这时还不知道有没有在跑（补齐的事件里最后一条是 exit 就是已经结束了），所以 running 先为 false：
 // 补齐期间到的输入按下一轮的问题留下，不试插话；看到新事件才算在跑，之后的输入才是插话。
+// 留下的输入（next）不动：那是还没发出去的话，接上哪条对话就在哪条里发；清掉的话，/fork、/resume
+// 后面的输入就丢了（管道一次给全输入时最明显）。
 func (s *session) resume(id string) error {
 	sub, err := s.client.Subscribe(context.Background(), id, 0)
 	if err != nil {
@@ -343,17 +371,25 @@ func (s *session) resume(id string) error {
 		s.sub.Close()
 	}
 	s.sub, s.subSeq = sub, sub.Seq()
-	s.thread, s.last, s.events, s.asks, s.next = id, 0, nil, nil, nil
+	s.thread, s.last, s.events, s.asks = id, 0, nil, nil
 	s.v, s.stops, s.resumed, s.running = &view{}, 0, true, false
 	return nil
 }
 
 // rewind 撤销第 n 轮及之后：先预览（会恢复、删除哪些文件，有没有冲突），人确认后再真正撤销。
-// 撤销对文件和对话都生效，同网页端；只退一边的方式（原来的 files、chat）第二期和 /fork 一起做。
+// mode 取 both（默认，文件与对话一起退）、files（只退文件）、chat（只退对话）；只退一边的提醒由 app-server 在下一轮生成。
 func (s *session) rewind(fields []string) {
 	list := s.turns()
-	if len(fields) != 2 {
-		fmt.Println("用法：/rewind <轮次>（/turns 查看编号）")
+	if len(fields) != 2 && len(fields) != 3 {
+		fmt.Println("用法：/rewind <轮次> [both|files|chat]（/turns 查看编号）")
+		return
+	}
+	mode := "both"
+	if len(fields) == 3 {
+		mode = fields[2]
+	}
+	if mode != "both" && mode != "files" && mode != "chat" {
+		fmt.Println("mode 取 both、files 或 chat")
 		return
 	}
 	n, err := strconv.Atoi(fields[1])
@@ -366,14 +402,21 @@ func (s *session) rewind(fields []string) {
 		fmt.Println("这一轮还没有检查点ID（agent 还没开始），不能撤销到它之前")
 		return
 	}
-	preview, err := s.rewindCall(turn, true)
+	preview, err := s.rewindCall(turn, true, mode)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
-	fmt.Printf("撤销第 %d 轮及之后共 %d 轮：恢复 %d 个文件、删除 %d 个，对话退到第 %d 轮之前。\n",
-		n, len(preview.Turns), len(preview.Restore), len(preview.Delete), n)
-	if len(preview.Conflicts) > 0 {
+	switch mode {
+	case "chat":
+		fmt.Printf("只退对话：退到第 %d 轮之前；%d 轮标成已撤销，文件不动。\n", n, len(preview.Turns))
+	case "files":
+		fmt.Printf("只退文件：恢复 %d 个、删除 %d 个；对话不退。\n", len(preview.Restore), len(preview.Delete))
+	default:
+		fmt.Printf("撤销第 %d 轮及之后共 %d 轮：恢复 %d 个文件、删除 %d 个，对话退到第 %d 轮之前。\n", n, len(preview.Turns), len(preview.Restore), len(preview.Delete), n)
+	}
+	// 只退对话不动文件，冲突不影响。
+	if mode != "chat" && len(preview.Conflicts) > 0 {
 		fmt.Println("这些文件在最后一次写入后又被改过，整次不做：" + strings.Join(preview.Conflicts, "、"))
 		return
 	}
@@ -381,15 +424,50 @@ func (s *session) rewind(fields []string) {
 		fmt.Println("bash 改过、没有快照、不会还原：" + strings.Join(preview.Unsnapshotted, "、"))
 	}
 	fmt.Print("确认？[y/N] ")
-	if answer, ok := <-s.lines; !ok || strings.ToLower(strings.TrimSpace(answer)) != "y" {
+	if answer, ok := s.readLine(); !ok || strings.ToLower(strings.TrimSpace(answer)) != "y" {
 		fmt.Println("没有撤销。")
 		return
 	}
-	if _, err := s.rewindCall(turn, false); err != nil {
+	if _, err := s.rewindCall(turn, false, mode); err != nil {
 		fmt.Println("撤销失败：", err)
 		return
 	}
 	fmt.Println("已撤销。")
+}
+
+// fork 从第 n 轮之后另起一条对话：前面各轮带过去，原对话不变、文件不动；随后接上新对话（同 /resume）。
+func (s *session) fork(fields []string) {
+	list := s.turns()
+	if len(fields) != 2 {
+		fmt.Println("用法：/fork <轮次>（/turns 查看编号）")
+		return
+	}
+	n, err := strconv.Atoi(fields[1])
+	if err != nil || n < 1 || n > len(list) {
+		fmt.Printf("轮次取 1 到 %d\n", len(list))
+		return
+	}
+	turn := list[n-1].id
+	if turn == "" {
+		fmt.Println("这一轮还没有检查点ID（agent 还没开始），不能从它分叉")
+		return
+	}
+	from := s.thread
+	var summary struct {
+		ID string `json:"id"`
+	}
+	params := map[string]any{"threadId": from, "turn": turn}
+	if err := s.client.Call(context.Background(), "thread/fork", params, &summary); err != nil {
+		fmt.Println(err)
+		return
+	}
+	// 接上新对话：同 /resume，先订阅它的事件，再跟着显示（分叉的对话已经结束，读完就收到 end）。
+	if err := s.resume(summary.ID); err != nil {
+		fmt.Println("新对话已经建好，但接不上：", err)
+		return
+	}
+	fmt.Printf("已分叉：新对话 %s，接在第 %d 轮之后；原对话 %s 不变\n", summary.ID, n, from)
+	s.follow()
 }
 
 // rewindResult 是 thread/rewind 的回复：agent 的 rewind 命令输出，与网页端拿到的一样。
@@ -401,9 +479,9 @@ type rewindResult struct {
 	Unsnapshotted []string `json:"unsnapshotted"`
 }
 
-func (s *session) rewindCall(turn string, dryRun bool) (rewindResult, error) {
+func (s *session) rewindCall(turn string, dryRun bool, mode string) (rewindResult, error) {
 	var result rewindResult
-	params := map[string]any{"threadId": s.thread, "turn": turn, "dry_run": dryRun}
+	params := map[string]any{"threadId": s.thread, "turn": turn, "dry_run": dryRun, "mode": mode}
 	err := s.client.Call(context.Background(), "thread/rewind", params, &result)
 	return result, err
 }

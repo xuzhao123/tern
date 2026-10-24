@@ -172,12 +172,21 @@ func (c *Client) Subscribe(ctx context.Context, threadID string, after int64) (*
 	return s, nil
 }
 
-// Close 断开与 app-server 的连接并停掉重连（网页端、chat 退出时）。
+// Close 断开与 app-server 的连接并停掉重连（网页端、chat 退出时；网页端在菜单里断开一台主机也走这里）。
+// 还开着的订阅一起结束：界面那边正在看的事件流随之收住（网页端写一条 event: end），不会一直等下去。
 func (c *Client) Close() {
 	c.closeOnce.Do(func() { close(c.closing) })
 	c.mu.Lock()
 	conn := c.conn
+	subs := make([]*Subscription, 0, len(c.subs))
+	for _, s := range c.subs {
+		subs = append(subs, s)
+	}
+	c.subs = map[string]*Subscription{}
 	c.mu.Unlock()
+	for _, s := range subs {
+		s.finish()
+	}
 	if conn != nil {
 		conn.Close()
 	}
@@ -213,6 +222,14 @@ func (c *Client) attach() error {
 	}
 	conn, srv, err := initialize(rwc, c.name, c.handle)
 	if err != nil {
+		if errors.Is(err, ErrHandshakeTimeout) {
+			// 连一台开着机却连不通的主机时，ssh 自己要等到 TCP 超时才退出；这里说清是哪一台、等的是哪一步。
+			name := c.alias
+			if name == "" {
+				name = "本机"
+			}
+			err = fmt.Errorf("连 %s 超时：%d 秒内没有完成握手", name, int(handshakeTimeout.Seconds()))
+		}
 		return sshError(rwc, err)
 	}
 	c.mu.Lock()

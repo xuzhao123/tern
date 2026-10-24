@@ -1,16 +1,16 @@
 import { renderChat } from "./chat.js";
 import { renderShell } from "./shell.js";
-import { $, el, ui } from "./util.js";
+import { $, api, el, ui } from "./util.js";
 // 沙箱文件：agent 在 turn/started 里报告本对话的沙箱目录（第一轮的检查点ID），各轮 bash 看到的是同一个 /workspace。
 // 文件是模型写的不可信内容：文字只用 textContent 显示，图片经 blob 地址放进 <img>，其余一律下载（服务端也按附件返回）。
-const fileURL = (r, p) => `/runs/${encodeURIComponent(r.id)}/files/${p.split("/").map(encodeURIComponent).join("/")}`;
+const fileURL = (r, p) => api(`/runs/${encodeURIComponent(r.id)}/files/${p.split("/").map(encodeURIComponent).join("/")}`);
 const fmtSize = (n) => n < 1024 ? `${n} B` : n < 1 << 20 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`;
 const IMAGE_TYPES = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp" };
 async function loadFiles() {
   const r = ui.run, f = ui.files;
   if (!r?.sandbox) return;
   try {
-    const res = await fetch(`/runs/${encodeURIComponent(r.id)}/files`);
+    const res = await fetch(api(`/runs/${encodeURIComponent(r.id)}/files`));
     if (!res.ok) throw new Error(await res.text());
     const data = await res.json();
     if (ui.run !== r) return;
@@ -39,7 +39,7 @@ async function uploadFiles(r, list) {
   const f = ui.files, errors = [];
   f.uploading = true; renderChat();
   for (const file of list) {
-    const res = await fetch(`/runs/${encodeURIComponent(r.id)}/files?name=${encodeURIComponent(file.name)}`, { method: "POST", body: file });
+    const res = await fetch(api(`/runs/${encodeURIComponent(r.id)}/files?name=${encodeURIComponent(file.name)}`), { method: "POST", body: file });
     if (!res.ok) errors.push(`${file.name}：${(await res.text()).trim()}`);
   }
   f.uploading = false;

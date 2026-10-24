@@ -3,11 +3,11 @@ import { openEvals } from "./eval.js";
 import { render, schedule } from "./render.js";
 import { apply, newRun } from "./runs.js";
 import { loadRuns, newChat, syncComposer } from "./shell.js";
-import { $, ui } from "./util.js";
+import { $, api, ui } from "./util.js";
 // ---------- 数据加载、实时跟随与回放 ----------
 export function fetchEvents(id) {
   return new Promise((resolve) => {
-    const list = [], es = new EventSource(`/runs/${id}/events`);
+    const list = [], es = new EventSource(api(`/runs/${id}/events`));
     es.onmessage = (m) => list.push(JSON.parse(m.data));
     es.addEventListener("end", () => { es.close(); resolve(list); });
     es.onerror = () => { es.close(); resolve(list); };
@@ -32,7 +32,7 @@ export function show(id, updateURL = true) {
   if (updateURL) syncRunURL(id);
   $("search").value = "";
   ui.collapsed.clear();
-  const es = ui.source = new EventSource(`/runs/${encodeURIComponent(id)}/events`);
+  const es = ui.source = new EventSource(api(`/runs/${encodeURIComponent(id)}/events`));
   es.onmessage = (m) => {
     if (ui.source !== es) return;
     const e = JSON.parse(m.data);

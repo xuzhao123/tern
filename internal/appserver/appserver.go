@@ -29,7 +29,8 @@ const (
 )
 
 // Protocol 是控制 socket 上的协议版本：改了方法或参数的含义就加一。界面只比这个数，界面那一侧在 internal/appclient。
-const Protocol = 1
+// 2：加 thread/fork，thread/rewind 加 mode。新网页端连旧远端时 initialize 就报出两边的版本。
+const Protocol = 2
 
 type Server struct {
 	ln   net.Listener

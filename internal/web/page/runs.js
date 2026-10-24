@@ -2,7 +2,7 @@ import { endLabel } from "./analysis.js";
 import { memFields } from "./chat.js";
 import { compact, incomingUsers, parse, textOf, toolText } from "./util.js";
 // ---------- 事件 → 运行模型：只依赖 Chat Completions 协议字段 ----------
-export function newRun(id) { return { id, query: "", t0: null, last: null, tEnd: null, exit: "", logs: [], calls: [], aux: [], turns: [], prevMessages: [], lastMainMessages: [], inputCapacity: 0, mem: [], memTurn: 0, memPhase: "start", skills: [], mcp: [], caps: [], hookCalls: {}, hookAfter: {}, subs: {}, subCalls: {}, subagents: false, browser: false, dsSearch: false, disallowedTools: [], provider: "", model: "", bash: false, sandbox: "", netDecision: {}, web: {}, stopRequested: false, traces: [], spanCalls: {}, protocol: false, netPending: {}, netAsks: {}, approvals: {}, source: "", lastBody: null, openTools: new Map(), rewindNotes: {}, rewoundAll: false, userImages: [], asks: {}, steers: [], askUser: false }; }
+export function newRun(id) { return { id, query: "", t0: null, last: null, tEnd: null, exit: "", logs: [], calls: [], aux: [], turns: [], prevMessages: [], lastMainMessages: [], inputCapacity: 0, mem: [], memTurn: 0, memPhase: "start", skills: [], mcp: [], caps: [], hookCalls: {}, hookAfter: {}, subs: {}, subCalls: {}, subagents: false, browser: false, dsSearch: false, disallowedTools: [], provider: "", model: "", bash: false, sandbox: "", netDecision: {}, web: {}, stopRequested: false, traces: [], spanCalls: {}, protocol: false, netPending: {}, netAsks: {}, approvals: {}, source: "", eval: "", lastBody: null, openTools: new Map(), rewindNotes: {}, rewoundAll: false, forkNote: null, userImages: [], asks: {}, steers: [], askUser: false }; }
 export function apply(r, e) {
   const time = Date.parse(e.time);
   if (r.t0 === null) r.t0 = time;
@@ -18,7 +18,7 @@ export function apply(r, e) {
   // 上一轮中途停下：记在新一轮之前，对话流里显示一条中断标记（先记，再重置停止状态）。
   if (e.kind === "continue" && r.exit && r.exit !== "exit 0") (r.interrupted ??= {})[r.turns.length + 1] = r.stopRequested ? "上一轮已按停止按钮中断" : "上一轮未正常结束（" + endLabel(r) + "）";
   if (e.kind === "start" || e.kind === "continue") { r.memory = !!e.memory; r.memoryTTL = e.memory_ttl || ""; r.memTurn++; r.memPhase = "start"; r.skills = e.skills || []; r.mcp = e.mcp || []; r.subagents = !!e.subagents; r.askUser = !!e.ask_user; r.browser = !!e.browser; r.dsSearch = !!e.ds_search; r.disallowedTools = e.disallowed_tools || []; r.provider = e.provider || "ark"; r.model = e.model || ""; r.bash = !!e.bash; r.rag = !!e.rag; r.workspace = e.workspace || ""; r.maxSteps = e.max_steps || 0; r.permission = e.permission || ""; r.stopRequested = false; r.checkpoint = ""; r.protocol = !!e.protocol; r.source = e.source || ""; if (e.trace) r.traces.push({ turn: r.memTurn, id: e.trace }); }
-  if (e.kind === "start") { r.query = e.text; r.embedding = e.embedding; r.embeddingExplicit = !!e.embedding; r.pending = e.text; r.turnPending = true; r.pendingTime = time; }
+  if (e.kind === "start") { r.query = e.text; r.embedding = e.embedding; r.embeddingExplicit = !!e.embedding; r.pending = e.text; r.turnPending = true; r.pendingTime = time; r.eval = e.eval || ""; }
   else if (e.kind === "continue") {
     r.exit = ""; r.termination = ""; r.finalCheck = null; r.tEnd = null; r.pending = e.text; r.turnPending = true; r.pendingTime = time;
     if (e.embedding) { r.embedding = e.embedding; r.embeddingExplicit = true; }
@@ -103,12 +103,22 @@ export function apply(r, e) {
   else if (e.kind === "decision") { const a = r.approvals[e.text]; if (a) a.state = (e.body || {}).decision; }
   else if (e.kind === "allow" || e.kind === "deny") { r.netDecision[e.text] = e.kind === "allow" && e.body?.always ? "always" : e.kind; delete r.netPending[e.text]; }
   else if (e.kind === "rewind") {
-    // 撤销了这一轮及之后各轮的文件改动；对话从撤销点的上一轮接着聊（它的检查点），这几轮留着、淡化显示。
-    const b = e.body || {}, hit = r.turns.filter((t) => (b.turns || []).includes(t.checkpoint));
-    for (const t of hit) t.rewound = true;
+    // 撤销按 mode 分三种（agent 的 rewind）：both 文件与对话一起退、chat 只退对话、files 只退文件。
+    // 三种都照旧把 checkpoint 设成 continues——files 时它就是最新一轮，对话没退。
+    const b = e.body || {}, mode = b.mode || "both", hit = r.turns.filter((t) => (b.turns || []).includes(t.checkpoint));
+    if (mode !== "files") for (const t of hit) t.rewound = true;
     const range = hit.length > 1 ? `第 ${hit[0].n}–${hit.at(-1).n} 轮` : hit.length ? `第 ${hit[0].n} 轮` : `${(b.turns || []).length} 轮`;
-    r.rewindNotes[r.turns.length + 1] = `已撤销${range}：恢复 ${(b.restore || []).length} 个文件，删除 ${(b.delete || []).length} 个新建文件` + (b.continues ? "；接着上一轮聊" : "；第一轮也撤销了，请新建对话");
+    const files = `恢复 ${(b.restore || []).length} 个文件，删除 ${(b.delete || []).length} 个新建文件`;
+    r.rewindNotes[r.turns.length + 1] = mode === "chat" ? `已退回对话到${range}之前，文件没动`
+      : mode === "files" ? `已撤销${range}的文件改动：${files}；对话没退`
+      : `已撤销${range}：${files}` + (b.continues ? "；接着上一轮聊" : "；第一轮也撤销了，请新建对话");
     r.checkpoint = b.continues || ""; r.rewoundAll = !b.continues;
+  }
+  else if (e.kind === "fork") {
+    // 分叉：已有的各轮是从原对话带过来的（不显示“撤销”），横幅接在第 n 轮后面，链接接回原对话。
+    const b = e.body || {}, n = b.n || r.turns.length;
+    for (const t of r.turns) t.inherited = true;
+    r.forkNote = { n, from: b.from || e.text || "", files: b.files || [] };
   }
   else if (e.kind === "stop") { r.stopRequested = true; r.logs.push({ ...e, kind: "stdout", text: e.text }); }
   else if (e.kind === "exit") {

@@ -1,11 +1,11 @@
 import { show } from "./follow.js";
 import { openSettings } from "./pages.js";
 import { autosize, modelVision, syncComposer } from "./shell.js";
-import { $, MAX_IMAGES, el, refURL, ui } from "./util.js";
+import { $, MAX_IMAGES, api, el, refURL, ui } from "./util.js";
 export async function start(url, body) {
   ui.sending = true; syncComposer();
   try {
-    const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const res = await fetch(api(url), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     if (!res.ok) {
       // 失败（比如服务端说这个模型不能看图）时保留已附的图：换一下模型就能再发。
       const text = await res.text();
@@ -49,7 +49,7 @@ async function addImages(files) {
   for (const file of files) {
     if (attached.length >= MAX_IMAGES) { ui.attachError = `每条消息最多 ${MAX_IMAGES} 张图`; break; }
     try {
-      const res = await fetch("/attachments?name=" + encodeURIComponent(file.name || "image"), { method: "POST", body: file });
+      const res = await fetch(api("/attachments?name=" + encodeURIComponent(file.name || "image")), { method: "POST", body: file });
       if (!res.ok) { ui.attachError = await res.text(); continue; }
       attached.push(await res.json());
     } catch (err) { ui.attachError = "上传失败：" + err.message; }
@@ -100,7 +100,7 @@ $("composer").onsubmit = (ev) => {
 };
 async function steer(text) {
   try {
-    const res = await fetch(`/runs/${encodeURIComponent(ui.run.id)}/steer`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+    const res = await fetch(api(`/runs/${encodeURIComponent(ui.run.id)}/steer`), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
     if (!res.ok) throw new Error(await res.text());
     $("query").value = "";
     autosize();
@@ -113,7 +113,7 @@ $("send").onclick = async (ev) => {
   if (!r) return;
   if (r.stopRequested && !confirm("agent 正在停止（回填结果、保存检查点）。确定强制结束？未保存的进度会丢失。")) return;
   try {
-    const res = await fetch(`/runs/${encodeURIComponent(r.id)}/stop`, { method: "POST" });
+    const res = await fetch(api(`/runs/${encodeURIComponent(r.id)}/stop`), { method: "POST" });
     if (!res.ok && res.status !== 409) alert(await res.text());
   } catch (err) { alert("停止失败：" + err.message); }
 };
@@ -129,7 +129,7 @@ $("query").oninput = () => { autosize(); syncComposer(); syncSlash(); };
 async function loadCommands() {
   const ws = ui.run ? ui.run.workspace || "" : $("workspace").value;
   if (ui.commands && ui.commandsFor === ws) return;
-  try { const res = await fetch("/commands?workspace=" + encodeURIComponent(ws)); ui.commands = res.ok ? await res.json() : []; } catch { ui.commands = []; }
+  try { const res = await fetch(api("/commands?workspace=" + encodeURIComponent(ws))); ui.commands = res.ok ? await res.json() : []; } catch { ui.commands = []; }
   ui.commandsFor = ws;
 }
 async function syncSlash() {

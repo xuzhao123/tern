@@ -8,6 +8,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
@@ -89,6 +90,7 @@ type run struct {
 	ID, Query string
 	Eval      string // 评测发起的试次，见 event.Eval
 	Source    string // 从 Codex / Claude Code 导入的对话，见 event.Source
+	ForkOf    string // 分出来的对话是这个 ID 的原对话，见 fork 事件；其余为空
 	Done      bool
 	s         *Server // 新建、收尾时要广播通知，见 add
 
@@ -369,6 +371,13 @@ func (c *conn) turnStart(m protocol.Message) (any, *protocol.Error) {
 		r.mu.Unlock()
 		return nil, bad(409, err.Error())
 	}
+	// 分支还没跑过、原对话就撤销到了分叉点之前：接着的那一轮已经不在了。这里先挡下，
+	// 否则 agent 起来以后才报错退出。分叉、撤销留下的提醒同样在这里算出来（见 notes）。
+	if history.Continues != "" && agent.Rewound(history.Continues) {
+		r.mu.Unlock()
+		return nil, bad(409, "接着的那一轮已经撤销，不能接着聊")
+	}
+	notes := r.notes()
 	file, err := os.OpenFile(filepath.Join(s.runsDir(), r.ID+".jsonl"), os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		r.mu.Unlock()
@@ -413,6 +422,10 @@ func (c *conn) turnStart(m protocol.Message) (any, *protocol.Error) {
 	// 问题、续聊上下文与续接关系放进 turn/start。每一轮都用新的检查点ID，旧检查点保持原样（“一个ID一个问题”），
 	// 续接关系让模型可以按 task_id 续跑之前各轮的子任务。
 	turn := map[string]any{"question": strings.TrimSpace(input.Query), "history": history, "continues": history.Continues}
+	if len(notes) > 0 {
+		// 分叉、只退一边的撤销之后，记录和磁盘上的文件对不上：作为提醒追加在问题后面（agent 的 notes）。
+		turn["notes"] = notes
+	}
 	if len(input.Images) > 0 {
 		turn["images"] = input.Images
 	}
@@ -623,14 +636,16 @@ func (c *conn) memoryForget(m protocol.Message) (any, *protocol.Error) {
 	return string(output), nil
 }
 
-// thread/rewind：撤销某一轮及之后各轮的文件改动，对话退回到它的上一轮。文件由 agent 的 rewind 命令恢复（和记忆删除一样，
-// 改动用户数据的事交给 agent，app-server 不自己写工作区）；这里核对这一轮属于这条对话、对话没有在运行，再把结果记进对话记录。
+// thread/rewind：撤销某一轮及之后（mode 可以是 both、files、chat，见 agent 的 rewind）。
+// 文件由 agent 的 rewind 命令恢复（和记忆删除一样，改动用户数据的事交给 agent，app-server 不自己写工作区）；
+// 这里核对这一轮属于这条对话、对话没有在运行，再把结果记进对话记录。
 // dry_run 只预览：界面先列出会恢复、删除的文件和冲突，人确认后再真正执行。
 func (c *conn) threadRewind(m protocol.Message) (any, *protocol.Error) {
 	var input struct {
 		ThreadID string `json:"threadId"`
 		Turn     string `json:"turn"`
 		DryRun   bool   `json:"dry_run"`
+		Mode     string `json:"mode"`
 		User     string `json:"user"`
 	}
 	if ferr := decode(m, &input); ferr != nil {
@@ -644,9 +659,16 @@ func (c *conn) threadRewind(m protocol.Message) (any, *protocol.Error) {
 	if !taskPattern.MatchString(input.Turn) {
 		return nil, bad(400, "需要这一轮的检查点ID")
 	}
+	if input.Mode == "" {
+		input.Mode = "both"
+	}
+	if input.Mode != "both" && input.Mode != "files" && input.Mode != "chat" {
+		return nil, bad(400, "mode 取 both、files 或 chat")
+	}
 	r.mu.Lock()
 	turns := r.turnIDs()
 	running := !r.Done
+	inherited := r.inherited(input.Turn)
 	r.mu.Unlock()
 	if !slices.Contains(turns, input.Turn) {
 		return nil, bad(404, "这一轮不属于这条对话")
@@ -654,11 +676,16 @@ func (c *conn) threadRewind(m protocol.Message) (any, *protocol.Error) {
 	if running {
 		return nil, bad(409, "对话正在运行，停下之后再撤销")
 	}
+	// 分叉时带过来的轮次只能在原对话里撤销：agent 的撤销沿磁盘上的续接链往后找，分支还没跑过时
+	// 这条链会走进原对话后面的轮次，结果是还原原对话改过的文件，并把原对话的轮次标成已撤销。
+	if inherited {
+		return nil, bad(409, "这一轮是分叉时从原对话带过来的，到原对话里撤销")
+	}
 	args := []string{"rewind"}
 	if input.DryRun {
 		args = append(args, "-dry-run")
 	}
-	cmd := s.agentCommand(c.ctx, append(args, input.Turn)...)
+	cmd := s.agentCommand(c.ctx, append(append(args, "-mode", input.Mode), input.Turn)...)
 	cmd.Env = append(os.Environ(), "AGENT_USER="+input.User, "AGENT_CONVERSATION_ID="+r.ID)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
@@ -683,6 +710,141 @@ func (c *conn) threadRewind(m protocol.Message) (any, *protocol.Error) {
 	return result, nil
 }
 
+// thread/fork：从第 n 轮之后另起一条对话。前面各轮的事件原样复制进新对话的存档（seq 不改），原对话不变、文件不动；
+// 分支和原对话共用工作区与 bash 沙箱，所以原对话之后各轮改过的文件要列出来，下一轮由 turn/start 提醒模型。
+func (c *conn) threadFork(m protocol.Message) (any, *protocol.Error) {
+	var input struct {
+		ThreadID string `json:"threadId"`
+		Turn     string `json:"turn"`
+	}
+	if ferr := decode(m, &input); ferr != nil {
+		return nil, ferr
+	}
+	s := c.s
+	r, ferr := s.threadOf(input.ThreadID)
+	if ferr != nil {
+		return nil, ferr
+	}
+	if !taskPattern.MatchString(input.Turn) {
+		return nil, bad(400, "需要这一轮的检查点ID")
+	}
+	r.mu.Lock()
+	turns := r.turnIDs()
+	running, source, eval := !r.Done, r.Source, r.Eval
+	r.mu.Unlock()
+	// 导入的对话没有 turn/started：先核对轮次的话，它们总是回“这一轮不属于这条对话”，到不了这两条，所以排在前面。
+	if source != "" {
+		return nil, bad(409, "导入的对话不能分叉")
+	}
+	if eval != "" {
+		return nil, bad(409, "评测的试次不能分叉")
+	}
+	n := slices.Index(turns, input.Turn)
+	if n < 0 {
+		return nil, bad(404, "这一轮不属于这条对话")
+	}
+	n++
+	if running {
+		// 下面要预览之后各轮改过的文件，预览要拿各轮检查点的锁：这一轮还在跑就不能预览。
+		return nil, bad(409, "对话正在运行，停下之后再分叉")
+	}
+	if agent.Rewound(input.Turn) {
+		return nil, bad(409, "这一轮已经撤销，不能从它分叉")
+	}
+	// 第 n 轮的终点是它的 turn/started 之后下一个 start 或 continue 之前；最后一轮就是全部。内存里的 delta 不存档，也不带。
+	r.mu.Lock()
+	end := r.turnEnd(input.Turn)
+	copied := []event{}
+	for _, e := range r.events[:end] {
+		if e.Kind != "delta" {
+			copied = append(copied, e)
+		}
+	}
+	r.mu.Unlock()
+	// 第 n 轮之后第一个没撤销的轮次：它和之后各轮改过的文件仍在磁盘上，分支接着改之前要先知道。
+	after, preview := 0, ""
+	for _, id := range turns[n:] {
+		if agent.Rewound(id) {
+			continue
+		}
+		after++
+		if preview == "" {
+			preview = id
+		}
+	}
+	files, filesError := []string{}, ""
+	if preview != "" {
+		files, filesError = s.rewindPreview(c.ctx, r.ID, preview)
+		if files == nil {
+			files = []string{}
+		}
+	}
+	body, err := json.Marshal(map[string]any{"from": r.ID, "turn": input.Turn, "n": n, "after": after, "files": files, "files_error": filesError})
+	if err != nil {
+		return nil, bad(500, err.Error())
+	}
+	// 新对话的存档：复制的各行 + 一条 fork 事件；它已经结束，接着聊时 turn/start 再打开记录文件。
+	id := uuid.NewString()
+	file, err := s.createRunFile(id)
+	if err != nil {
+		return nil, bad(500, err.Error())
+	}
+	nr := &run{ID: id, ForkOf: r.ID, Done: true, changed: make(chan struct{})}
+	var buf bytes.Buffer
+	for _, e := range copied {
+		line, err := json.Marshal(e)
+		if err != nil {
+			continue
+		}
+		buf.Write(append(line, '\n'))
+		nr.events = append(nr.events, e)
+		// calls、seq、Query 按复制的事件算，同 loadRuns：重启后读回来的和这里建出来的一样。
+		nr.calls, nr.seq = max(nr.calls, e.Call), max(nr.seq, e.Seq)
+		if e.Kind == "start" {
+			nr.Query = e.Text
+		}
+		if e.Kind == "request" && nr.Query == "" {
+			nr.Query = firstUserMessage(e.Body)
+		}
+	}
+	nr.seq++
+	fork := event{Kind: "fork", Text: r.ID, Body: body, Seq: nr.seq, Time: time.Now().UTC()}
+	nr.events = append(nr.events, fork)
+	if line, err := json.Marshal(fork); err == nil {
+		buf.Write(append(line, '\n'))
+	}
+	if _, err := file.Write(buf.Bytes()); err != nil {
+		file.Close()
+		os.Remove(filepath.Join(s.runsDir(), id+".jsonl"))
+		return nil, bad(500, "分叉的对话记录写不进去："+err.Error())
+	}
+	file.Close()
+	s.addRun(nr)
+	return nr.summary(), nil
+}
+
+// rewindPreview 跑一次 agent 的 rewind -dry-run，把之后各轮改过的文件（恢复、删除、bash 改过没快照）合起来。
+// 跑失败不挡分叉：之后已经分过叉时，agent 会报“之后有 2 个分支”，这时只把错误记进 fork 事件。
+func (s *Server) rewindPreview(ctx context.Context, threadID, turn string) ([]string, string) {
+	cmd := s.agentCommand(ctx, "rewind", "-dry-run", "-mode", "chat", turn)
+	cmd.Env = append(os.Environ(), "AGENT_CONVERSATION_ID="+threadID)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, strings.TrimPrefix(strings.TrimSpace(stderr.String()), "Error: ")
+	}
+	var result struct {
+		Restore       []string `json:"restore"`
+		Delete        []string `json:"delete"`
+		Unsnapshotted []string `json:"unsnapshotted"`
+	}
+	if err := json.Unmarshal(output, &result); err != nil {
+		return nil, "预览后面各轮改过的文件失败：" + err.Error()
+	}
+	return slices.Concat(result.Restore, result.Delete, result.Unsnapshotted), ""
+}
+
 // 这条对话各轮 agent 的检查点ID（turn/started 通知；子 agent 的包在 subagent/message 里，不会混进来）。调用方持有 r.mu。
 func (r *run) turnIDs() []string {
 	ids := []string{}
@@ -695,6 +857,47 @@ func (r *run) turnIDs() []string {
 		}
 	}
 	return ids
+}
+
+// turnEnd 是某一轮在事件里的终点：它的 turn/started 之后下一个 start 或 continue 之前；最后一轮就是全部。调用方持有 r.mu。
+func (r *run) turnEnd(turn string) int {
+	at := -1
+	for i, e := range r.events {
+		var p struct {
+			TurnID string `json:"turn_id"`
+		}
+		if e.Kind == "notify" && e.Method == "turn/started" && json.Unmarshal(e.Body, &p) == nil && p.TurnID == turn {
+			at = i
+		}
+	}
+	if at < 0 {
+		return len(r.events)
+	}
+	for i := at + 1; i < len(r.events); i++ {
+		if kind := r.events[i].Kind; kind == "start" || kind == "continue" {
+			return i
+		}
+	}
+	return len(r.events)
+}
+
+// inherited：这一轮是不是分叉时从原对话带过来的（fork 事件之前的 turn/started）。调用方持有 r.mu。
+func (r *run) inherited(turn string) bool {
+	fork := -1
+	for i, e := range r.events {
+		if e.Kind == "fork" {
+			fork = i
+		}
+	}
+	for i := 0; i < fork; i++ {
+		var p struct {
+			TurnID string `json:"turn_id"`
+		}
+		if e := r.events[i]; e.Kind == "notify" && e.Method == "turn/started" && json.Unmarshal(e.Body, &p) == nil && p.TurnID == turn {
+			return true
+		}
+	}
+	return false
 }
 
 type resumeInput struct {
@@ -833,12 +1036,16 @@ func (r *run) checkpointHistory(id string) (*resumeInput, error) {
 
 // 最近一轮 agent 的检查点ID：来自它的 turn/started 通知（子 agent 的通知包在 subagent/message 里，不会混进来）。
 // 之前的存档没有通知，退回到当时打印的 “Checkpoint: id=…” 行。
-// 最近一次是撤销时，返回撤销后对话接着的那一轮（空表示连第一轮也撤销了）。
+// 最近一次是撤销时，返回撤销后对话接着的那一轮（空表示连第一轮也撤销了）；
+// 最近一次是分叉时接着往前找，找到的是分叉点那一轮——分支的第一轮从它的检查点接着。
 func (r *run) lastCheckpoint() string {
 	for i := len(r.events) - 1; i >= 0; i-- {
 		e := r.events[i]
 		if e.Kind == "start" || e.Kind == "continue" {
 			return ""
+		}
+		if e.Kind == "fork" {
+			continue
 		}
 		if e.Kind == "rewind" {
 			var p struct {
@@ -863,6 +1070,64 @@ func (r *run) lastCheckpoint() string {
 }
 
 var legacyCheckpointLine = regexp.MustCompile(`^Checkpoint: id=([A-Za-z0-9._-]{1,128}) `)
+
+// notes 是上一个 start 或 continue 之后的分叉、撤销：下一轮要在问题后面告诉模型，
+// 它看到的记录和磁盘上的文件对不上。不另存，按事件算——事件是唯一的事实来源，重启后算出来的一样。
+// 第几轮按 turnIDs 里的位置算，文件清单用“、”连起来。调用方持有 r.mu。
+func (r *run) notes() []string {
+	turns := r.turnIDs()
+	from := 0
+	for i := len(r.events) - 1; i >= 0; i-- {
+		if kind := r.events[i].Kind; kind == "start" || kind == "continue" {
+			from = i + 1
+			break
+		}
+	}
+	var notes []string
+	for _, e := range r.events[from:] {
+		switch e.Kind {
+		case "fork":
+			var p struct {
+				Turn       string   `json:"turn"`
+				After      int      `json:"after"`
+				Files      []string `json:"files"`
+				FilesError string   `json:"files_error"`
+			}
+			if json.Unmarshal(e.Body, &p) != nil {
+				continue
+			}
+			n := slices.Index(turns, p.Turn) + 1
+			switch {
+			case len(p.Files) > 0:
+				notes = append(notes, fmt.Sprintf("对话接在第 %d 轮之后另起了一支，但之后各轮对这些文件的改动仍在磁盘上，没有撤销：%s。改之前先读当前内容。", n, strings.Join(p.Files, "、")))
+			case p.After > 0 && p.FilesError != "":
+				notes = append(notes, fmt.Sprintf("对话接在第 %d 轮之后另起了一支，原对话之后又跑了 %d 轮，磁盘上的文件可能已经被改过。改之前先读当前内容。", n, p.After))
+			}
+		case "rewind":
+			var p struct {
+				Mode          string   `json:"mode"`
+				Restore       []string `json:"restore"`
+				Delete        []string `json:"delete"`
+				Unsnapshotted []string `json:"unsnapshotted"`
+			}
+			if json.Unmarshal(e.Body, &p) != nil {
+				continue
+			}
+			n := slices.Index(turns, e.Text) + 1
+			switch p.Mode {
+			case "chat":
+				if changed := slices.Concat(p.Restore, p.Delete, p.Unsnapshotted); len(changed) > 0 {
+					notes = append(notes, fmt.Sprintf("对话退回到了第 %d 轮之前，但之后各轮对这些文件的改动仍在磁盘上，没有撤销：%s。改之前先读当前内容。", n, strings.Join(changed, "、")))
+				}
+			case "files":
+				if changed := slices.Concat(p.Restore, p.Delete); len(changed) > 0 {
+					notes = append(notes, fmt.Sprintf("用户撤销了第 %d 轮及之后对这些文件的改动，磁盘上已恢复到那一轮之前：%s。对话没有退回：上面记录里对这些文件的修改已经不在磁盘上，改之前先重新读。", n, strings.Join(changed, "、")))
+				}
+			}
+		}
+	}
+	return notes
+}
 
 func (r *run) withEmbedding(result *resumeInput) *resumeInput {
 	result.Embedding = "ark"
@@ -893,9 +1158,9 @@ func (r *run) withEmbedding(result *resumeInput) *resumeInput {
 // 调用方持有r.mu。正常结束的对话从最后一个完整回答接着聊；
 // 中途停下的对话（停止按钮、超时、出错）只要 agent 写过检查点，就从检查点接着聊。
 func (r *run) canContinue() bool {
-	// 人的网络审批（allow/deny）与撤销（rewind）可能追加在 exit 之后，不算对话进程的事件。
+	// 人的网络审批（allow/deny）、撤销（rewind）与分叉（fork）可能追加在 exit 之后，不算对话进程的事件。
 	i, rewound := len(r.events)-1, false
-	for i >= 0 && (r.events[i].Kind == "allow" || r.events[i].Kind == "deny" || r.events[i].Kind == "rewind") {
+	for i >= 0 && (r.events[i].Kind == "allow" || r.events[i].Kind == "deny" || r.events[i].Kind == "rewind" || r.events[i].Kind == "fork") {
 		rewound = rewound || r.events[i].Kind == "rewind"
 		i--
 	}
@@ -932,6 +1197,14 @@ func (s *Server) loadRuns() {
 			if e.Kind == "start" {
 				r.Query, r.Eval, r.Source = e.Text, e.Eval, e.Source
 			}
+			if e.Kind == "fork" {
+				var p struct {
+					From string `json:"from"`
+				}
+				if json.Unmarshal(e.Body, &p) == nil {
+					r.ForkOf = p.From
+				}
+			}
 			if e.Kind == "request" && r.Query == "" {
 				r.Query = firstUserMessage(e.Body)
 			}
@@ -958,7 +1231,7 @@ func firstUserMessage(body json.RawMessage) string {
 func (r *run) summary() map[string]any {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	summary := map[string]any{"id": r.ID, "query": r.Query, "done": r.Done, "can_continue": r.canContinue(), "eval": r.Eval, "source": r.Source}
+	summary := map[string]any{"id": r.ID, "query": r.Query, "done": r.Done, "can_continue": r.canContinue(), "eval": r.Eval, "source": r.Source, "fork_of": r.ForkOf}
 	// 时间给 Unix 毫秒时间戳，由界面按看的人所在的时区显示。
 	if len(r.events) > 0 {
 		summary["created_at"], summary["updated_at"] = r.events[0].Time.UnixMilli(), r.events[len(r.events)-1].Time.UnixMilli()

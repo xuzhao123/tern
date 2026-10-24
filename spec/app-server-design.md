@@ -1,6 +1,6 @@
 # app-server 与 SSH 远程：照 Codex 的做法
 
-状态：已确认（2026-10-23），第 14 节是答复过的问题。第一步与第一期已实现（2026-10-24），第 13 节的验收全部通过；第二期、第三期未做。取代 [remote-agent-design.md](remote-agent-design.md)（搁置）；调研与对比见 [remote-control-research.html](remote-control-research.html)。
+状态：已确认（2026-10-23），第 14 节是答复过的问题。第一步与第一期已实现（2026-10-24），第 13 节的验收全部通过；第二期见 [app-server-phase2-design.md](app-server-phase2-design.md)，已实现（2026-10-23）；第三期未做。取代 [remote-agent-design.md](remote-agent-design.md)（搁置）；调研与对比见 [remote-control-research.html](remote-control-research.html)。
 
 ## 1. 目标与范围
 
@@ -382,7 +382,7 @@ app-server 拿到文件锁后，先删掉旧的 `llm.sock` 再监听，同 `cont
      - 这一块不再拆开：文件面板要用对话的数据，Skills 中心和启动 agent 共用 `.data/hub.json` 的读取，分两次搬就要写两遍临时代码。
   4. chat 改成客户端（第 7 节）。
   5. SSH：`appclient` 起 ssh proxy、断线重连与补齐；网页端和 chat 加 `-remote`；顶栏显示主机与连接状态。
-- **第二期**：`thread/fork` 与 chat 的 `/fork`；一个网页端同时连几台主机（页面读 `~/.ssh/config` 列出主机，对话列表按主机分组）。
+- **第二期**：`thread/fork` 与 chat 的 `/fork`；一个网页端同时连几台主机（页面读 `~/.ssh/config` 列出主机，对话列表按主机分组）。设计见 [app-server-phase2-design.md](app-server-phase2-design.md)，另加了只退一边的撤销。
 - **第三期**：桌面端。
 
 ## 12. 这一期不做

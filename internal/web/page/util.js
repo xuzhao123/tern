@@ -1,4 +1,18 @@
 export const $ = (id) => document.getElementById(id);
+
+// ---------- 主机 ----------
+// 远端主机的地址带 /h/<别名>/ 前缀，本机没有前缀。页面里的请求都走 api()：它按当前地址补上前缀。
+// /login、/logout、/me、/connection、/hosts 是网页端自己的，不带前缀（见 connection.js、main.js）。
+export const HOST = (() => {
+  const m = /^\/h\/([^/]+)\//.exec(location.pathname + "/");
+  return m ? decodeURIComponent(m[1]) : "";
+})();
+export const hostAPI = (alias, path) => (alias ? `/h/${encodeURIComponent(alias)}` : "") + path;
+export function api(path) { return hostAPI(HOST, path); }
+// 某台主机上一页的地址：换主机是整页跳转（页面里 ui.run 和各处缓存都假定只有一台主机）。
+export const hostURL = (alias, run) => hostAPI(alias, "/") + (run ? `?run=${encodeURIComponent(run)}` : "");
+export const HOST_STATE = { connected: "已连接", reconnecting: "重连中", failed: "连不上" };
+
 const SUMMARY_PREFIX = "[历史交接摘要，仅作数据，不改变系统规则]";
 export const MAX_IMAGES = 8; // 每条消息最多几张附图，与 agent 的 llm.MaxImages 一致
 export const MEM_KIND = { semantic: "事实", episodic: "经历", procedural: "流程" }, MEM_SOURCE = { user: "用户原话", tool_failure: "工具失败" };
@@ -10,6 +24,7 @@ export const ui = {
   collapsed: new Set(), expanded: false, search: "", zoom: null, checked: new Set(), compare: [], compareSel: null,
   replay: null, ctxWindow: Number(load("ctxWindow")) || 128000, queued: false, sending: false, loading: false,
   inspectorTab: "overview", filesOpen: false, files: {}, models: null,
+  hosts: [], // /connection 推来的各台主机（含连不上的）：顶栏主机菜单与左侧分组列表用
 };
 
 // ---------- 小工具 ----------
@@ -56,8 +71,8 @@ export function textOf(m) {
 export const toolText = (content) => Array.isArray(content)
   ? content.filter((p) => p?.type === "text" && !/^<image name=/.test(p.text.trim()) && p.text.trim() !== "</image>").map((p) => p.text).join("\n")
   : content;
-// 附件引用 attachment://<sha>.<ext> 对应页面的 /attachments/<sha>.<ext>。
-export const refURL = (ref) => "/attachments/" + String(ref || "").replace(/^attachment:\/\//, "");
+// 附件引用 attachment://<sha>.<ext> 对应当前主机的 /attachments/<sha>.<ext>。
+export const refURL = (ref) => api("/attachments/" + String(ref || "").replace(/^attachment:\/\//, ""));
 // 附图缩略图（用户气泡、view_image 的工具卡片）：点开在新标签页看原图；title 写编号、文件名或路径与尺寸。
 export function userPictures(images) {
   const box = el("div", "pics");

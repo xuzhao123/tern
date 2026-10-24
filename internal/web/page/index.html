@@ -35,8 +35,21 @@
       <div id="heading"><div id="title">新对话</div><button id="run-id" type="button" aria-label="复制对话 ID" hidden></button></div>
       <div class="seg"><button id="page-chat">对话</button><button id="page-observe">观测</button></div>
       <button id="files-btn" class="ghost" type="button" hidden title="本对话的 /workspace：各轮 bash 共用">沙箱文件</button>
-      <!-- 连的是哪台机器、连上没有：本机或 ssh 别名 · 已连接/重连中，见 connection.js。 -->
-      <span id="host"></span>
+      <!-- 连的是哪台机器、连上没有：本机或 ssh 别名 · 已连接/重连中/连不上；点开是主机菜单（见 connection.js）。 -->
+      <div id="hostbox">
+        <button id="host" type="button" aria-haspopup="menu" aria-expanded="false" title="主机的连接状态"></button>
+        <div id="host-menu" hidden>
+          <div class="hm-label">已连上的主机</div>
+          <div id="hm-hosts"></div>
+          <div class="hm-label">连到别的主机</div>
+          <div id="hm-candidates"></div>
+          <form id="hm-form">
+            <input id="hm-alias" placeholder="ssh 别名或 user@host" aria-label="ssh 别名" autocomplete="off">
+            <button type="submit">连接</button>
+          </form>
+          <div id="hm-msg"></div>
+        </div>
+      </div>
       <span id="status"></span>
     </div>
     <section id="chat-pane">
@@ -80,5 +93,19 @@
   </div>
 </div>
 <div id="ctx-tip" hidden></div>
+<!-- 撤销：文件和对话一起退（默认）、只退文件、只退对话，下面是预览；换单选就按这个 mode 重新预览（见 shell.js）。 -->
+<dialog id="rewind-dialog">
+  <h2 id="rw-title">撤销</h2>
+  <div class="rw-modes">
+    <label><input type="radio" name="rw-mode" value="both" checked>文件和对话一起退</label>
+    <label><input type="radio" name="rw-mode" value="files">只退文件</label>
+    <label><input type="radio" name="rw-mode" value="chat">只退对话</label>
+  </div>
+  <div id="rw-preview"></div>
+  <div class="rw-actions">
+    <button id="rw-cancel" type="button">取消</button>
+    <button id="rw-apply" type="button">撤销</button>
+  </div>
+</dialog>
 </body>
 </html>

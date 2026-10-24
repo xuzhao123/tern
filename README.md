@@ -25,12 +25,21 @@ go run . web -add-user admin     # 添加登录账号
 go run . web
 # 打开 http://127.0.0.1:8090 登录
 go run . web -remote devbox       # 或者连远端：ssh 别名见 ~/.ssh/config
+go run . web -remote devbox -remote devbox2   # 一次连几台；启动后也能在主机菜单里连
 ```
 
 这一版只有平台空间：登录后看到的就是 `.data/` 下的数据。早期 `users.json` 里带 `tenant` 的账号登录时会被拒绝，提示“租户账号暂不支持”。
 
 网页端支持新对话、续聊、停止，以及每个模型 Step 的完整输入输出。网页端是 app-server 的客户端：它自己启动时先做一次 `app-server start`，之后所有对话、设置、文件都在 app-server 里，网页端退出不影响正在跑的对话。网页端没有 `-dev` 了，要从源码跑 agent 就 `go run . app-server -dev` 或 `go run . app-server start -dev`（要求 `TERN_HOME` 就是 tern 源码根目录，否则报错退出）。
 起 agent 用哪个程序：app-server 起 agent 用 `/proc/self/exe`（没有 `/proc` 时用 `os.Executable()`），也就是正在跑的那个程序本身。所以**重启网页端不会换掉 app-server 的代码**：改了代码要先 `tern app-server stop`，再起界面；或者用 `-dev`。
+
+### 分叉与撤销
+
+每轮问题下面有“撤销”和“分叉”。两种都要求这一轮有检查点、对话已经结束、不是导入的对话或评测的试次；“撤销”还要求对话有工作区（撤销改的是工作区里的文件），“分叉”不要求。
+
+- **分叉**：从这一轮之后另起一段对话，前面各轮带过去，原对话不变、文件不动。新对话在列表里带“分叉”标记，第 n 轮后面有一条横幅链回原对话；`thread/fork` 只复制存档里的事件（`seq` 不改），最后追加一条 `fork` 事件，新对话的摘要里 `fork_of` 是原对话的 ID。
+- **撤销**：对话框里选三种退法——文件和对话一起退（默认）、只退文件、只退对话；换一种就按这个 `mode` 重新预览，有冲突只挡前两种。只退一边之后记录和磁盘上的文件对不上，下一轮的 `turn/start` 用 `notes` 告诉模型这些文件还在（或已经恢复）。
+- 限制：分支和原对话共用工作区与 bash 沙箱，所以分叉时会把原对话之后各轮改过的文件列进提醒；分叉时带过来的轮次只能在原对话里撤销（`409`）；分支跑过一轮以后，原对话不能再撤销分叉点之前（含）的轮次，agent 报“之后有 2 个分支”；分支还没跑过、原对话先撤销到了分叉点之前，分支续聊回 `409`“接着的那一轮已经撤销”。chat 的 `/fork <n>`、`/rewind <n> [both|files|chat]` 与网页端是同一套。
 
 ### 远程（SSH）
 
@@ -40,7 +49,18 @@ go run . web -remote devbox       # 或者连远端：ssh 别名见 ~/.ssh/confi
 `-remote` 只认 `~/.ssh/config` 里具体的 Host 别名或 `user@host`：带通配符的 `Host` 会匹配到别的机器，以 `-` 开头的会被 ssh 当成选项，都拒绝。
 远程模式下网页端内置的计算器 MCP（`/mcp`）在本机的网页端进程里，远端的 agent 连不到，这一期不处理：要用就在远端另起一个网页端。
 
-连接断了（ssh 断了、远端的 app-server 重启了）界面自己重连，本机模式和远程模式一样：按 1、2、4…秒退避，最多 30 秒；本机模式每次先 `app-server start`，远程模式重新起 ssh。重连期间所有请求立刻失败，网页端回 503“正在重连 devbox”，顶栏显示“devbox · 重连中”；正在看的事件流不会断，连上后按每条订阅最后收到的序号重新补齐，既不重复也不缺。启动时第一次就连不上直接报错（带上 ssh 的报错），不进入重连。
+连接断了（ssh 断了、远端的 app-server 重启了）界面自己重连，本机模式和远程模式一样：按 1、2、4…秒退避，最多 30 秒；本机模式每次先 `app-server start`，远程模式重新起 ssh。重连期间那台的请求立刻失败，网页端回 503“正在重连 devbox”，顶栏和左侧列表显示“devbox · 重连中”（别的照常）；正在看的事件流不会断，连上后按每条订阅最后收到的序号重新补齐，既不重复也不缺。启动时第一次就连不上直接报错（带上 ssh 的报错），不进入重连。
+
+### 几台主机
+
+网页端可以同时连几台主机，每台一条连接；页面一次操作一台（当前主机）：新对话、设置、Skills/MCP、评测都是当前主机的。
+
+- 启动：不带 `-remote` 连本机；`-remote` 可以写多次，写了几台就只连这几台、不连本机，任何一台连不上就报错退出。
+- 主机菜单（点顶栏的主机与状态）：连着的各台点一下整页跳过去，每台后面有“断开”（只剩一台时没有），断开就关掉连接、也从记住的列表里删掉（命令行连的那几台也能断开）；连不上的（`state` 是 `failed`）显示那次 ssh 的报错，点它就是再连一次；下面是候选（`~/.ssh/config` 里具体的 Host 别名，本机没连时还有“本机”）和一个输入框，可以手填别名或 `user@host`。
+- 记住的主机：页面上连过的记在 `.data/web-hosts.json`（`{"hosts": ["devbox", ""]}`，空串表示本机；权限 0600，所有账号共用、不分个人）。下次启动先连命令行定的那几台，再在后台一台台连记住的：连不上不挡启动，那一台记成“连不上”，等菜单里再试。`-remote` 指定的只管这一次，不写进文件。
+- 地址：本机的页面与接口不变（`/`、`/runs`、`/?run=…`，旧链接照样能开）；远端主机的页面与数据接口带 `/h/<别名>` 前缀，如 `/h/devbox/runs`、`/h/devbox/?run=…`。没连上的主机回 404“没有连上主机 devbox”，记住了但这次没连上的回 502（文字是那次的报错）；只带了 `-remote` 时本机没连，`GET /` 跳到第一台。
+- 左侧对话列表按主机分组：当前主机在最上面，每组标题写“主机 · 状态”；点别的主机的对话整页跳到那台的地址。观测页的“加入对比”只在当前主机这一组。
+- 断开当前主机时，正在看的事件流随之结束，页面跳到剩下的第一台。
 
 需要可执行文件时：
 
@@ -183,8 +203,8 @@ go build -o bin/tern .
 
 | 命令 | 作用 |
 | --- | --- |
-| `go run . chat [-remote 别名] [-continue 对话ID] [-provider …] [-model …] [-permission-mode …] [-workspace 名字]` | 终端客户端，app-server 的界面：对话、agent 进程、模型请求都在 app-server 里（带 `-remote` 时在远端），网页端开的对话也能接着聊；过程流式显示，运行中输入的话作为插话；断线时打一行“连接断开，重连中…”，连上后打“已重连”，这一轮接着往下走；`/help` 列出轮次、压缩、撤销（`/rewind <轮>`）、切权限与批准计划、`/resume <对话ID>` 等命令；不再接受 agent 参数（工具与权限来自 app-server 的设置）；agent 的终端日志写在 `.data/chat.log` |
-| `go run . web [-addr …] [-remote 别名]` | 网页端：网页界面，需要先用 `-add-user` 添加账号。它是 app-server 的客户端：不带 `-remote` 时连本机 app-server，启动时先做一次 `app-server start`；带 `-remote` 时经 ssh 连远端。启动时打印连上的 app-server 的主机、`TERN_HOME` 与版本；顶栏显示主机与连接状态（重连中换成醒目的样式），`GET /connection` 推 `{host, remote, state, runs}`，重连期间其他请求回 503“正在重连 <host>” |
+| `go run . chat [-remote 别名] [-continue 对话ID] [-provider …] [-model …] [-permission-mode …] [-workspace 名字]` | 终端客户端，app-server 的界面：对话、agent 进程、模型请求都在 app-server 里（带 `-remote` 时在远端），网页端开的对话也能接着聊；过程流式显示，运行中输入的话作为插话；断线时打一行“连接断开，重连中…”，连上后打“已重连”，这一轮接着往下走；`/help` 列出轮次、压缩、撤销（`/rewind <轮>`，可以只退文件、只退对话）、从某一轮之后分叉（`/fork <轮>`）、切权限与批准计划、`/resume <对话ID>` 等命令；不再接受 agent 参数（工具与权限来自 app-server 的设置）；agent 的终端日志写在 `.data/chat.log` |
+| `go run . web [-addr …] [-remote 别名 …]` | 网页端：网页界面，需要先用 `-add-user` 添加账号。它是 app-server 的客户端：不带 `-remote` 时连本机 app-server，启动时先做一次 `app-server start`；带 `-remote` 时经 ssh 连远端，可以写多次，写了几台就只连这几台。可以同时连几台主机（见下面“几台主机”）：顶栏显示当前主机与连接状态（重连中、连不上换成醒目的样式），点开是主机菜单；远端主机的地址带 `/h/<别名>` 前缀。启动时打印连上的各台 app-server 的主机、`TERN_HOME` 与版本；`GET /connection` 推所有主机 `{hosts: [{alias, host, remote, state, runs, error}]}`，`GET`、`POST`、`DELETE /hosts` 是菜单用的候选、连接与断开；重连期间那台的请求回 503“正在重连 <host>” |
 | `go run . app-server [-dev]` | 常驻的 app-server：前台运行，一个 `TERN_HOME` 一个，在 `.data/app-server/control.sock` 上等界面连进来（一行一条 JSON-RPC 2.0，`initialize` 握手），模型代理在同目录的 `llm.sock` 上；日志写 stderr，Ctrl-C 或 SIGTERM 与 `server/shutdown` 一样收尾：删掉两个 socket 与 pid 文件后退出。`-dev`：每次对话用 `go run .` 启动 agent，改完 agent 代码不必重启 app-server，要求 `TERN_HOME` 是 tern 源码根目录 |
 | `go run . app-server start [-dev]` | 幂等启动：控制 socket 能答 `initialize` 就直接返回（已在运行的不会因为 `-dev` 换模式）；否则以新会话（setsid）在后台起一个，把 `-dev` 传给它，输出写 `.data/app-server/app-server.log`，等它能握手再返回（最多 30 秒）；子进程提前退出就不再等，报错并带上日志的最后几行。输出一行 JSON：socket、pid、version |
 | `go run . app-server stop` | 发 `server/shutdown`，按 pid 文件等进程真的不在才返回（socket 与 pid 文件都已删掉）；没有在运行的 app-server 时提示“没有在运行的 app-server”，正常退出 |
@@ -193,4 +213,4 @@ go build -o bin/tern .
 | `go run . metrics [-since 168h] [-prefix ID前缀] [-tenant 租户] [-json]` | 统计完成率、耗时、成本等核心指标，只读 `.data/` |
 | `go run . eval` / `go run . eval -cases eval/coding-cases.jsonl` | 评测：通用评测集（每题 k 次、DeepSeek 评审，需要 `DEEPSEEK_API_KEY`）或编码任务评测（每个试次一份新的仓库拷贝，校验命令在沙箱里只读运行）；`eval triage`、`eval replay` 做失败归因与回放；网页端左侧“评测与归因”是同一功能的页面 |
 | `go run . audit [-tenant 租户] [-task ID] [-verify]` | 列出并校验审计日志（只追加、哈希链）；网页端左侧“审计日志”是只读页面 |
-| `go run . rewind [-tenant 租户] [-dry-run] [-mode both\|files\|chat] <轮次ID>` | 撤销这一轮及之后各轮用编码工具改过的文件，对话退回上一轮；`-mode files` 只退文件、`chat` 只退对话；网页端每条消息下的“撤销到这一轮之前”是同一功能 |
+| `go run . rewind [-tenant 租户] [-dry-run] [-mode both\|files\|chat] <轮次ID>` | 撤销这一轮及之后各轮用编码工具改过的文件，对话退回上一轮；`-mode files` 只退文件、`chat` 只退对话；网页端每轮问题下的“撤销”对话框（三种选法）和 chat 的 `/rewind <轮> [both\|files\|chat]` 是同一功能 |

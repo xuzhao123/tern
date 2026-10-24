@@ -11,3 +11,4 @@
 - 审批与提问：agent 的 `network/requestApproval`、`tool/requestApproval`、`user/requestInput` 记成 approval 事件推给订阅者，任何界面回 `approval/respond`，先到的算数；人的审批先写审计，审计写不进去就不答复。不做 app-server 向界面发请求。
 - 二进制内容（附件、沙箱文件、浏览器画面、导入的会话文件）按块传，每块原始数据不超过 4MB：`protocol.Conn` 一行最多 16MB，不改 `protocol` 包。
 - 导入对话只接受 Codex 的 rollout 与 Claude Code 的会话 JSONL，只读、不续聊。
+- 分叉（`thread/fork`）把原对话第 n 轮及之前的事件原样复制进新对话的存档（`seq` 不改），最后追加一条 `fork` 事件（`body.from` 是原对话）；原对话与文件都不动。分支和原对话共用工作区与 bash 沙箱目录，所以分支的 `turn/start` 按 `fork`、`rewind` 事件生成 `notes`，提醒模型磁盘上的文件可能和记录不一致。分叉时带过来的轮次不能在分支里撤销：agent 的撤销沿磁盘上的续接链往后找，分支还没跑过时会走进原对话。

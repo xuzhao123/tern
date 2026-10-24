@@ -47,6 +47,10 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
 .runitem .q { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .runitem small { flex: none; color: var(--faint); font-size: 11px; font-variant-numeric: tabular-nums; }
 .runitem .src { margin-right: 6px; padding: 0 5px; border-radius: 4px; background: var(--soft); color: var(--muted); font-size: 10.5px; }
+/* 连了几台主机时左侧按主机分组：当前主机在最上面，每组一个“主机 · 状态”的标题（见 shell.js 的 loadRuns）。 */
+.host-group + .host-group { margin-top: 6px; }
+.host-name { padding: 8px 10px 4px; color: var(--faint); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.host-name.bad { color: var(--err); font-weight: 500; }
 .live { display: inline-block; width: 6px; height: 6px; margin: 0 6px 1px 0; border-radius: 50%; background: var(--accent); animation: pulse 1.1s ease-in-out infinite; }
 .whoami { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12.5px; }
 .whoami .avatar { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--soft); color: var(--text); font-size: 11px; font-weight: 600; text-transform: uppercase; }
@@ -73,11 +77,32 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
 #status.run::before { background: var(--accent); animation: pulse 1.1s ease-in-out infinite; }
 #status.bad { color: var(--err); }
 #status.bad::before { background: var(--err); }
-/* 顶栏的主机与连接状态（connection.js）：重连中换成醒目的样式，一眼能看出过程断了。 */
-#host { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+/* 顶栏的主机与连接状态（connection.js）：重连中、连不上换成醒目的样式，一眼能看出过程断了。 */
+#hostbox { position: relative; display: flex; }
+#host { display: inline-flex; align-items: center; gap: 6px; padding: 0; border: 0; background: none; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+#host:hover { color: var(--text); }
 #host:not(:empty)::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
 #host.bad { padding: 1px 8px; border-radius: 999px; background: color-mix(in srgb, var(--err) 14%, transparent); color: var(--err); font-weight: 500; }
 #host.bad::before { background: var(--err); animation: pulse 1.1s ease-in-out infinite; }
+/* 主机菜单：上面是连着的各台与连不上的，下面是还能连的候选和手填的别名。 */
+#host-menu { position: absolute; z-index: 40; top: 30px; right: 0; width: 288px; padding: 6px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); box-shadow: var(--shadow); }
+.hm-label { padding: 8px 10px 4px; color: var(--faint); font-size: 11.5px; }
+.hm-row { display: flex; align-items: center; gap: 2px; border-radius: 8px; }
+.hm-row:hover { background: var(--hover); }
+.hm-row.on { background: var(--sel); }
+.hm-go { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; padding: 6px 10px; border: 0; background: none; text-align: left; }
+.hm-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.hm-state { flex: none; color: var(--muted); font-size: 11.5px; }
+.hm-state.bad { color: var(--err); }
+.hm-off { flex: none; padding: 3px 8px; border: 0; border-radius: 6px; background: none; color: var(--muted); font-size: 12px; }
+.hm-off:hover { background: var(--hover); color: var(--text); }
+.hm-cand { width: 100%; padding: 6px 10px; border: 0; border-radius: 8px; background: none; text-align: left; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hm-cand:hover { background: var(--hover); }
+#hm-form { display: flex; gap: 6px; padding: 6px 2px 2px; }
+#hm-form input { flex: 1; min-width: 0; padding: 5px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+#hm-form button { flex: none; padding: 5px 10px; border: 0; border-radius: 8px; background: var(--text); color: var(--bg); font-size: 12.5px; }
+#hm-msg { padding: 4px 10px 2px; color: var(--err); font-size: 12px; white-space: pre-wrap; }
+#hm-msg:empty { display: none; }
 
 /* 对话流 */
 #chat-pane { flex: 1; display: flex; min-height: 0; }
@@ -261,6 +286,25 @@ select.pick:disabled { background-image: none; padding-right: 8px; }
 #ctx-ring .pct { position: relative; font-size: 9px; font-weight: 500; line-height: 1; color: var(--muted); font-variant-numeric: tabular-nums; pointer-events: none; }
 #ctx-tip { position: fixed; z-index: 60; max-width: 300px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); box-shadow: var(--shadow); color: var(--muted); font-size: 12px; line-height: 1.6; pointer-events: none; }
 #ctx-tip b { display: block; margin-bottom: 2px; color: var(--text); font-size: 12.5px; font-weight: 500; }
+
+/* 撤销对话框：三个单选取一种退法，下面是预览；用浏览器原生 dialog，不引组件库。 */
+#rewind-dialog { width: min(540px, calc(100vw - 32px)); padding: 18px 20px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); color: var(--text); box-shadow: var(--shadow); }
+#rewind-dialog::backdrop { background: rgba(0, 0, 0, .35); }
+#rewind-dialog h2 { margin: 0 0 12px; font-size: 15px; font-weight: 600; }
+.rw-modes { display: grid; gap: 6px; margin-bottom: 12px; font-size: 13px; }
+.rw-modes label { display: flex; align-items: center; gap: 8px; }
+.rw-modes input { margin: 0; }
+#rw-preview { max-height: 46vh; min-height: 64px; overflow: auto; padding: 12px 14px; border-radius: 10px; background: var(--soft); font-size: 13px; }
+#rw-preview p { margin: 0 0 8px; }
+#rw-preview .meta { color: var(--muted); font-size: 12px; }
+#rw-preview .err { color: var(--err); }
+#rw-preview pre { margin: 4px 0 8px; font: 12.5px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.rw-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.rw-actions button { padding: 6px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); font-size: 13px; }
+.rw-actions button:hover { background: var(--hover); }
+.rw-actions #rw-apply { border-color: var(--text); background: var(--text); color: var(--bg); }
+.rw-actions #rw-apply:hover { opacity: .88; }
+.rw-actions button:disabled { opacity: .45; cursor: not-allowed; }
 
 /* 子 agent：对话流里的卡片 + 右侧面板（参考 Codex 客户端的子任务侧栏） */
 .agent-card { display: flex; align-items: center; gap: 10px; width: 100%; margin: 6px 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); text-align: left; }

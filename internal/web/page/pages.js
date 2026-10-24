@@ -1,7 +1,7 @@
 import { show } from "./follow.js";
 import { md } from "./md.js";
 import { TOOL_INFO, loadModels, loadSettings, newChat, syncComposer } from "./shell.js";
-import { $, MEM_KIND, MEM_SOURCE, MEM_STATUS, el, fold, ui } from "./util.js";
+import { $, MEM_KIND, MEM_SOURCE, MEM_STATUS, api, el, fold, ui } from "./util.js";
 $("memory").onclick = () => openMemory();
 // 审计日志只读。服务端每次从头校验哈希链；页面只展示，不提供修改或删除。
 const AUDIT_ACTOR = { user: "人", model: "模型", program: "程序" };
@@ -14,7 +14,7 @@ async function openAudit(task = "") {
   $("thread").replaceChildren(panel);
   panel.append(el("div", "meta", "读取中…"));
   let data;
-  try { const res = await fetch("/audit?task=" + encodeURIComponent(task)); if (!res.ok) throw new Error(await res.text()); data = await res.json(); }
+  try { const res = await fetch(api("/audit?task=" + encodeURIComponent(task))); if (!res.ok) throw new Error(await res.text()); data = await res.json(); }
   catch (err) { panel.replaceChildren(el("div", "err", "读取失败：" + err.message)); return; }
   const records = data.records || [];
   const form = el("div", "eval-form"), input = el("input");
@@ -50,7 +50,7 @@ export async function openMemory(focus) {
   $("thread").replaceChildren(panel);
   panel.append(el("div", "meta", "读取中…"));
   let data;
-  try { const res = await fetch("/memory"); if (!res.ok) throw new Error(await res.text()); data = await res.json(); }
+  try { const res = await fetch(api("/memory")); if (!res.ok) throw new Error(await res.text()); data = await res.json(); }
   catch (err) { panel.replaceChildren(el("div", "err", "读取失败：" + err.message)); return; }
   const list = data.file.memories || [], now = Date.parse(data.now);
   const chunks = Object.values(data.index?.chunks || {});
@@ -63,7 +63,7 @@ export async function openMemory(focus) {
     del.onclick = async () => {
       if (!confirm(`删除 ${m.id}？会写回 .data/memory.json，无法撤销。`)) return;
       del.disabled = true;
-      const res = await fetch(`/memory/${m.id}/forget`, { method: "POST" });
+      const res = await fetch(api(`/memory/${m.id}/forget`), { method: "POST" });
       if (!res.ok) alert(await res.text());
       openMemory();
     };
@@ -202,11 +202,11 @@ export async function openSettings() {
   panel.append(actions);
 }
 export async function loadEnabled() {
-  try { const res = await fetch("/hub/enabled"); if (res.ok) ui.hub = await res.json(); } catch {}
+  try { const res = await fetch(api("/hub/enabled")); if (res.ok) ui.hub = await res.json(); } catch {}
   syncComposer();
 }
 async function hubCall(method, url, body) {
-  const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+  const res = await fetch(api(url), { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
   if (!res.ok) throw new Error(await res.text());
   return res;
 }

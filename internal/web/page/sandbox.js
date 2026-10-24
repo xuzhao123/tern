@@ -1,6 +1,6 @@
 import { renderChat, step } from "./chat.js";
 import { bashExit } from "./explore.js";
-import { clip, el, ico, parse, pretty, sec, ui } from "./util.js";
+import { api, clip, el, ico, parse, pretty, sec, ui } from "./util.js";
 // ---------- bash 沙箱 ----------
 export function bashCard(r, c, t) {
   const args = parse(t.args) || {}, res = parse(t.result), out = res?.result || {};
@@ -64,7 +64,7 @@ function netBox(domain, head, why, { done, open, idle, waitText }) {
   const decide = async (allow, forever) => {
     for (const b of buttons) b.disabled = true;
     try {
-      const resp = await fetch(`/runs/${encodeURIComponent(root.id)}/network`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ domain, allow, always: forever }) });
+      const resp = await fetch(api(`/runs/${encodeURIComponent(root.id)}/network`), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ domain, allow, always: forever }) });
       if (!resp.ok) throw new Error(await resp.text());
       root.netDecision[domain] = !allow ? "deny" : forever ? "always" : "allow";
       delete root.netPending[domain];
@@ -92,7 +92,7 @@ export function approvalCard(root, callID) {
     const decide = async (allow, session) => {
       for (const b of buttons) b.disabled = true;
       try {
-        const resp = await fetch(`/runs/${encodeURIComponent(root.id)}/approval`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ call_id: callID, allow, session }) });
+        const resp = await fetch(api(`/runs/${encodeURIComponent(root.id)}/approval`), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ call_id: callID, allow, session }) });
         if (!resp.ok) throw new Error(await resp.text());
         a.state = (await resp.json()).decision;
         renderChat();
@@ -117,7 +117,7 @@ export function askCard(root, t) {
     const send = async (answer) => {
       for (const b of buttons) b.disabled = true;
       try {
-        const resp = await fetch(`/runs/${encodeURIComponent(root.id)}/answer`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ call_id: t.id, answer }) });
+        const resp = await fetch(api(`/runs/${encodeURIComponent(root.id)}/answer`), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ call_id: t.id, answer }) });
         if (!resp.ok) throw new Error(await resp.text());
         Object.assign(a, { state: "answered", answer });
         ui.askFocus = null;

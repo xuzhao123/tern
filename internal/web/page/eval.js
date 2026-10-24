@@ -2,7 +2,7 @@ import { show } from "./follow.js";
 import { md } from "./md.js";
 import { openHubPage } from "./pages.js";
 import { attribute } from "./shell.js";
-import { $, clip, el, fold, kfmt, ui } from "./util.js";
+import { $, api, clip, el, fold, kfmt, ui } from "./util.js";
 // ---------- 评测 · 归因 ----------
 // 评测记录在 .data/eval/<ID>.json（与 go run . eval 共用）；每个试次是一条普通对话，点击即可看轨迹与调用链。
 const pctf = (v) => (v * 100).toFixed(0) + "%";
@@ -15,7 +15,7 @@ function evalURL(id) {
   if (url.href !== location.href) history.pushState(null, "", url);
 }
 async function evalPost(url, body) {
-  const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+  const res = await fetch(api(url), { method: "POST", headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
   if (!res.ok) throw new Error(await res.text());
 }
 export async function openEvals(id, updateURL = true) {
@@ -28,7 +28,7 @@ export async function openEvals(id, updateURL = true) {
   if (id) return evalDetail(panel, id);
   panel.querySelector("p.meta").textContent = "评测集 eval/cases.jsonl：固定题目、参考答案和打分器（先确定性检查，开放题由 DeepSeek 三票评审）。每道题跑 k 次，每次是一个新的 agent 任务；报告 pass@1（含按题聚类的标准误）与 pass^k，答对率和完成率分开。命令行 go run . eval 读写同一份记录。";
   let cases, list;
-  try { [cases, list] = await Promise.all([(await fetch("/evals/cases")).json(), (await fetch("/evals")).json()]); }
+  try { [cases, list] = await Promise.all([(await fetch(api("/evals/cases"))).json(), (await fetch(api("/evals"))).json()]); }
   catch (err) { panel.lastChild.replaceWith(el("div", "err", "读取失败：" + err.message)); return; }
   if (!panel.isConnected) return;
   const form = el("div", "eval-form"), set = el("select"), k = el("select"), abl = el("input"), base = el("select"), go = el("button", "ghost", "开始评测（真实调用模型）");
@@ -45,7 +45,7 @@ export async function openEvals(id, updateURL = true) {
     if (!confirm(`将运行 ${chosen.length} 道题、共 ${trials} 个试次（3 个并行），每个试次真实调用方舟；开放题另由 DeepSeek 三票评审。开始？`)) return;
     go.disabled = true;
     try {
-      const res = await fetch("/evals", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ set: set.value, k: Number(k.value), ablation: abl.checked, baseline: base.value }) });
+      const res = await fetch(api("/evals"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ set: set.value, k: Number(k.value), ablation: abl.checked, baseline: base.value }) });
       if (!res.ok) throw new Error(await res.text());
       openEvals((await res.json()).id);
     } catch (err) { alert(err.message); go.disabled = false; }
@@ -130,7 +130,7 @@ function trialChip(t, onclick) {
 }
 async function evalDetail(panel, id) {
   let data;
-  try { const res = await fetch("/evals/" + encodeURIComponent(id)); if (!res.ok) throw new Error(await res.text()); data = await res.json(); }
+  try { const res = await fetch(api("/evals/" + encodeURIComponent(id))); if (!res.ok) throw new Error(await res.text()); data = await res.json(); }
   catch (err) { panel.lastChild.replaceWith(el("div", "err", "读取失败：" + err.message)); return; }
   if (!panel.isConnected || ui.evalOpen !== id) return;
   const { record: rec, summary: sum, cards, cases, busy } = data;

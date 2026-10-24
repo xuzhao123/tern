@@ -25,6 +25,10 @@ import (
 // ErrNotRunning：控制 socket 连不上，本机没有在运行的 app-server。
 var ErrNotRunning = errors.New("app-server 没有在运行")
 
+// ErrHandshakeTimeout：通道连上了，但 app-server 没在 handshakeTimeout 内答完 initialize。
+// 常见于连一台开着机却连不通的主机：ssh 自己还要等 TCP 超时，这段等的是握手。
+var ErrHandshakeTimeout = errors.New("握手超时")
+
 // SelfName 是 app-server 自己那几条命令（start、stop、proxy）连上来时报的界面名字。
 // 界面的名字由界面自己给：网页端 "tern web"，chat "tern chat"；app-server 把收到的那一个记进审计记录的 Detail。
 const SelfName = "tern app-server"
@@ -65,7 +69,8 @@ func dialLocal() (io.ReadWriteCloser, error) {
 }
 
 // initialize 在一条新连接（本机 socket 或 ssh 的标准输入输出）上发 initialize，返回连接与服务端信息。
-// 协议版本对不上、对端先断开都在这里报错；本机与远程的握手完全一样。
+// 协议版本对不上、对端先断开都在这里报错；本机与远程的握手完全一样。等超过 handshakeTimeout 时
+// 返回带 ErrHandshakeTimeout 的错误，由知道是哪台主机的调用方补上别名。
 func initialize(rwc io.ReadWriteCloser, name string, handle func(protocol.Message)) (*protocol.Conn, appserver.ServerInfo, error) {
 	if handle == nil {
 		handle = func(protocol.Message) {}
@@ -82,6 +87,9 @@ func initialize(rwc io.ReadWriteCloser, name string, handle func(protocol.Messag
 	}, &res)
 	if err != nil {
 		c.Close()
+		if errors.Is(err, context.DeadlineExceeded) {
+			return nil, appserver.ServerInfo{}, fmt.Errorf("%w：%d 秒内没有完成握手", ErrHandshakeTimeout, int(handshakeTimeout.Seconds()))
+		}
 		return nil, appserver.ServerInfo{}, err
 	}
 	return c, res.Server, nil

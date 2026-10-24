@@ -70,8 +70,8 @@ func (s *server) download(w http.ResponseWriter, req *http.Request, method strin
 		for key, value := range extra {
 			params[key] = value
 		}
-		var h chunkHead
-		return h, s.client.Call(req.Context(), method, params, &h)
+		var out chunkHead
+		return out, s.callInto(req, method, params, &out)
 	}
 	first, err := next(0)
 	if err != nil {
