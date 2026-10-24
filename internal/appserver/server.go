@@ -104,6 +104,7 @@ type run struct {
 	seq        int // 最后一个事件的序号：只增不减。delta 只在内存里也占序号，所以重启后要从存档里最大的序号接着编
 	events     []event
 	queue      []queueItem // 排队的后续消息，存在 .meta.json：这一轮结束后由 followUp 接着发
+	goal       *threadGoal // 人定的目标，存在 .meta.json：界面上常显，设了、改了以后下一轮说给模型一次（见 notes）
 	changed    chan struct{}
 	file       *os.File
 	proc       *os.Process // 正在运行的 agent 进程；强制结束时向它的进程组发 SIGKILL
@@ -163,12 +164,17 @@ func (c *conn) threadStart(m protocol.Message) (any, *protocol.Error) {
 		Workspace  *string     `json:"workspace"`  // nil：用设置里的默认工作区；"": 本对话不用工作区
 		Permission string      `json:"permission"` // 空：用设置里的默认权限模式
 		Effort     string      `json:"effort"`     // 空：用设置里的默认推理强度
+		Goal       string      `json:"goal"`       // 目标：第一轮就带上那句提醒（见 notes）
 		Images     []attachRef `json:"images"`     // 附图：先经 attachment/upload 存好，这里只带引用
 	}
 	if ferr := decode(m, &input); ferr != nil {
 		return nil, ferr
 	}
 	input.Query = strings.TrimSpace(input.Query)
+	goal, ferr := goalText(input.Goal)
+	if ferr != nil {
+		return nil, ferr
+	}
 	name := userName(m)
 	settings, _, err := s.effectiveFor(name)
 	if err != nil {
@@ -284,15 +290,30 @@ func (c *conn) threadStart(m protocol.Message) (any, *protocol.Error) {
 		return nil, bad(500, err.Error())
 	}
 	r := &run{ID: id, Query: strings.TrimSpace(input.Query), changed: make(chan struct{}), file: file}
+	// 新对话带的目标：第一轮就告诉模型（见 notes），所以先记进 .meta.json，界面一打开就看得到。
+	if goal != "" {
+		if ferr := s.setMeta(r, func(meta *runMeta) { meta.Goal = &threadGoal{Text: goal, At: time.Now().UTC()} }); ferr != nil {
+			file.Close()
+			os.Remove(file.Name())
+			return nil, ferr
+		}
+	}
 	s.addRun(r)
 	ctx, span := r.beginTurn(input.Query)
 	snap.Text, snap.Trace, snap.Protocol = r.Query, span.SpanContext().TraceID().String(), true
 	r.add(snap)
+	r.mu.Lock()
+	notes, delivered := r.notes(), r.pendingGoal()
+	r.mu.Unlock()
 	turn := map[string]any{"question": input.Query}
+	if len(notes) > 0 {
+		turn["notes"] = notes
+	}
 	if len(input.Images) > 0 {
 		turn["images"] = input.Images
 	}
 	s.launch(ctx, r, args, turn, name)
+	s.goalSent(r, delivered)
 	return r.summary(), nil
 }
 
@@ -410,6 +431,7 @@ func (s *Server) startTurn(r *run, input turnInput, user string) (any, *protocol
 		return nil, bad(409, "接着的那一轮已经撤销，不能接着聊")
 	}
 	notes := r.notes()
+	delivered := r.pendingGoal() // 这一轮的提醒里说到了哪个目标（见 notes），发出以后记成说过了
 	file, err := os.OpenFile(filepath.Join(s.runsDir(), r.ID+".jsonl"), os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		r.mu.Unlock()
@@ -476,6 +498,7 @@ func (s *Server) startTurn(r *run, input turnInput, user string) (any, *protocol
 		turn["compact"] = true
 	}
 	s.launch(ctx, r, args, turn, user)
+	s.goalSent(r, delivered)
 	return r.summary(), nil
 }
 
@@ -1173,10 +1196,28 @@ func (r *run) lastCheckpoint() string {
 
 var legacyCheckpointLine = regexp.MustCompile(`^Checkpoint: id=([A-Za-z0-9._-]{1,128}) `)
 
-// notes 是上一个 start 或 continue 之后的分叉、撤销：下一轮要在问题后面告诉模型，
-// 它看到的记录和磁盘上的文件对不上。不另存，按事件算——事件是唯一的事实来源，重启后算出来的一样。
+// pendingGoal 是还没说给模型的目标：设了、改了或者清除过（见 notes）；说过的不再重复。调用方持有 r.mu。
+func (r *run) pendingGoal() *threadGoal {
+	if r.goal == nil || r.goal.Sent {
+		return nil
+	}
+	return r.goal
+}
+
+// notes 是上一个 start 或 continue 之后的提醒，跟着下一轮的问题交给模型：
+// 分叉、撤销以后它看到的记录和磁盘上的文件对不上；人定的目标设了、改了（或者清除了）也是在这里说一次，
+// 说完由 startTurn / threadStart 调 goalSent 记成说过了，不是每轮重复。
+// 不另存，按事件算——事件是唯一的事实来源，重启后算出来的一样；目标是例外，它有自己的 .meta.json，见 threadGoal。
 // 第几轮按 turnIDs 里的位置算，文件清单用“、”连起来。调用方持有 r.mu。
 func (r *run) notes() []string {
+	var notes []string
+	if g := r.pendingGoal(); g != nil {
+		if g.Text == "" {
+			notes = append(notes, "用户清除了这条对话的目标。")
+		} else {
+			notes = append(notes, "用户给这条对话定了目标（之后各轮都朝这个做，做完了或者做不到要说明）："+g.Text)
+		}
+	}
 	turns := r.turnIDs()
 	from := 0
 	for i := len(r.events) - 1; i >= 0; i-- {
@@ -1185,7 +1226,6 @@ func (r *run) notes() []string {
 			break
 		}
 	}
-	var notes []string
 	for _, e := range r.events[from:] {
 		switch e.Kind {
 		case "fork":
@@ -1303,9 +1343,9 @@ func (s *Server) loadRuns() {
 			continue
 		}
 		r := &run{s: s, ID: strings.TrimSuffix(filepath.Base(path), ".jsonl"), Done: true, changed: make(chan struct{})}
-		// 名字、归档、旁支与排队的消息在旁边的 .meta.json 里；没有这个文件就是没改过名、没归档、没排队。
+		// 名字、归档、旁支、排队的消息与目标在旁边的 .meta.json 里；没有这个文件就是没改过名、没归档、没排队、没定目标。
 		if meta, err := readMeta(s.metaPath(r.ID)); err == nil {
-			r.Name, r.Archived, r.Side, r.queue = meta.Name, meta.Archived, meta.Side, meta.Queue
+			r.Name, r.Archived, r.Side, r.queue, r.goal = meta.Name, meta.Archived, meta.Side, meta.Queue, meta.Goal
 		}
 		for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
 			var e event
@@ -1381,6 +1421,10 @@ func (r *run) summary() map[string]any {
 	// 排队的后续消息（有才带）：页面在待发送区里列出它们，所有打开这条对话的页面看到的一样。
 	if len(r.queue) > 0 {
 		summary["queue"] = r.queue
+	}
+	// 目标（有才带）：只带文字，标题下面一行常显；什么时候说给模型、有没有说过是 app-server 自己的事。
+	if r.goal != nil && r.goal.Text != "" {
+		summary["goal"] = r.goal.Text
 	}
 	// 时间给 Unix 毫秒时间戳，由界面按看的人所在的时区显示。
 	if len(r.events) > 0 {

@@ -111,6 +111,7 @@ var methods = map[string]func(*conn, protocol.Message) (any, *protocol.Error){
 	"thread/import":        (*conn).threadImport,
 	"thread/attribute":     (*conn).threadAttribute,
 	"thread/name/set":      (*conn).threadNameSet,
+	"thread/goal/set":      (*conn).threadGoalSet,
 	"thread/archive":       (*conn).threadArchive,
 	"thread/unarchive":     (*conn).threadUnarchive,
 	"thread/delete":        (*conn).threadDelete,

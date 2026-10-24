@@ -18,14 +18,23 @@ import (
 	"github.com/google/uuid"
 )
 
-// 名字、归档、旁支与排队的后续消息放在单独的 .data/runs/<对话ID>.meta.json：
-// {"name": "…", "archived": true, "side": true, "queue": [{"id": "…", "text": "…", "at": "…"}]}，四项都可以没有。
+// 名字、归档、旁支、排队与目标放在单独的 .data/runs/<对话ID>.meta.json：
+// {"name": "…", "archived": true, "side": true, "queue": [{"id": "…", "text": "…", "at": "…"}], "goal": {"text": "…", "at": "…", "sent": false}}，五项都可以没有。
 // 不写进存档 .jsonl：对话结束后存档文件已经关了（run.add 在 exit 时关），改个名也不该把对话顶到列表最上面。
 type runMeta struct {
 	Name     string      `json:"name,omitempty"`
 	Archived bool        `json:"archived,omitempty"`
 	Side     bool        `json:"side,omitempty"`
 	Queue    []queueItem `json:"queue,omitempty"`
+	Goal     *threadGoal `json:"goal,omitempty"`
+}
+
+// threadGoal 是人给这条对话定的目标：界面上常显（summary 的 goal），设了、改了以后在下一轮开始时说给模型一次。
+// Text 为空表示清除：清除同样要说一次（见 notes），说完就把整项去掉；Sent 表示这个目标（或这次清除）已经说过了。
+type threadGoal struct {
+	Text string    `json:"text"`
+	At   time.Time `json:"at"`
+	Sent bool      `json:"sent"`
 }
 
 // queueItem 是排着的一条后续消息：这一轮结束后由 app-server 接着发（见 followUp）。
@@ -37,6 +46,7 @@ type queueItem struct {
 }
 
 const maxThreadName = 100 // 名字最多这么多个字（按字符数，不按字节）
+const maxGoal = 500       // 目标最多这么多个字
 
 func (s *Server) metaPath(id string) string {
 	return filepath.Join(s.runsDir(), id+".meta.json")
@@ -53,10 +63,10 @@ func readMeta(path string) (runMeta, error) {
 }
 
 // writeMeta 先写 .tmp 再 rename，权限和存档一样（0600）：读到的要么是旧内容，要么是新内容。
-// 四项都没有时删掉文件，不留空壳。
+// 五项都没有时删掉文件，不留空壳。
 func (s *Server) writeMeta(id string, meta runMeta) error {
 	path := s.metaPath(id)
-	if meta.Name == "" && !meta.Archived && !meta.Side && len(meta.Queue) == 0 {
+	if meta.Name == "" && !meta.Archived && !meta.Side && len(meta.Queue) == 0 && meta.Goal == nil {
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
@@ -81,16 +91,17 @@ func (s *Server) writeMeta(id string, meta runMeta) error {
 }
 
 // setMeta 改一项元数据：先写文件再改内存，写不进去就不改。
+// Goal 是指针：change 里要改它先复制一份再换，不就地改 r.goal 那一份（写文件失败时内存里就说了不算）。
 func (s *Server) setMeta(r *run, change func(*runMeta)) *protocol.Error {
 	r.mu.Lock()
-	meta := runMeta{Name: r.Name, Archived: r.Archived, Side: r.Side, Queue: slices.Clone(r.queue)}
+	meta := runMeta{Name: r.Name, Archived: r.Archived, Side: r.Side, Queue: slices.Clone(r.queue), Goal: r.goal}
 	r.mu.Unlock()
 	change(&meta)
 	if err := s.writeMeta(r.ID, meta); err != nil {
 		return bad(500, "无法写入对话的元数据："+err.Error())
 	}
 	r.mu.Lock()
-	r.Name, r.Archived, r.Side, r.queue = meta.Name, meta.Archived, meta.Side, meta.Queue
+	r.Name, r.Archived, r.Side, r.queue, r.goal = meta.Name, meta.Archived, meta.Side, meta.Queue, meta.Goal
 	r.mu.Unlock()
 	return nil
 }
@@ -130,6 +141,70 @@ func (c *conn) threadNameSet(m protocol.Message) (any, *protocol.Error) {
 	}
 	c.s.status(r.ID, r.liveStatus())
 	return r.summary(), nil
+}
+
+// thread/goal/set：人给这条对话定的目标，界面上常显（summary 的 goal）；下一轮开始时说给模型一次，见 notes。
+// 文字去掉首尾空白，最长 500 个字；空串表示清除。报错的措辞与 thread/name/set 一样，界面直接显示。
+func (c *conn) threadGoalSet(m protocol.Message) (any, *protocol.Error) {
+	var input struct {
+		ThreadID string `json:"threadId"`
+		Text     string `json:"text"`
+	}
+	if ferr := decode(m, &input); ferr != nil {
+		return nil, ferr
+	}
+	r, ferr := c.threadToManage(input.ThreadID)
+	if ferr != nil {
+		return nil, ferr
+	}
+	text, ferr := goalText(input.Text)
+	if ferr != nil {
+		return nil, ferr
+	}
+	if err := audit.Write(c.ctx, audit.Record{Actor: "user", User: userName(m), Event: "user_thread_goal", Task: r.rootTask, Conversation: r.ID, Target: text, Detail: c.clientName()}); err != nil {
+		return nil, bad(500, "审计日志写入失败，没有改目标："+err.Error())
+	}
+	// 新一轮的 sent 一律记成 false：改过、清除过都要在下一轮说一次（清除时留下一项 Text 为空的，见 threadGoal）。
+	if ferr := c.s.setMeta(r, func(meta *runMeta) { meta.Goal = &threadGoal{Text: text, At: time.Now().UTC()} }); ferr != nil {
+		return nil, ferr
+	}
+	c.s.status(r.ID, r.liveStatus())
+	return r.summary(), nil
+}
+
+// goalText 是目标文字的规范形式：去掉首尾空白，最长 500 个字。空串表示清除。
+func goalText(text string) (string, *protocol.Error) {
+	text = strings.TrimSpace(text)
+	if utf8.RuneCountInString(text) > maxGoal {
+		return "", bad(400, "目标最长 500 个字")
+	}
+	return text, nil
+}
+
+// goalSent 在一轮发出以后把目标记成已经说给模型：下一轮不再重复，清除的提醒也只说一次（说完就把这项去掉）。
+// 这一轮起来之前目标又改过（指针换了），就不动它，留给下一轮说。delivered 是这一轮的 notes 里用的那一份。
+func (s *Server) goalSent(r *run, delivered *threadGoal) {
+	if delivered == nil {
+		return
+	}
+	r.mu.Lock()
+	same := r.goal == delivered
+	r.mu.Unlock()
+	if !same {
+		return
+	}
+	s.setMeta(r, func(meta *runMeta) {
+		if meta.Goal != delivered {
+			return // 这期间又改过目标了，那一项留给下一轮说
+		}
+		if meta.Goal.Text == "" {
+			meta.Goal = nil // 清除的提醒说过了，不留一项空目标
+			return
+		}
+		sent := *meta.Goal
+		sent.Sent = true
+		meta.Goal = &sent
+	})
 }
 
 // thread/archive：归档；正在运行的也可以归档，跑完照常。

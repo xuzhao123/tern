@@ -98,10 +98,18 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
 #main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 #topbar { display: flex; align-items: center; gap: 12px; height: 52px; padding: 0 16px 0 20px; border-bottom: 1px solid var(--line); flex: none; }
 #menu { display: none; border: 0; background: none; padding: 4px; color: var(--muted); }
-#heading { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 10px; }
+#heading { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; align-content: center; gap: 0 10px; }
 #title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 #run-id { flex: none; padding: 1px 6px; border: 0; border-radius: 5px; background: none; color: var(--faint); font: 11.5px/1.6 var(--mono); white-space: nowrap; }
 #run-id:hover { background: var(--hover); color: var(--muted); }
+/* 标题下面一行是这条对话的目标（thread/goal/set）：整行可以点，点了用 prompt 改；没有目标时是淡色的“＋ 定个目标”。 */
+#goal { flex-basis: 100%; min-width: 0; display: flex; align-items: baseline; gap: 6px; padding: 0; border: 0; background: none; color: var(--muted); font-size: 12px; line-height: 1.5; text-align: left; }
+#goal:hover { color: var(--text); }
+#goal.empty #goal-text { color: var(--faint); }
+#goal:hover.empty #goal-text { color: var(--muted); }
+#goal-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#goal-edit { flex: none; padding: 0 4px; border-radius: 4px; color: var(--accent); }
+#goal:hover #goal-edit { background: var(--hover); }
 /* 对话 ID 只在悬停标题时出现，点一下复制；触屏没有悬停，一直显示。 */
 #run-id { opacity: 0; transition: opacity .15s; }
 #heading:hover #run-id, #run-id:focus-visible { opacity: 1; }

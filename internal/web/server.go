@@ -170,6 +170,7 @@ func Run(args []string, mcpHandler http.Handler) error {
 	mux.HandleFunc("POST /runs", s.startRun)
 	mux.HandleFunc("POST /runs/import", s.importRun)
 	mux.HandleFunc("PUT /runs/{id}/name", s.renameRun)
+	mux.HandleFunc("PUT /runs/{id}/goal", s.setRunGoal)
 	mux.HandleFunc("POST /runs/{id}/archive", s.archiveRun)
 	mux.HandleFunc("DELETE /runs/{id}/archive", s.unarchiveRun)
 	mux.HandleFunc("DELETE /runs/{id}", s.deleteRun)
@@ -1035,6 +1036,11 @@ func (s *server) startRun(w http.ResponseWriter, req *http.Request) {
 // 改名、归档、删除：请求体里的 JSON 原样作为参数，path 里的 id 是 threadId。
 func (s *server) renameRun(w http.ResponseWriter, req *http.Request) {
 	s.reply(w, req, "thread/name/set", map[string]any{"threadId": req.PathValue("id")})
+}
+
+// 目标：请求体是 {text}，空串就是清除；回来的摘要带 goal，标题下面那一行照它显示。
+func (s *server) setRunGoal(w http.ResponseWriter, req *http.Request) {
+	s.reply(w, req, "thread/goal/set", map[string]any{"threadId": req.PathValue("id")})
 }
 
 func (s *server) archiveRun(w http.ResponseWriter, req *http.Request) {

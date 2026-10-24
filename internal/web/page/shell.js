@@ -40,6 +40,12 @@ export function renderShell() {
   runID.hidden = !r;
   runID.textContent = r ? r.id.slice(0, 8) : "";
   runID.title = r ? `对话 ID：${r.id}，点击复制` : "";
+  // 标题下面一行是这条对话的目标（summary.goal）：导入的对话与评测的试次不显示，点了改见 editGoal。
+  const goal = $("goal"), goalText = r?.goal || "";
+  goal.hidden = !chat || !r || !!r.source || !!r.eval;
+  goal.classList.toggle("empty", !goalText);
+  $("goal-text").textContent = goalText ? "目标：" + goalText : "＋ 定个目标";
+  $("goal-edit").hidden = !goalText;
   document.title = (ui.waiting ? `(${ui.waiting}) ` : "") + (r ? `tern · ${r.id}` : "tern");
   const status = $("status");
   status.className = r && r.exit && r.exit !== "exit 0" ? "bad" : r && !r.exit ? "run" : "";
@@ -267,6 +273,8 @@ export async function loadRuns() {
     if (!current.done && ui.run.exit && !ui.loading) { show(ui.run.id, false); return; }
     ui.run.queue = current.queue || [];
     ui.run.name = current.name || ""; // 列表里的名字（改过名才有）：导出时当标题
+    // 目标（summary.goal）：标题下面那一行，别的页面改的、换了对话都照列表里的显示。
+    if ((current.goal || "") !== (ui.run.goal || "")) { ui.run.goal = current.goal || ""; renderShell(); }
     // 旁支（summary.side）：横幅写从哪条分出来，原对话的名字或第一句话从同一份列表里取。
     const side = !!current.side, from = side && current.fork_of ? lists[0].find((x) => x.id === current.fork_of) : null;
     const forkName = from ? from.name || from.query || "" : "";
@@ -448,6 +456,22 @@ async function renameRun(r, h) {
   if (name === null) return;
   if (await threadCall(h, `/runs/${encodeURIComponent(r.id)}/name`, "PUT", { name })) loadRuns();
 }
+// 目标：点标题下面那一行改，默认值是现在的目标，留空就是清除（见 thread/goal/set）。
+// 改的是下一轮开始时告诉模型的，这一轮不打断，所以这里只更新那一行。
+async function editGoal() {
+  const r = ui.run;
+  if (!r) return;
+  const text = prompt("这条对话的目标（留空就是清除）：", r.goal || "");
+  if (text === null) return;
+  try {
+    const res = await fetch(api(`/runs/${encodeURIComponent(r.id)}/goal`), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+    if (!res.ok) { alert((await res.text()).trim() || `请求失败（${res.status}）`); return; }
+    const out = await res.json();
+    if (ui.run?.id !== r.id) return;
+    ui.run.goal = out.goal || "";
+    renderShell();
+  } catch (err) { alert("请求失败：" + err.message); }
+}
 async function archiveRun(r, h) {
   if (await threadCall(h, `/runs/${encodeURIComponent(r.id)}/archive`, r.archived ? "DELETE" : "POST")) loadRuns();
 }
@@ -626,6 +650,7 @@ $("run-id").onclick = async () => {
   $("run-id").textContent = note;
   setTimeout(() => { if (ui.run?.id === id) renderShell(); }, 1800);
 };
+$("goal").onclick = editGoal;
 $("menu").onclick = () => document.body.classList.toggle("nav-open");
 $("tab-trace").onclick = () => { ui.tab = "trace"; render(); loadRuns(); };
 $("tab-maze").onclick = () => { ui.tab = "maze"; render(); loadRuns(); };
