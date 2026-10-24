@@ -383,6 +383,18 @@ function atKey(ev) {
   return false;
 }
 
+// Esc 打断（同 Codex）：这一轮正在跑、没有对话框和菜单挡着时，和点停止一样；
+// 待发送区里有插话时和“立即发送”一样——停下这一轮，插话作为下一条消息发出去。
+// 输入法组合中的 Esc 是选词；菜单或别的输入框自己处理过 Esc（已 preventDefault）的也不算。
+document.addEventListener("keydown", (ev) => {
+  if (ev.key !== "Escape" || ev.isComposing || ev.defaultPrevented) return;
+  if (ui.page !== "chat" || !$("send").classList.contains("stop")) return;
+  if (document.querySelector("dialog[open]") || !$("slash").hidden || atMatch) return;
+  ev.preventDefault();
+  const r = ui.run;
+  if (r && ui.steers[r.id]?.items.length) sendSteersNow(); else stopRun();
+});
+
 // 插入：把 @ 加后面敲的字换成路径，后面跟一个空格；路径里有空格时用反引号括起来。
 function insertAt(path) {
   const box = $("query"), at = atMatch;

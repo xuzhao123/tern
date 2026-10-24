@@ -276,6 +276,14 @@ export function renderCall(outer, r, c, last) {
     const meta = el("div", "answer-meta turn-sum"), took = el("span", "", "用时 " + span(c.end - turn[0].start));
     took.title = `${c.res?.model || c.req.model || ""} · 本轮 ${turn.length} 次请求 · 累计 ${used >= 1e6 ? (used / 1e6).toFixed(1) + "M" : kfmt(used)} tokens`;
     meta.append(took);
+    // 复制这一轮回答的 Markdown 原文（同 Codex 的 /copy）：贴到别处时不丢格式。剪贴板要安全上下文。
+    const copy = el("button", "link", "复制");
+    copy.title = "复制这一轮回答的 Markdown 原文";
+    copy.onclick = async () => {
+      try { await navigator.clipboard.writeText(m.content); copy.textContent = "已复制"; setTimeout(() => { copy.textContent = "复制"; }, 1500); }
+      catch { copy.textContent = "复制不了，请手动选择"; }
+    };
+    meta.append(copy);
     if (!r.isSub) { // 子 agent 的请求不在父对话的观测视图里
       const link = el("button", "link", "观测");
       link.onclick = () => observeAt("m" + c.n);

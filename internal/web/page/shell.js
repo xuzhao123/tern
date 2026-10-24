@@ -2,6 +2,7 @@ import { SOURCE_LABEL, endLabel } from "./analysis.js";
 import { renderChat } from "./chat.js";
 import { backToInput, renderSteers, start } from "./composer.js";
 import { openEvals } from "./eval.js";
+import { exportRun } from "./export.js";
 import { show, startReplay, stopReplay, syncRunURL } from "./follow.js";
 import { openCompare, select } from "./observe.js";
 import { pickWorkspace } from "./pages.js";
@@ -27,6 +28,7 @@ export function renderShell() {
   $("title").textContent = ui.tab === "compare" && !chat ? `对比 ${ui.checked.size} 条运行` : r ? r.query || r.id : "新对话";
   $("files-btn").hidden = !chat || !r?.sandbox;
   $("files-btn").classList.toggle("on", !!ui.filesOpen);
+  $("export-btn").hidden = !chat || !r;
   $("diff-btn").hidden = !chat || !r?.workspace;
   $("diff-btn").classList.toggle("on", !!ui.diffOpen);
   const runID = $("run-id");
@@ -225,7 +227,7 @@ export function syncComposer() {
   if (imported) $("model").hidden = $("workspace").hidden = true;
   $("query").disabled = !!imported;
   $("send").disabled = running ? false : ui.sending || !!busy || !!broken || !!ui.replay || !!imported || !$("query").value.trim();
-  $("query").placeholder = imported ? "导入的对话只能查看" : running ? "补充或纠正，agent 做完这一步就会看到（Tab 排到这一轮之后）" : r ? "继续提问" : "给 agent 布置一个任务，/ 选命令";
+  $("query").placeholder = imported ? "导入的对话只能查看" : running ? "补充或纠正，agent 做完这一步就会看到（Tab 排到这一轮之后） · Esc 打断" : r ? "继续提问" : "给 agent 布置一个任务，/ 选命令";
   // 输入框只放这一轮要选的（同 Claude Code）：工具、请求预算在设置页里看，这里只给导入的对话标出来源。
   $("mode-chip").textContent = imported ? `${imported} · ${r.calls.find((c) => c.res?.model)?.res.model || ""}` : "";
   // 只在需要人注意时提示；常规操作说明不放在输入框下面。
@@ -259,6 +261,7 @@ export async function loadRuns() {
     // 我们这边的订阅已经随 exit 收尾了，服务端却还在跑：队列接着发了，或者别的页面续聊了——重新订阅看这一轮。
     if (!current.done && ui.run.exit && !ui.loading) { show(ui.run.id, false); return; }
     ui.run.queue = current.queue || [];
+    ui.run.name = current.name || ""; // 列表里的名字（改过名才有）：导出时当标题
     // 服务端说这条对话还能不能接着聊：撤销到第一轮之前以后仍为真（可以在同一条对话里重新开始），
     // 输入框据此判断要不要当成坏了（见 syncComposer 的 broken）。
     if (ui.run.canContinue !== !!current.can_continue) {
@@ -592,6 +595,8 @@ $("run-search").onkeydown = (ev) => {
 export function autosize() { const q = $("query"); q.style.height = "auto"; q.style.height = q.scrollHeight + "px"; }
 
 $("files-btn").onclick = () => { ui.filesOpen = !ui.filesOpen; if (ui.filesOpen) { ui.subOpen = ui.webOpen = null; ui.diffOpen = false; ui.files.run = null; } renderChat(); renderShell(); };
+// 导出：整条对话在页面里拼成 Markdown 再下载，不经服务端（见 export.js）。
+$("export-btn").onclick = () => exportRun(ui.run);
 $("diff-btn").onclick = () => { ui.diffOpen = !ui.diffOpen; if (ui.diffOpen) { ui.subOpen = ui.webOpen = null; ui.filesOpen = false; ui.diff.run = null; } renderChat(); renderShell(); };
 $("page-chat").onclick = () => { ui.page = "chat"; if (ui.tab === "compare") ui.tab = "trace"; render(); loadRuns(); };
 $("page-observe").onclick = () => { ui.page = "observe"; render(); loadRuns(); };
