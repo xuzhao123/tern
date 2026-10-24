@@ -9,6 +9,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"html"
 	"io"
 	"io/fs"
 	"maps"
@@ -19,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/xuzhao123/tern/internal/appclient"
 	"github.com/xuzhao123/tern/internal/appserver"
@@ -45,6 +47,18 @@ type server struct {
 	remembered []string                   // 页面上连过的主机：写进 .data/web-hosts.json，下次启动在后台连
 	failed     map[string]hostFailure     // 记住了但这次没连上的：别名 → 那次的原因
 	watch      map[chan struct{}]struct{} // 正在等 /connection 的连接
+
+	// oauthStates 是进行中的 MCP 登录：state → 哪台主机发起的、什么时候发的。授权页跳回来的
+	// /mcp-oauth/callback 不带主机前缀，按 state 才知道该把 code 转给哪一台（见 loginMCP）。
+	oauthStates map[string]oauthState
+}
+
+// oauthState 是一次进行中的 MCP 登录：哪台主机的 app-server 发起的、谁点的“登录”、什么时候发的
+// （10 分钟不用就作废）。用户名只给审计用：回调来自别的站点，会话 cookie 不会带上。
+type oauthState struct {
+	alias string
+	user  string
+	at    time.Time
 }
 
 // hostFailure 是一台记住了、这次没连上的主机：kind 是 appclient 的分类（auth、hostkey、
@@ -100,7 +114,7 @@ func Run(args []string, mcpHandler http.Handler) error {
 	if err != nil {
 		return err
 	}
-	s := &server{auth: authState, hosts: map[string]*host{}, failed: map[string]hostFailure{}, watch: map[chan struct{}]struct{}{}}
+	s := &server{auth: authState, hosts: map[string]*host{}, failed: map[string]hostFailure{}, watch: map[chan struct{}]struct{}{}, oauthStates: map[string]oauthState{}}
 	// 命令行定的主机先连上：不带 -remote 是本机，带了几台就只连这几台（远端的 app-server 由 proxy 自己 start）。
 	targets := []string{""}
 	if len(remotes) > 0 {
@@ -226,6 +240,11 @@ func Run(args []string, mcpHandler http.Handler) error {
 	mux.HandleFunc("DELETE /hub/mcp/{name}", s.deleteMCP)
 	mux.HandleFunc("POST /hub/mcp/{name}/enabled", s.toggleMCP)
 	mux.HandleFunc("POST /hub/mcp/{name}/test", s.testMCP)
+	// OAuth 登录：登录/退出登录跟着当前主机走（带 /h/<别名>/ 前缀时转给那台）；
+	// 授权页跳回来的 /mcp-oauth/callback 不带主机前缀，按 state 找回发起登录的那台（见 loginMCP）。
+	mux.HandleFunc("POST /hub/mcp/{name}/login", s.loginMCP)
+	mux.HandleFunc("POST /hub/mcp/{name}/logout", s.logoutMCP)
+	mux.HandleFunc("GET /mcp-oauth/callback", s.oauthCallback)
 	// 内置远程 MCP：同一进程直接处理，不另开端口、不转发；同样只接受本机同源请求。
 	mux.Handle("/mcp", sameOrigin(mcpHandler))
 	fmt.Printf("网页端：http://%s\n远程 MCP：http://%s/mcp（内置 calculator，Streamable HTTP）\n", *addr, *addr)
@@ -1356,6 +1375,117 @@ func (s *server) toggleMCP(w http.ResponseWriter, req *http.Request) {
 
 func (s *server) testMCP(w http.ResponseWriter, req *http.Request) {
 	s.reply(w, req, "hub/mcp/test", map[string]any{"name": req.PathValue("name")})
+}
+
+// loginMCP 是 MCP 中心的“登录”：转给那台的 app-server 建授权地址（hub/mcp/login/start），
+// 再把地址里的 state 记下是哪台主机发起的——授权页跳回来时（/mcp-oauth/callback）才知道把 code 转给谁。
+func (s *server) loginMCP(w http.ResponseWriter, req *http.Request) {
+	p, ok := s.params(w, req, map[string]any{"name": req.PathValue("name")})
+	if !ok {
+		return
+	}
+	result, err := s.call(req, "hub/mcp/login/start", p)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	var started struct {
+		URL string `json:"url"`
+	}
+	if json.Unmarshal(result, &started) == nil {
+		if authURL, perr := url.Parse(started.URL); perr == nil {
+			if h, _ := hostIn(req); h != nil {
+				user := ""
+				if u := current(req); u != nil {
+					user = u.Name
+				}
+				s.rememberOAuthState(authURL.Query().Get("state"), h.alias, user)
+			}
+		}
+	}
+	writeJSON(w, result)
+}
+
+// logoutMCP 是 MCP 中心的“退出登录”：那台的 app-server 把这个 server 的令牌从 .data/mcp-tokens.json 里删掉。
+func (s *server) logoutMCP(w http.ResponseWriter, req *http.Request) {
+	s.replyText(w, req, "hub/mcp/logout", map[string]any{"name": req.PathValue("name")}, "ok")
+}
+
+// oauthCallback 是授权页跳回来的那一页：按 state 找到发起登录的主机，把 code 转给那台的
+// hub/mcp/login/finish，然后把结果写在页面上，并让原来那个标签页刷新 MCP 中心。
+// 这条路由不带主机前缀，而且不要求先登录：从授权页跳过来是别的站点的跳转，SameSite=Strict 的会话
+// cookie 不会带上；认领这次登录靠的是只在这台网页端内存里的 state（app-server 那边也按 state 认）。
+func (s *server) oauthCallback(w http.ResponseWriter, req *http.Request) {
+	query := req.URL.Query()
+	state, code := query.Get("state"), query.Get("code")
+	alias, user, ok := s.takeOAuthState(state)
+	if !ok {
+		s.mcpLoginPage(w, http.StatusBadRequest, "", "这次登录已经过期，或者不是从这里发起的：回 MCP 中心重新点“登录”。")
+		return
+	}
+	h := s.connected(alias)
+	if h == nil {
+		label := alias
+		if label == "" {
+			label = "本机"
+		}
+		s.mcpLoginPage(w, http.StatusBadGateway, "", "发起登录的主机（"+label+"）现在没连上：连上以后再点一次“登录”。")
+		return
+	}
+	params := map[string]any{"state": state, "code": code}
+	if user != "" {
+		params["user"] = user
+	}
+	var done struct {
+		Name string `json:"name"`
+	}
+	if err := h.client.Call(req.Context(), "hub/mcp/login/finish", params, &done); err != nil {
+		s.mcpLoginPage(w, statusOf(err), "", "登录没完成："+err.Error())
+		return
+	}
+	s.mcpLoginPage(w, http.StatusOK, done.Name, "")
+}
+
+// mcpLoginPage 是回调那一页：成功时只说已登录、并 postMessage 让原来那个标签页刷新 MCP 中心
+// （没有 opener 就算了）；失败时原样写出原因。
+func (s *server) mcpLoginPage(w http.ResponseWriter, status int, name, problem string) {
+	text := "已登录 " + name + "，可以关掉这个页面。"
+	notify := `try { if (window.opener) window.opener.postMessage("mcp-oauth", location.origin); } catch {}`
+	if problem != "" {
+		text, notify = problem, ""
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.WriteHeader(status)
+	fmt.Fprintf(w, "<!doctype html>\n<html lang=\"zh-CN\"><meta charset=\"utf-8\"><title>MCP 登录</title>\n<body style=\"font: 16px/1.6 system-ui, sans-serif; margin: 4rem auto; max-width: 40rem; padding: 0 1rem\">\n<p>%s</p>\n<script>%s</script>\n</body></html>\n", html.EscapeString(text), notify)
+}
+
+// rememberOAuthState 记下这次登录是哪台主机发起的、谁点的，顺手清掉过期的（app-server 那边也按 10 分钟过期）。
+func (s *server) rememberOAuthState(state, alias, user string) {
+	if state == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	for key, old := range s.oauthStates {
+		if now.Sub(old.at) > 10*time.Minute {
+			delete(s.oauthStates, key)
+		}
+	}
+	s.oauthStates[state] = oauthState{alias: alias, user: user, at: now}
+}
+
+// takeOAuthState 取回 state 是哪台主机、谁发起的并删掉：一次登录只认一次回调。
+func (s *server) takeOAuthState(state string) (string, string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, found := s.oauthStates[state]
+	delete(s.oauthStates, state)
+	if !found || time.Since(entry.at) > 10*time.Minute {
+		return "", "", false
+	}
+	return entry.alias, entry.user, true
 }
 
 // ---------- 评测 ----------

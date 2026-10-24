@@ -259,10 +259,10 @@ func current(req *http.Request) *user {
 	return u
 }
 
-// 不需要登录的路径：登录页和内置 MCP（只接受本机同源请求）。
+// 不需要登录的路径：登录页、内置 MCP（只接受本机同源请求）与 MCP 的 OAuth 回调。
 // 模型代理在 app-server 的 llm.sock 上，不在网页端，agent 不再经过网页端。
 func public(path string) bool {
-	return path == "/login" || path == "/mcp"
+	return path == "/login" || path == "/mcp" || path == "/mcp-oauth/callback"
 }
 
 // pagePath 是页面本身，不是接口：本机是 `/`，远端是 `/h/<别名>/`（不带结尾的斜杠也认）。

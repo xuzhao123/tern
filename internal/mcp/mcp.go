@@ -113,11 +113,23 @@ func Connect(ctx context.Context, command string) (conn *Connection, listed []sd
 	if IsURL(command) {
 		protocol.Event("capability/event", "mcp_connect", "MCP connect: url="+command)
 		// 远程 server 不是本进程启动的，Close 只断开连接，不会结束对方。
-		if c, err = client.NewStreamableHttpClient(command); err == nil {
+		// 令牌文件里有这个地址的令牌就用 OAuth 客户端：过期的令牌由 mcp-go 用 refresh token 换新，写回同一个文件。
+		// 没有令牌仍是普通客户端，server 回 401 时在下面按“需要登录”处理。
+		if HasToken(command) {
+			config, configErr := oauthConfig(command, "")
+			if configErr == nil {
+				c, err = client.NewOAuthStreamableHttpClient(command, config)
+			} else {
+				err = configErr
+			}
+		} else {
+			c, err = client.NewStreamableHttpClient(command)
+		}
+		if err == nil {
 			err = c.Start(ctx)
 		}
 		if err != nil {
-			return nil, nil, fmt.Errorf("无法连接远程 MCP server：%w", err)
+			return nil, nil, remoteError(command, err)
 		}
 	} else {
 		fields := strings.Fields(command)
@@ -142,6 +154,9 @@ func Connect(ctx context.Context, command string) (conn *Connection, listed []sd
 	info, err := c.Initialize(ctx, request)
 	if err != nil {
 		c.Close()
+		if IsURL(command) {
+			return nil, nil, remoteError(command, err)
+		}
 		return nil, nil, fmt.Errorf("MCP 连接失败：%w", err)
 	}
 	// MCP 约定的 span 名是“方法 目标”；握手后才知道 server 名。
@@ -165,6 +180,15 @@ func Connect(ctx context.Context, command string) (conn *Connection, listed []sd
 		name = fmt.Sprintf("server%d", serverCount)
 	}
 	return &Connection{client: c, Name: name, hasResources: info.Capabilities.Resources != nil, tools: map[string]string{}, transport: transportName, destructive: map[string]bool{}, hints: map[string]Hints{}}, result.Tools, nil
+}
+
+// remoteError 是连远程 server 失败时给人看的话：要求授权不是“连不上”，提示去 MCP 中心点“登录”，
+// 这个 server 和连不上的一样跳过（MCP 中心的“测试连接”也据这句话认出要登录）。
+func remoteError(command string, err error) error {
+	if client.IsAuthorizationRequiredError(err) {
+		return fmt.Errorf("%s：%s，到 MCP 中心点“登录”", AuthRequiredMessage, command)
+	}
+	return fmt.Errorf("无法连接远程 MCP server：%w", err)
 }
 
 var invalidToolChars = regexp.MustCompile(`[^A-Za-z0-9_-]`)

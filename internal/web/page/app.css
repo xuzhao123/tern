@@ -264,6 +264,9 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
 .hub-card .meta, .hub-card .cmd { font-size: 11px; }
 .hub-card .cmd { font-family: var(--mono); color: var(--muted); }
 .hub-card pre { max-height: 320px; overflow: auto; font-size: 11px; }
+/* MCP 中心的登录状态：远程 server 才有；已登录时只留“退出登录”，没登录时给“登录”与可选的客户端身份（见 pages.js）。 */
+.mcp-auth { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; }
+.mcp-auth input { padding: 4px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); font: 11px/1.5 var(--mono); }
 .switch { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); cursor: pointer; }
 .hub-form { display: grid; gap: 8px; margin: 0 0 14px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--side); }
 .hub-form input, .hub-form textarea { width: 100%; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }

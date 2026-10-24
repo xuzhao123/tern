@@ -113,6 +113,10 @@
     {
       "at": "2026-10-24T21:22:57.828240774Z",
       "text": "spec/bash-interactive.md 已实现（未提交，6 个文件改动：internal/sandbox/{jobs.go,sandbox.go,network.go}、internal/agent/{toolspec.go,dispatch.go}、README.md）。验收 5.1 通过：gofmt -l . 无输出，go vet ./...、go build ./... 通过；5.2 是读代码报告（见本轮回答：stdin 写端在命令结束/被停/close=true 时由 j.closeInput 关掉，tty 命令行是 sandbox-init script -q -f -e -c \u003c命令\u003e /dev/null）。沙箱里 bwrap 不能嵌套（--unshare-all 报 ENOSPC），所以没有实跑；另做了两项机制自测：宿主机上用真管道 + script 验过“写 y\\n 回答 read -p”“python3 -i -q 输入后 close 读到 EOF”“退出码”（临时目录已删），并在临时 clone 里用 package 内的假 job 跑通 bash_input 的写、close（命令读到 EOF）、已结束报错、空参数、超过 64KB、没有这个 job 五条分支。剩下的 spec 5.3–5.5（真实模型跑 read -p、python3 -i、已结束再写）留给 Claude Code 在沙箱外做。"
+    },
+    {
+      "at": "2026-10-24T21:42:47.367759799Z",
+      "text": "spec/mcp-oauth.md 已实现，未提交（10 个改动文件 + 新文件 internal/mcp/oauth.go）。验收 5.1 通过：gofmt -l . 无输出、go vet ./... 与 go build ./... 通过、node --check internal/web/page/pages.js 通过。沙箱里另做了四组自测（临时 TERN_HOME + python 写的假 MCP/OAuth server，文件都已删）：① 协议级：hub/mcp/test 回 auth=required 且输出“MCP 需要登录…”，hub/mcp/login/start 动态注册（cid-1）→ PKCE S256 + state，令牌文件 0600（.lock 也 0600）、hub.json 不变，login/finish 换到 tkn-1，hub/enabled 与 hub/list 的 auth=logged_in，带令牌 -mcp-list 成功（发 Bearer tkn-1），logout 删掉整项、auth 变回 required，state 复用与错 state 都回 400；② 过期令牌：手改成 expired + 有 refresh_token，-mcp-list 自动 refresh，文件里变成 tkn-2；③ 不支持动态注册的 server：回 400“这个 MCP server 不支持自动注册客户端…”，带 client_id/client_secret 再点就能走，凭据只进令牌文件；④ 真网页端 + 无头 Chrome：登录后 POST /hub/mcp/fake/login，回调 GET /mcp-oauth/callback（不带 cookie）回 200“已登录 fake”并带 postMessage，bogus state 回 400，审计有 user_mcp_login/user_mcp_logout（Target=fake，带登录名）；页面打桩验过三种卡片（需要登录+登录+两个可选输入 / 已登录+退出登录 / stdio 没有登录行）、测试连接后原地变成“需要登录”、登录时 POST 体带 redirect 与 client_id、postMessage 会刷新 MCP 中心。剩下的 spec 5.3–5.7（真实 OAuth MCP、真浏览器授权）留给用户自己测。实现时对 spec 的几处取舍写在回答里（agent 侧提示用 URL 而不是 hub 名字；auth=required 只在 app-server 内存里；回调路由免登录；logout 删整项；另外动了 spec 文件表没列的 internal/web/auth.go 与 app.css）。"
     }
   ]
 }

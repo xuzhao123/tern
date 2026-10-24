@@ -79,6 +79,11 @@ export async function openMemory(focus) {
 }
 $("skills-hub").onclick = () => openSkills();
 $("mcp-hub").onclick = () => openMCP();
+// MCP 登录的回调页在另一个标签页里：它登录完 postMessage 过来，正开着的 MCP 中心重新取一次状态。
+window.addEventListener("message", (ev) => {
+  if (ev.origin !== location.origin || ev.data !== "mcp-oauth") return;
+  if (document.querySelector(".hubpanel[data-hub=mcp]")) openMCP();
+});
 // 设置页：工具常驻，按 内置默认 → 平台 → 项目 → 个人 合并；项目是所选工作区里的 .agents/tern.json。
 // 本机条件只会关掉工具。改动只影响之后的新对话。
 const SET_SOURCE = { builtin: "内置默认", platform: "平台", project: "项目", user: "你" };
@@ -447,8 +452,9 @@ export async function openSkills() {
 // 预设统一从源码启动，在项目根目录执行，无需提前准备可执行文件。
 const MCP_PRESETS = [["tern-web", location.origin + "/mcp", "网页端内置的远程 MCP server（Streamable HTTP），工具是一个计算器 calculator（四则运算、括号、sqrt、floor）"], ["everything", "go run github.com/mark3labs/mcp-go/examples/everything@v1.1.1", "示例 server；首次运行会下载并编译"], ["calculator", "go run . -mcp-serve", "本项目 server，始终用当前源码"]];
 export async function openMCP() {
-  const panel = await openHubPage("MCP 中心", "两种 server：填 http(s) 地址是远程 server（Streamable HTTP，每条消息一个 POST）；填命令是本地 stdio server（相对 agent 目录执行，按空格切分、不经过 shell）。配置保存在 .data/hub.json。新对话勾选 MCP 时，打开的 server 由 agent 逐个连接，工具注册为 mcp_<原名>；连不上的 server 跳过，与已有工具重名的工具跳过。");
+  const panel = await openHubPage("MCP 中心", "两种 server：填 http(s) 地址是远程 server（Streamable HTTP，每条消息一个 POST）；填命令是本地 stdio server（相对 agent 目录执行，按空格切分、不经过 shell）。配置保存在 .data/hub.json。新对话勾选 MCP 时，打开的 server 由 agent 逐个连接，工具注册为 mcp_<原名>；连不上的 server 跳过，与已有工具重名的工具跳过。要求 OAuth 的远程 server 点“登录”，令牌存在 .data/mcp-tokens.json。");
   if (!panel) return;
+  panel.dataset.hub = "mcp";
   let data;
   try { data = await (await hubCall("GET", "/hub/enabled")).json(); }
   catch (err) { panel.lastChild.replaceWith(el("div", "err", "读取失败：" + err.message)); return; }
@@ -471,12 +477,48 @@ export async function openMCP() {
   for (const m of data.mcp_servers) {
     const card = el("article", "hub-card" + (m.enabled ? "" : " off")), head = el("div", "hub-head"), push = el("div", "push");
     const test = el("button", "ghost", "测试连接"), del = el("button", "ghost", "删除"), out = el("div");
+    // 远程 server 的登录状态（app-server 的 hub/list 给的 auth）：需要登录、已登录、未登录。
+    // 令牌与 client_secret 不经网页端，页面只知道这几种状态。
+    const remote = /^https?:\/\//.test(m.command), auth = el("div", "mcp-auth");
+    const login = el("button", "ghost", "登录"), logout = el("button", "ghost", "退出登录");
+    const clientId = el("input"), clientSecret = el("input");
+    clientId.placeholder = "client_id（可选：server 不支持自动注册时填）"; clientSecret.placeholder = "client_secret（可选）"; clientSecret.type = "password";
+    let authState = m.auth || "none";
+    const renderAuth = () => {
+      if (!remote) return;
+      if (authState === "logged_in") { auth.replaceChildren(el("span", "meta", "已登录"), logout); return; }
+      auth.replaceChildren(el("span", "meta", authState === "required" ? "需要登录" : "未登录"), login, clientId, clientSecret);
+    };
+    renderAuth();
+    login.onclick = async () => {
+      // 授权页要在这次点击里就打开：等接口回来再 window.open 多半会被浏览器拦掉。
+      const tab = window.open("", "_blank");
+      login.disabled = true;
+      try {
+        const body = { redirect: location.origin + "/mcp-oauth/callback" };
+        if (clientId.value.trim()) body.client_id = clientId.value.trim();
+        if (clientSecret.value.trim()) body.client_secret = clientSecret.value.trim();
+        const started = await (await hubCall("POST", `/hub/mcp/${m.name}/login`, body)).json();
+        if (tab) tab.location = started.url; else window.open(started.url, "_blank");
+        out.replaceChildren(el("div", "meta", "已在新标签页打开授权页：在那边登录、授权，回到这里会自动刷新。"));
+      } catch (err) {
+        if (tab) tab.close();
+        out.replaceChildren(el("div", "err", err.message));
+      }
+      login.disabled = false;
+    };
+    logout.onclick = async () => {
+      if (!confirm(`退出登录 ${m.name}？它的令牌会从 .data/mcp-tokens.json 里删掉。`)) return;
+      try { await hubCall("POST", `/hub/mcp/${m.name}/logout`); openMCP(); loadEnabled(); } catch (err) { alert(err.message); }
+    };
     test.onclick = async () => {
       test.disabled = true; out.replaceChildren(el("div", "shimmer", "agent -mcp-list 连接中…"));
       try {
         const result = await (await hubCall("POST", `/hub/mcp/${m.name}/test`)).json();
         const lines = result.output.split("\n"), count = lines.map((l) => /^MCP tools\/list: count=(\d+)/.exec(l)).find(Boolean);
         const hint = /exec format error/.test(result.output) ? "：请使用上方的源码启动预设，或重新构建后重试" : "";
+        // 要求授权时 agent 的报错里写着“MCP 需要登录”：把这一项标成“需要登录”、给出“登录”按钮。
+        if (result.auth) { authState = result.auth; renderAuth(); }
         out.replaceChildren(el("div", result.ok ? "meta" : "err", result.ok ? `连接成功 · ${count ? count[1] : "?"} 个工具` : "连接失败" + hint), el("pre", result.ok ? "" : "err", result.output.trim()));
       } catch (err) { out.replaceChildren(el("div", "err", err.message)); }
       test.disabled = false;
@@ -487,7 +529,7 @@ export async function openMCP() {
     };
     push.append(hubToggle(m.enabled, async (on) => { await hubCall("POST", `/hub/mcp/${m.name}/enabled`, { enabled: on }); openMCP(); }), test, del);
     head.append(el("strong", "", m.name), push);
-    card.append(head, el("div", "cmd", m.command), out);
+    card.append(head, el("div", "cmd", m.command), auth, out);
     panel.append(card);
   }
 }

@@ -198,7 +198,7 @@ tern -question '计算 1231+23123'
 | `-memory-mode` | rerank | memory-search 的方式：keyword（旧关键词）、vector、bm25、hybrid（RRF）、rerank（完整流程） |
 | `-memory-context-calls` | 4 | 本次运行最多几次背景生成；0 表示全部按原文检索 |
 | `-memory-tokens` | 800 | 注入或返回的记忆估算 token 预算，另有最多5条的上限 |
-| `-mcp-server` | 空 | MCP server：`http(s)://…` 地址连远程 server（Streamable HTTP），否则当作子进程命令（stdio，按空格切分，不经过shell）；可重复给多个；配合 `-question` 时把它们的工具注册为 `mcp_*`，连不上的 server 打印 `MCP error` 后跳过；server 提供 resources 时另加两个工具 `list_mcp_resources`、`read_mcp_resource`；`-mcp-list`/`-mcp-raw` 只接受一个 |
+| `-mcp-server` | 空 | MCP server：`http(s)://…` 地址连远程 server（Streamable HTTP），否则当作子进程命令（stdio，按空格切分，不经过shell）；可重复给多个；配合 `-question` 时把它们的工具注册为 `mcp_*`，连不上的 server 打印 `MCP error` 后跳过；要求 OAuth 的远程 MCP 先在网页端的 MCP 中心点“登录”（令牌存在 `.data/mcp-tokens.json`），没登录时这个 server 跳过并提示去登录；server 提供 resources 时另加两个工具 `list_mcp_resources`、`read_mcp_resource`；`-mcp-list`/`-mcp-raw` 只接受一个 |
 | `-mcp-list` | false | 只用 SDK 连接 `-mcp-server`，打印协议版本、capabilities 与工具列表，不请求模型 |
 | `-mcp-raw` | 空 | 不用 SDK，手写 JSON-RPC：`legacy`（initialize 握手）或 `modern`（server/discover + 每请求 `_meta`），逐行打印收发 |
 | `-mcp-call` / `-mcp-args` | 空 / `{}` | 配合 `-mcp-list` 或 `-mcp-raw` 再调用一次指定工具 |
