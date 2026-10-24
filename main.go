@@ -830,6 +830,10 @@ func run() error {
 		llm.Tools = append(llm.Tools, conn.Definitions(listed)...)
 		mcp.Conns = append(mcp.Conns, conn)
 	}
+	// 有 server 提供 resources 时加两个资源工具（只加一次，不按 server 加）；资源是 server 给的只读内容。
+	if mcp.HasResources() {
+		llm.Tools = append(llm.Tools, mcp.ResourceDefinitions...)
+	}
 	if *subagents {
 		// 子 agent 继承工具开关和运行参数；不继承长期记忆（子 agent 的“用户”是父 agent，不是真人）、
 		// 不继承 -subagents（只允许一层）、不继承续聊与整次时限（由父进程的 ctx 管）。

@@ -125,6 +125,18 @@ func runTool(ctx context.Context, call llm.ToolCall) (result any, err error) {
 		return websearch.Run(ctx, call.Function.Name, call.Function.Arguments)
 	case "read_output":
 		return readOutput(call.Function.Arguments)
+	case "list_mcp_resources", "read_mcp_resource":
+		var args struct {
+			Server string `json:"server"`
+			URI    string `json:"uri"`
+		}
+		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
+			return nil, llm.Permanent(errors.New("server、uri 需要是字符串"))
+		}
+		if call.Function.Name == "list_mcp_resources" {
+			return mcp.ListResources(ctx, args.Server)
+		}
+		return mcp.ReadResource(ctx, args.Server, args.URI)
 	case "view_image":
 		return viewImage(call.Function.Arguments)
 	case "progress":
