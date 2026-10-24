@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
 	"os/exec"
@@ -15,10 +16,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/xuzhao123/tern/internal/audit"
 	"github.com/xuzhao123/tern/internal/commands"
 	"github.com/xuzhao123/tern/internal/hooks"
 	"github.com/xuzhao123/tern/internal/llm"
 	"github.com/xuzhao123/tern/internal/protocol"
+	"github.com/xuzhao123/tern/internal/workspace"
 )
 
 // 设置：工具常驻，由这里决定；每个对话只选模型和工作区（参考 Claude Code 的 settings.json、Codex 的 config.toml）。
@@ -28,20 +31,19 @@ import (
 // 文件放 .data/settings.json（不提交）。
 
 // 工具开关的键，值是 on 或 off；页面按这个顺序列出。
-var toolOrder = []string{"calculator", "get_current_datetime", "rag", "memory", "skills", "mcp", "subagents", "ask_user", "bash", "web_search", "open_page", "ds_search", "coding"}
+var toolOrder = []string{"rag", "memory", "skills", "mcp", "subagents", "ask_user", "bash", "web_search", "open_page", "ds_search", "coding"}
 
 // singleTools 的开关只管一个工具，键名就是工具名：关掉的写进快照的 disallowed_tools，agent 用 -disallowed-tools 去掉。
-var singleTools = []string{"calculator", "get_current_datetime", "web_search", "open_page"}
+var singleTools = []string{"web_search", "open_page"}
 
 // 检索和记忆默认关：检索的系统提示词是为知识库问答写的，会要求每个知识问题先查资料；记忆每次新对话都要多发几次模型请求做召回。
 // 必应搜索默认关：必应多半不给自动化浏览器结果，
 // 搜索交给 ds_search，浏览器只留 open_page 打开要渲染的页面。
 var builtin = map[string]string{
-	"calculator": "on", "get_current_datetime": "on",
 	"rag": "off", "memory": "off", "skills": "on", "mcp": "on", "subagents": "on", "ask_user": "on", "bash": "on", "web_search": "off", "open_page": "on", "ds_search": "on", "coding": "on",
 	"embedding": "ark", "memory_ttl": "", "provider": "ark", "model": "", "workspace": "",
 	"max_steps": "0", "context_window": "0", "tool_output": "4000",
-	"permission_mode": "edit", "permission_rules": "", "net_allow": "",
+	"permission_mode": "edit", "permission_rules": "", "net_allow": "", "reasoning_effort": "high",
 	"hooks": "",
 }
 
@@ -100,6 +102,8 @@ func ruleLines(text string) []string {
 type workspaceDir struct {
 	Name string `json:"name"`
 	Path string `json:"path"`
+	// Git 只在设置页的回复里填（标出不是 git 仓库的目录），settings.json 里没有这一项。
+	Git bool `json:"git,omitempty"`
 }
 
 type settingsFile struct {
@@ -178,6 +182,10 @@ func valid(key, value string, f settingsFile) error {
 			if !ruleLine.MatchString(line) {
 				return fmt.Errorf("权限规则一行一条，格式如 allow: Bash(go build *)：%q", line)
 			}
+		}
+	case "reasoning_effort":
+		if !slices.Contains([]string{"minimal", "low", "medium", "high"}, value) {
+			return errors.New("reasoning_effort 取 minimal、low、medium 或 high")
 		}
 	case "net_allow":
 		for _, domain := range netDomains(value) {
@@ -325,13 +333,23 @@ func modelFor(provider, model string) string {
 }
 
 // settings/read：合并后的设置、每一层自己的值、内置默认与工具顺序，界面据此画设置页。
+// instructions 是这台机器上 $TERN_HOME/AGENTS.md 个人指令的位置与现状，只显示，不在网页上编辑。
 func (c *conn) settingsRead(m protocol.Message) (any, *protocol.Error) {
 	name := userName(m)
 	e, f, err := c.s.effectiveFor(name)
 	if err != nil {
 		return nil, bad(500, "无法读取设置："+err.Error())
 	}
-	return map[string]any{"effective": e, "platform": f.Platform, "user": f.Users[name], "builtin": builtin, "tool_order": toolOrder}, nil
+	path, exists, chars := workspace.PersonalFile(c.s.dir)
+	instructions := map[string]any{"path": path, "exists": exists, "chars": chars}
+	// 设置页要标出不是 git 仓库的工作区：按 .git 现查，只放在这次的回复里，不写回 settings.json。
+	workspaces := make([]workspaceDir, len(e.Workspaces))
+	copy(workspaces, e.Workspaces)
+	for i := range workspaces {
+		workspaces[i].Git = isGitRepo(workspaces[i].Path)
+	}
+	e.Workspaces = workspaces
+	return map[string]any{"effective": e, "platform": f.Platform, "user": f.Users[name], "builtin": builtin, "tool_order": toolOrder, "instructions": instructions}, nil
 }
 
 // settings/write 保存一层设置：参数是这一层想要的完整取值，只存和下一层不同的键，
@@ -415,10 +433,35 @@ func (s *Server) alwaysAllow(name, domain string) error {
 	return s.writeSettings(f)
 }
 
-// workspace/add：登记本机上一个已存在的 git 仓库目录。对话只能从这个列表里选，界面不能直接给路径。
+// workspacePath 把界面填的目录变成绝对路径：只认 ~、~/… 和绝对路径。这里不经过 shell，~ 得自己展开；
+// 家目录取 app-server 所在机器的（远程时就是远端的，和这里改的本来就是远端的设置一致）。其他相对路径不收：
+// app-server 启动时就 chdir 到 TERN_HOME，没有用户以为的那个“当前目录”，以前接在 TERN_HOME 后面只会让登记失败。
+func workspacePath(raw string) (string, *protocol.Error) {
+	path := strings.TrimSpace(raw)
+	if path == "~" || strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", bad(500, "找不到家目录，请填绝对路径："+err.Error())
+		}
+		path = filepath.Join(home, path[1:])
+	} else if !filepath.IsAbs(path) {
+		return "", bad(400, "请填绝对路径，可以用 ~ 开头，例如 ~/workspace/tern")
+	}
+	return filepath.Clean(path), nil
+}
+
+// isGitRepo：目录下有 .git 就算 git 仓库，登记时只收这样的目录。
+func isGitRepo(path string) bool {
+	_, err := os.Stat(filepath.Join(path, ".git"))
+	return err == nil
+}
+
+// workspace/add：登记本机上一个已存在的目录。默认只收 git 仓库（改坏了能用 git 回退）；
+// git 参数说不是 git 仓库时怎么办：init 先在目录里 git init，skip 照旧登记（撤销只能退 edit_file、write_file 改过的文件，也没有改动面板）。
 func (c *conn) workspaceAdd(m protocol.Message) (any, *protocol.Error) {
 	var input struct {
 		Path string `json:"path"`
+		Git  string `json:"git"`
 	}
 	if ferr := decode(m, &input); ferr != nil {
 		return nil, ferr
@@ -427,16 +470,27 @@ func (c *conn) workspaceAdd(m protocol.Message) (any, *protocol.Error) {
 		return nil, bad(400, "请填写目录路径")
 	}
 	s := c.s
-	path := strings.TrimSpace(input.Path)
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(s.dir, path) // 相对路径按 TERN_HOME 解析，和 agent 的工作目录一致
+	path, ferr := workspacePath(input.Path)
+	if ferr != nil {
+		return nil, ferr
 	}
-	path = filepath.Clean(path)
 	if info, err := os.Stat(path); err != nil || !info.IsDir() {
 		return nil, bad(400, "目录不存在："+path)
 	}
-	if _, err := os.Stat(filepath.Join(path, ".git")); err != nil {
-		return nil, bad(400, "不是 git 仓库（没有 .git）："+path+"；改坏了要能用 git 回退")
+	switch input.Git {
+	case "":
+		if !isGitRepo(path) {
+			return nil, bad(400, "不是 git 仓库（没有 .git）："+path+"；改坏了要能用 git 回退")
+		}
+	case "init":
+		if !isGitRepo(path) {
+			if _, err := c.git(path, "init"); err != nil {
+				return nil, bad(500, "git init 失败："+err.Error())
+			}
+		}
+	case "skip":
+	default:
+		return nil, bad(400, "git 取 init（先 git init）、skip（不是 git 仓库也登记），或者留空")
 	}
 	name := filepath.Base(path)
 	if !serverName.MatchString(strings.ToLower(name)) {
@@ -462,6 +516,183 @@ func (c *conn) workspaceAdd(m protocol.Message) (any, *protocol.Error) {
 		return nil, bad(500, err.Error())
 	}
 	return workspaceDir{Name: name, Path: path}, nil
+}
+
+// maxBrowseEntries 是选目录对话框一次最多列多少个子目录：家目录下偶尔有几千个，全列出来页面会卡。
+const maxBrowseEntries = 500
+
+type browseEntry struct {
+	Name       string `json:"name"`
+	Path       string `json:"path"`
+	Git        bool   `json:"git"`
+	Registered string `json:"registered"`
+}
+
+// workspace/browse：列出这台机器上某个目录下的子目录，给界面的选目录对话框用。空路径表示家目录。
+// 只读：不建目录、不改设置。能连上 app-server 的就是这台机器的主人，这里只给目录名，不给文件内容。
+func (c *conn) workspaceBrowse(m protocol.Message) (any, *protocol.Error) {
+	var input struct {
+		Path string `json:"path"`
+	}
+	if ferr := decode(m, &input); ferr != nil {
+		return nil, ferr
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, bad(500, "找不到家目录："+err.Error())
+	}
+	home = filepath.Clean(home)
+	path := home
+	if strings.TrimSpace(input.Path) != "" {
+		p, ferr := workspacePath(input.Path)
+		if ferr != nil {
+			return nil, ferr
+		}
+		path = p
+	}
+	if info, err := os.Stat(path); err != nil || !info.IsDir() {
+		if errors.Is(err, fs.ErrPermission) {
+			return nil, bad(400, "没有权限读这个目录："+path)
+		}
+		return nil, bad(400, "目录不存在："+path)
+	}
+	items, err := os.ReadDir(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrPermission) {
+			return nil, bad(400, "没有权限读这个目录："+path)
+		}
+		return nil, bad(500, "读不了这个目录："+err.Error())
+	}
+	s := c.s
+	s.hubMu.Lock()
+	f, err := s.readSettings()
+	s.hubMu.Unlock()
+	if err != nil {
+		return nil, bad(500, err.Error())
+	}
+	registered := func(p string) string {
+		for _, w := range f.Workspaces {
+			if w.Path == p {
+				return w.Name
+			}
+		}
+		return ""
+	}
+	entries := []browseEntry{}
+	truncated := false
+	for _, item := range items { // os.ReadDir 已按名字排序
+		name := item.Name()
+		if strings.HasPrefix(name, ".") {
+			continue
+		}
+		full := filepath.Join(path, name)
+		// 指向目录的符号链接也算目录；文件、坏链接不列。
+		if !item.IsDir() {
+			if item.Type()&os.ModeSymlink == 0 {
+				continue
+			}
+			if target, err := os.Stat(full); err != nil || !target.IsDir() {
+				continue
+			}
+		}
+		if len(entries) == maxBrowseEntries {
+			truncated = true
+			break
+		}
+		entries = append(entries, browseEntry{Name: name, Path: full, Git: isGitRepo(full), Registered: registered(full)})
+	}
+	parent := filepath.Dir(path)
+	if parent == path {
+		parent = "" // 根目录没有上一级
+	}
+	return map[string]any{
+		"path": path, "parent": parent, "home": home,
+		"git": isGitRepo(path), "registered": registered(path),
+		"entries": entries, "truncated": truncated,
+	}, nil
+}
+
+// maxCandidates 是 workspace/candidates 最多给几个：界面上只是“可能要找的仓库”，列太多反而难选。
+const maxCandidates = 20
+
+// workspace/candidates：还没登记的 git 仓库，给选目录对话框与设置页的“可能要找的仓库”。
+// 只在两个地方各看一层：已登记工作区的上一级目录，以及家目录下的 workspace、code、src、projects、repos、dev。
+// 按目录的修改时间从新到旧排（最近动过的更像现在要找的），只读，不记状态。
+func (c *conn) workspaceCandidates(protocol.Message) (any, *protocol.Error) {
+	s := c.s
+	s.hubMu.Lock()
+	f, err := s.readSettings()
+	s.hubMu.Unlock()
+	if err != nil {
+		return nil, bad(500, err.Error())
+	}
+	registered := make(map[string]bool, len(f.Workspaces))
+	for _, w := range f.Workspaces {
+		registered[filepath.Clean(w.Path)] = true
+	}
+	var dirs []string
+	seen := map[string]bool{}
+	addDir := func(dir string) {
+		if dir == "" || seen[dir] {
+			return
+		}
+		seen[dir] = true
+		dirs = append(dirs, dir)
+	}
+	for _, w := range f.Workspaces {
+		clean := filepath.Clean(w.Path)
+		if parent := filepath.Dir(clean); parent != clean {
+			addDir(parent)
+		}
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, bad(500, "找不到家目录："+err.Error())
+	}
+	home = filepath.Clean(home)
+	for _, name := range []string{"workspace", "code", "src", "projects", "repos", "dev"} {
+		dir := filepath.Join(home, name)
+		if info, err := os.Stat(dir); err == nil && info.IsDir() {
+			addDir(dir)
+		}
+	}
+	type found struct {
+		name string
+		path string
+		mod  time.Time
+	}
+	var list []found
+	for _, dir := range dirs {
+		items, err := os.ReadDir(dir)
+		if err != nil {
+			continue // 没权限、刚被删掉：这一个目录跳过，不影响别的
+		}
+		for _, item := range items {
+			info, err := item.Info()
+			if err != nil || !info.IsDir() {
+				continue
+			}
+			path := filepath.Join(dir, item.Name())
+			if registered[path] || !isGitRepo(path) {
+				continue
+			}
+			list = append(list, found{name: item.Name(), path: path, mod: info.ModTime()})
+		}
+	}
+	slices.SortFunc(list, func(a, b found) int {
+		if order := b.mod.Compare(a.mod); order != 0 {
+			return order
+		}
+		return strings.Compare(a.path, b.path)
+	})
+	candidates := []workspaceDir{}
+	for _, item := range list {
+		if len(candidates) == maxCandidates {
+			break
+		}
+		candidates = append(candidates, workspaceDir{Name: item.name, Path: item.path})
+	}
+	return map[string]any{"candidates": candidates}, nil
 }
 
 // workspace/remove：删掉一个登记的工作区，并清掉指向它的默认值。
@@ -499,7 +730,56 @@ func (c *conn) workspaceRemove(m protocol.Message) (any, *protocol.Error) {
 	return nil, nil
 }
 
-// command/list：斜杠命令列表，输入框打 / 时显示。个人级来自 TERN_HOME 的 commands/，项目级来自所选工作区的 .agents/commands/；
+// workspace/rename：改一个登记的工作区的名字；平台层与个人层里指向旧名字的“默认工作区”一起改，
+// 免得默认值指向不存在的名字。已有对话的快照里存着旧名字与目录，续聊用的是目录，不受影响。
+func (c *conn) workspaceRename(m protocol.Message) (any, *protocol.Error) {
+	var input struct {
+		Name    string `json:"name"`
+		NewName string `json:"newName"`
+	}
+	if ferr := decode(m, &input); ferr != nil {
+		return nil, ferr
+	}
+	name, newName := strings.TrimSpace(input.Name), strings.TrimSpace(input.NewName)
+	if !serverName.MatchString(newName) {
+		return nil, bad(400, "newName 用小写字母、数字、_ 或 -，最长32")
+	}
+	s := c.s
+	s.hubMu.Lock()
+	defer s.hubMu.Unlock()
+	f, err := s.readSettings()
+	if err != nil {
+		return nil, bad(500, err.Error())
+	}
+	i := slices.IndexFunc(f.Workspaces, func(w workspaceDir) bool { return w.Name == name })
+	if i < 0 {
+		return nil, bad(404, "找不到这个工作区")
+	}
+	if slices.ContainsFunc(f.Workspaces, func(w workspaceDir) bool { return w.Name == newName }) {
+		return nil, bad(400, "已经有同名的工作区："+newName)
+	}
+	// 和审批一样，写不进审计就不改名。
+	record := audit.Record{Actor: "user", User: userName(m), Event: "user_workspace_rename", Target: name + " → " + newName, Detail: c.clientName()}
+	if err := audit.Write(c.ctx, record); err != nil {
+		return nil, bad(500, "审计日志写入失败，没有改名："+err.Error())
+	}
+	if f.Platform["workspace"] == name {
+		f.Platform["workspace"] = newName
+	}
+	for _, values := range f.Users {
+		if values["workspace"] == name {
+			values["workspace"] = newName
+		}
+	}
+	f.Workspaces[i].Name = newName
+	if err := s.writeSettings(f); err != nil {
+		return nil, bad(500, err.Error())
+	}
+	return workspaceDir{Name: newName, Path: f.Workspaces[i].Path}, nil
+}
+
+// command/list：斜杠命令列表，输入框打 / 时显示。内置的来自编进程序的 internal/commands/builtin/，
+// 个人级来自 TERN_HOME 的 commands/，项目级来自所选工作区的 .agents/commands/，同名时后面的覆盖前面的；
 // 展开由 agent 做，这里只列名字和说明。
 func (c *conn) commandList(m protocol.Message) (any, *protocol.Error) {
 	var input struct {

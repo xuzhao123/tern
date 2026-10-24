@@ -58,7 +58,7 @@ const recallLimit = 5
 const failureTTL = 7 * 24 * time.Hour
 const sourceLimit = 2000 // 来源摘录上限（字）；背景生成只需定位主体、时间和话题
 
-// 与 get_current_datetime 使用同一时区；否则模型会把"今天记下的"和"今天"对不上。
+// 与环境信息里的日期使用同一时区；否则模型会把"今天记下的"和"今天"对不上。
 var shanghai = time.FixedZone("Asia/Shanghai", 8*60*60)
 
 // 只在 -memory、-memory-search 或 -memory-forget 时创建；nil 表示本次运行没有长期记忆。

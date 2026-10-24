@@ -1,7 +1,7 @@
 import { show } from "./follow.js";
 import { md } from "./md.js";
 import { TOOL_INFO, loadModels, loadSettings, newChat, syncComposer } from "./shell.js";
-import { $, MEM_KIND, MEM_SOURCE, MEM_STATUS, api, el, fold, ui } from "./util.js";
+import { $, HOST, MEM_KIND, MEM_SOURCE, MEM_STATUS, api, el, fold, notifyOn, setNotify, ui } from "./util.js";
 $("memory").onclick = () => openMemory();
 // 审计日志只读。服务端每次从头校验哈希链；页面只展示，不提供修改或删除。
 const AUDIT_ACTOR = { user: "人", model: "模型", program: "程序" };
@@ -120,23 +120,59 @@ export async function openSettings() {
     if (blocked) text.append(el("div", "err", blocked));
   }
   panel.append(tools);
-  panel.append(el("h3", "", "工作区"), el("p", "meta", "对话里只能选这里登记的目录（本机上的 git 仓库）。编码工具只在所选目录里读写，bash 在沙箱里把它挂到 /workspace。"));
+  // 个人指令只显示：文件在 app-server 那台机器的 TERN_HOME 下，直接编辑它，下一个新对话生效。
+  const inst = data.instructions;
+  if (inst) {
+    panel.append(el("p", "meta", inst.exists
+      ? `个人指令：${inst.path}（${inst.chars} 字），每个对话都会带上；直接编辑这个文件，下一个新对话生效。`
+      : `个人指令：${inst.path} 还不存在。写在这里的约定每个对话都会带上（类似 ~/.codex/AGENTS.md）。`));
+  }
+  panel.append(el("h3", "", "工作区"), el("p", "meta", "对话里只能选这里登记的目录（一般是本机上的 git 仓库）。编码工具只在所选目录里读写，bash 在沙箱里把它挂到 /workspace；不是 git 仓库的目录也能登记，只是撤销只能退回 edit_file、write_file 改过的文件，也看不了改动面板。"));
   const wsBox = el("div", "set-box");
   if (!e.workspaces.length) wsBox.append(el("div", "set-row", e.blocked.coding ? "编码工具不可用：" + e.blocked.coding : "还没有登记工作区"));
   for (const w of e.workspaces) {
     const row = el("div", "set-row"), text = el("span");
-    text.append(el("strong", "", w.name), el("div", "meta", w.path));
-    row.append(text, el("span"), el("span"));
+    text.append(el("strong", "", w.name));
+    if (!w.git) text.append(el("span", "set-tag bad", "不是 git 仓库"));
+    text.append(el("div", "meta", w.path));
+    row.append(text, el("span"));
+    // 改名：只改设置里登记的名字，目录、已有对话的快照与目录都不动。
+    const rename = el("button", "ghost", "改名");
+    rename.onclick = async () => {
+      const newName = prompt(`工作区 ${w.name} 的新名字（小写字母、数字、_ 或 -，最长 32）：`, w.name);
+      if (newName === null || newName.trim() === w.name) return;
+      try { await hubCall("PUT", `/settings/workspaces/${encodeURIComponent(w.name)}/name`, { newName: newName.trim() }); openSettings(); } catch (err) { alert(err.message); }
+    };
+    row.append(rename);
     const del = el("button", "ghost", "移除");
     del.onclick = async () => { if (!confirm(`移除工作区 ${w.name}？目录本身不会删除。`)) return; try { await hubCall("DELETE", `/settings/workspaces/${encodeURIComponent(w.name)}`); openSettings(); } catch (err) { alert(err.message); } };
     row.append(del);
     wsBox.append(row);
   }
   const form = el("form", "set-row"), path = el("input"), add = el("button", "ghost", "添加");
-  path.placeholder = "仓库目录路径：绝对路径，或相对 agent 目录（如 . 表示本仓库）"; path.style.width = "100%";
-  form.append(path, el("span"), el("span"), add);
+  path.placeholder = "仓库目录的绝对路径，可以用 ~ 开头，例如 ~/workspace/tern"; path.style.width = "100%";
+  // 浏览…：在对话框里点目录登记，成功后照旧刷新这一页；手敲路径的输入框保留。
+  const browse = el("button", "ghost", "浏览…"); browse.type = "button"; browse.title = "在这台主机上浏览目录，选一个 git 仓库登记";
+  browse.onclick = async () => { const name = await pickWorkspace(); if (name) openSettings(); };
+  form.append(path, el("span"), el("span"), browse, add);
   form.onsubmit = async (ev) => { ev.preventDefault(); add.disabled = true; try { await hubCall("POST", "/settings/workspaces", { path: path.value }); openSettings(); } catch (err) { alert(err.message); add.disabled = false; } };
   wsBox.append(form);
+  // 可能要找的仓库：只在“浏览…”下面列前 5 个，每个后面一个“登记”（app-server 扫常见目录，见 workspace/candidates）。
+  const candBox = el("div", "set-cands");
+  wsBox.append(candBox);
+  fetch(api("/workspaces/candidates")).then((res) => (res.ok ? res.json() : null)).then((data) => {
+    const found = (data?.candidates || []).slice(0, 5);
+    if (!found.length || !candBox.isConnected) return;
+    candBox.append(el("span", "meta", "可能要找的仓库："));
+    for (const cand of found) {
+      const row = el("span", "cand"), reg = el("button", "ghost", "登记");
+      row.title = cand.path;
+      reg.type = "button"; reg.title = "登记 " + cand.path;
+      reg.onclick = async () => { reg.disabled = true; try { await hubCall("POST", "/settings/workspaces", { path: cand.path }); openSettings(); } catch (err) { alert(err.message); reg.disabled = false; } };
+      row.append(el("span", "cand-name", cand.name), reg);
+      candBox.append(row);
+    }
+  }).catch(() => {});
   panel.append(wsBox);
   panel.append(el("h3", "", "默认值"));
   const grid = el("div", "set-box set-grid"), num = (key, label, hint) => {
@@ -170,6 +206,7 @@ export async function openSettings() {
   num("context_window", "上下文窗口", "token；0 表示按模型（取路由表里核对过的输入上限，不知道时 262144）。工具全开时每次请求要带全部工具定义，窗口小会很快压缩");
   num("tool_output", "工具输出上限", "单个工具结果写进上下文的 token 上限");
   line("默认权限模式", select("permission_mode", [["plan", "只读计划：不能改文件，bash 里工作区只读"], ["ask", "改动都问：改文件、跑 bash、调 MCP 前确认"], ["edit", "自动编辑：工作区内编辑与沙箱 bash 直接做"], ["full", "全权：不再询问（含高风险确认），deny、ask 规则照常"]]), "permission_mode");
+  line("默认推理强度", select("reasoning_effort", [["high", "高：默认，最仔细"], ["medium", "中"], ["low", "低"], ["minimal", "最低"]]), "reasoning_effort");
   const rules = el("textarea"); rules.rows = 4; rules.style.width = "100%"; rules.value = values.permission_rules;
   rules.placeholder = "一行一条，顺序 deny › ask › allow：\nallow: Bash(go build *)\nask: Edit(internal/agent/**)\ndeny: Bash(git push *)";
   rules.oninput = () => { values.permission_rules = rules.value; };
@@ -200,6 +237,125 @@ export async function openSettings() {
   actions.append(plat);
   actions.append(el("span", "meta", "只保存和上一层不同的项；标签显示每项来自哪一层"));
   panel.append(actions);
+  // 浏览器通知：只记在这个浏览器里（localStorage 的 tern-notify），不进 app-server 的设置——通知是这台电脑的事。
+  panel.append(el("h3", "", "通知"));
+  const notifyRow = el("label", "set-row"), notifyText = el("span"), notifyBox = el("input"), notifyNote = el("div", "meta");
+  notifyBox.type = "checkbox";
+  notifyBox.checked = notifyOn();
+  notifyText.append(el("strong", "", "浏览器通知"), el("div", "meta", "页面不在前台时，对话跑完或在等你审批、回答时提醒"), notifyNote);
+  // 勾上时向浏览器要权限；被拒就把勾去掉，写一行原因（再去浏览器的站点设置里允许）。
+  notifyBox.onchange = async () => {
+    notifyNote.textContent = "";
+    const want = notifyBox.checked;
+    const granted = want && typeof Notification !== "undefined" && await Notification.requestPermission() === "granted";
+    notifyBox.checked = granted;
+    setNotify(granted);
+    if (want && !granted) notifyNote.textContent = "浏览器没有允许通知";
+  };
+  notifyRow.append(notifyText, el("span"), el("span"), notifyBox);
+  const notifyWrap = el("div", "set-box");
+  notifyWrap.append(notifyRow);
+  panel.append(notifyWrap);
+}
+// 选工作区目录：浏览这台主机上的目录，把 git 仓库登记成工作区；返回登记好的名字，取消返回空。
+// 远端主机的页面带 /h/<别名>/ 前缀，api() 会补上，浏览的就是远端的目录。第一次从家目录开始，
+// 之后从上次停留的目录开始（只记在这个页面里，不写设置）。
+let dirLast = "";
+export async function pickWorkspace() {
+  const dialog = $("dir-dialog"), input = $("dir-path"), list = $("dir-list"), msg = $("dir-msg"), add = $("dir-add"), up = $("dir-up");
+  const init = $("dir-init"), skip = $("dir-skip"), cands = $("dir-cands");
+  if (dialog.open) return ""; // 已经开着就用那一个，不重复 showModal
+  $("dir-title").textContent = "选工作区目录 · " + (HOST || "本机");
+  let current = "", info = null, seq = 0, settle = null;
+  // 关掉对话框并把结果交回去：取消按钮、Esc、登记成功都走这里（不靠 dialog 的 close 事件，各浏览器时机不一）。
+  const finish = (name) => { if (!settle) return; const done = settle; settle = null; if (dialog.open) dialog.close(); done(name); };
+  const show = (data) => {
+    info = data; current = dirLast = data.path;
+    input.value = data.path;
+    up.disabled = !data.parent; up.dataset.parent = data.parent;
+    const rows = data.entries.map((entry) => {
+      const row = el("button", "dir-row"), tag = el("span", "dir-tag");
+      row.type = "button";
+      row.append(el("span", "dir-name", entry.name + "/"), tag);
+      if (entry.git) tag.append(document.createTextNode("git 仓库"));
+      if (entry.registered) tag.append(document.createTextNode((entry.git ? " · " : "") + "已登记：" + entry.registered));
+      row.onclick = () => load(entry.path);
+      return row;
+    });
+    if (!data.entries.length) rows.push(el("div", "meta", "这里没有子目录"));
+    if (data.truncated) rows.push(el("div", "meta", "只显示前 500 个"));
+    list.replaceChildren(...rows);
+    // 不是 git 仓库的目录：把“登记这个目录”换成两个按钮（先 git init，或者不用 git 也登记）。
+    const registered = !!data.registered, plain = !data.git && !registered;
+    add.hidden = plain;
+    init.hidden = skip.hidden = !plain;
+    add.disabled = !data.git || registered;
+    add.textContent = registered ? "已登记：" + data.registered : "登记这个目录";
+    add.title = registered ? "这个目录已经登记过" : "登记这个目录，之后在对话里可以选它";
+    init.disabled = skip.disabled = false;
+  };
+  const load = async (path) => {
+    const mineSeq = ++seq;
+    msg.replaceChildren();
+    try {
+      const res = await fetch(api("/workspaces/browse?path=" + encodeURIComponent(path)));
+      const text = await res.text();
+      if (!res.ok) throw new Error(text);
+      if (mineSeq === seq) show(JSON.parse(text));
+    } catch (err) {
+      if (mineSeq !== seq) return; // 点得快，只显示最后一次的结果
+      list.replaceChildren(); add.disabled = true;
+      msg.replaceChildren(el("div", "err", err.message));
+    }
+  };
+  up.onclick = () => { if (up.dataset.parent) load(up.dataset.parent); };
+  input.onkeydown = (ev) => { if (ev.key === "Enter") { ev.preventDefault(); load(input.value); } };
+  $("dir-cancel").onclick = () => finish("");
+  dialog.oncancel = () => finish(""); // Esc
+  // 登记当前目录：git 为空表示必须是 git 仓库；init 先在目录里 git init；skip 不是 git 仓库也登记。
+  const register = async (git) => {
+    for (const button of [add, init, skip]) button.disabled = true;
+    try {
+      const body = git ? { path: current, git } : { path: current };
+      const res = await fetch(api("/settings/workspaces"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const text = await res.text();
+      if (!res.ok) throw new Error(text);
+      finish(JSON.parse(text).name || "");
+    } catch (err) {
+      msg.replaceChildren(el("div", "err", err.message));
+      if (info) show(info); // 按当前目录重新摆按钮
+    }
+  };
+  add.onclick = () => register("");
+  init.onclick = () => register("init");
+  skip.onclick = () => {
+    if (!confirm("这个目录不是 git 仓库：撤销只能退回 edit_file、write_file 改过的文件，bash 改的退不回来，也看不了改动面板。仍然登记？")) return;
+    register("skip");
+  };
+  // 可能要找的仓库：app-server 扫一遍已登记工作区的上一级和家目录下的几个常见目录，只列还没登记的 git 仓库。
+  // 每次打开对话框取一次；点一下把路径填进路径框并跳到那个目录，还要再点“登记这个目录”才登记。
+  cands.hidden = true;
+  cands.replaceChildren();
+  fetch(api("/workspaces/candidates")).then((res) => (res.ok ? res.json() : null)).then((data) => {
+    const found = data?.candidates || [];
+    if (!found.length || !dialog.open) return;
+    const rows = found.map((cand) => {
+      const row = el("button", "dir-row");
+      row.type = "button";
+      row.title = cand.path;
+      row.append(el("span", "dir-name", cand.name + "/"), el("span", "dir-tag", "git 仓库"));
+      row.onclick = () => { input.value = cand.path; load(cand.path); };
+      return row;
+    });
+    cands.replaceChildren(el("div", "meta", "可能要找的仓库"), ...rows);
+    cands.hidden = false;
+  }).catch(() => {});
+  return new Promise((resolve) => {
+    settle = resolve;
+    dialog.showModal();
+    input.value = dirLast;
+    load(dirLast);
+  });
 }
 export async function loadEnabled() {
   try { const res = await fetch(api("/hub/enabled")); if (res.ok) ui.hub = await res.json(); } catch {}
@@ -252,16 +408,21 @@ export async function openSkills() {
   panel.append(form);
   if (!data.skills.length && !data.skill_errors.length) panel.append(el("div", "empty", "还没有 skill。点“新建 skill”写一份操作指南。"));
   for (const sk of data.skills) {
-    const card = el("article", "hub-card" + (sk.enabled ? "" : " off")), head = el("div", "hub-head"), push = el("div", "push"), del = el("button", "ghost", "删除");
-    del.onclick = async () => {
-      if (!confirm(`删除 skills/${sk.name}/ 整个目录？无法撤销。`)) return;
-      try { await hubCall("DELETE", `/hub/skills/${sk.name}`); openSkills(); loadEnabled(); } catch (err) { alert(err.message); }
-    };
-    push.append(hubToggle(sk.enabled, async (on) => { await hubCall("POST", `/hub/skills/${sk.name}/enabled`, { enabled: on }); openSkills(); }), del);
+    const card = el("article", "hub-card" + (sk.enabled ? "" : " off")), head = el("div", "hub-head"), push = el("div", "push");
+    push.append(hubToggle(sk.enabled, async (on) => { await hubCall("POST", `/hub/skills/${sk.name}/enabled`, { enabled: on }); openSkills(); }));
+    // 内置的随程序发布，删不掉，只能关掉；新建同名 skill 就是写一份个人的覆盖它。
+    if (!sk.builtin) {
+      const del = el("button", "ghost", "删除");
+      del.onclick = async () => {
+        if (!confirm(`删除 skills/${sk.name}/ 整个目录？无法撤销。`)) return;
+        try { await hubCall("DELETE", `/hub/skills/${sk.name}`); openSkills(); loadEnabled(); } catch (err) { alert(err.message); }
+      };
+      push.append(del);
+    }
     head.append(el("strong", "", sk.name), push);
     const full = el("details", "step"), sum = el("summary"), inner = el("div", "body");
     sum.append(el("span", "", `SKILL.md 正文 · ${sk.body.length} 字（load_skill 返回的内容）`)); inner.append(md(sk.body)); full.append(sum, inner);
-    card.append(head, el("div", "hub-desc", sk.description), el("div", "cmd", sk.path), full);
+    card.append(head, el("div", "hub-desc", sk.description), el("div", "cmd", sk.builtin ? "内置（随程序发布）" : sk.path), full);
     panel.append(card);
   }
   for (const bad of data.skill_errors) {
@@ -272,7 +433,7 @@ export async function openSkills() {
   }
 }
 // 预设统一从源码启动，在项目根目录执行，无需提前准备可执行文件。
-const MCP_PRESETS = [["tern-web", location.origin + "/mcp", "网页端内置的远程 MCP server（Streamable HTTP），工具是 agent 的 calculator"], ["everything", "go run github.com/mark3labs/mcp-go/examples/everything@v1.1.1", "示例 server；首次运行会下载并编译"], ["calculator", "go run . -mcp-serve", "本项目 server，始终用当前源码"]];
+const MCP_PRESETS = [["tern-web", location.origin + "/mcp", "网页端内置的远程 MCP server（Streamable HTTP），工具是一个计算器 calculator（四则运算、括号、sqrt、floor）"], ["everything", "go run github.com/mark3labs/mcp-go/examples/everything@v1.1.1", "示例 server；首次运行会下载并编译"], ["calculator", "go run . -mcp-serve", "本项目 server，始终用当前源码"]];
 export async function openMCP() {
   const panel = await openHubPage("MCP 中心", "两种 server：填 http(s) 地址是远程 server（Streamable HTTP，每条消息一个 POST）；填命令是本地 stdio server（相对 agent 目录执行，按空格切分、不经过 shell）。配置保存在 .data/hub.json。新对话勾选 MCP 时，打开的 server 由 agent 逐个连接，工具注册为 mcp_<原名>；连不上的 server 跳过，与已有工具重名的工具跳过。");
   if (!panel) return;
@@ -293,7 +454,7 @@ export async function openMCP() {
     catch (err) { alert(err.message); submit.disabled = false; }
   };
   panel.lastChild.replaceWith(form);
-  if (data.hosted) panel.insertBefore(el("div", "banner", `网页端内置远程 MCP server：${location.origin}/mcp · ${data.hosted}。它把 agent 的 calculator 以 Streamable HTTP 提供出来；要在对话里使用，用“快速填入 → observer”添加。`), form);
+  if (data.hosted) panel.insertBefore(el("div", "banner", `网页端内置远程 MCP server：${location.origin}/mcp · ${data.hosted}。它以 Streamable HTTP 提供一个计算器 calculator（四则运算、括号、sqrt、floor）；要在对话里使用，用“快速填入 → observer”添加。`), form);
   if (!data.mcp_servers.length) panel.append(el("div", "empty", "还没有 MCP server。用上面的表单添加一个。"));
   for (const m of data.mcp_servers) {
     const card = el("article", "hub-card" + (m.enabled ? "" : " off")), head = el("div", "hub-head"), push = el("div", "push");

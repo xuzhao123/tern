@@ -19,24 +19,31 @@ import (
 // 一轮进行中用户又说了话（turn/steer）：不打断正在执行的模型请求或工具，排进下一次模型请求，作为一条真正的用户消息。
 // 这一轮在用上之前就结束了（模型正在写最终回答），还没用上的随 turn/completed 的 queued 交回界面，由界面当作下一轮的问题。
 
+// steer 是一条排着的插话。clientID 是发它的页面生成的，取走时随 userMessage 发回去，
+// 页面据此把它从待发送区挪进对话（见 internal/web/page/composer.js）。chat、子 agent 不传。
+type steer struct {
+	text     string
+	clientID string
+}
+
 var steers struct {
 	sync.Mutex
-	queue  []string
+	queue  []steer
 	closed bool
 }
 
 // Steer 把一条插话排进下一次模型请求；这一轮已经结束时返回 false。
-func Steer(text string) bool {
+func Steer(text, clientID string) bool {
 	steers.Lock()
 	defer steers.Unlock()
 	if steers.closed {
 		return false
 	}
-	steers.queue = append(steers.queue, text)
+	steers.queue = append(steers.queue, steer{text: text, clientID: clientID})
 	return true
 }
 
-func takeSteers() []string {
+func takeSteers() []steer {
 	steers.Lock()
 	defer steers.Unlock()
 	queue := steers.queue
@@ -45,13 +52,28 @@ func takeSteers() []string {
 }
 
 // closeSteers 在这一轮结束时调用：之后的插话不再接收，还没用上的交回去。
+// 只交文字：turn/completed 的 queued 格式不变，chat 接着把它当下一轮的问题。
 func closeSteers() []string {
 	steers.Lock()
 	defer steers.Unlock()
 	steers.closed = true
 	queue := steers.queue
 	steers.queue = nil
-	return queue
+	texts := make([]string, len(queue))
+	for i, s := range queue {
+		texts[i] = s.text
+	}
+	return texts
+}
+
+// steerItem 是插话在对话里的那条 userMessage：clientID 非空时带上，发它的页面据此把它从待发送区撤掉。
+// 被 UserPromptSubmit hook 拦下的那条也带：文字已经换掉，页面不能拿原文去比对。
+func steerItem(id, text, clientID string) protocol.Item {
+	data := map[string]any{"text": text, "steer": true}
+	if clientID != "" {
+		data["client_id"] = clientID
+	}
+	return protocol.Item{ID: id, Type: "userMessage", Data: data}
 }
 
 // ---------- 模型向用户提问 ----------

@@ -53,6 +53,19 @@ func (s *Server) job(id string) (*evalJob, error) {
 	return j, nil
 }
 
+// runningEvals 是正在运行、回放或重新打分的评测数。试次是 app-server 的普通子进程，app-server 退出就丢了，界面据此不换它。
+func (s *Server) runningEvals() int {
+	s.evals.mu.Lock()
+	defer s.evals.mu.Unlock()
+	n := 0
+	for _, j := range s.evals.jobs {
+		if j.busy != "" {
+			n++
+		}
+	}
+	return n
+}
+
 // start 在后台做一件事；同一条评测同时只做一件，避免运行、回放和重新打分交错写记录。
 func (s *Server) start(j *evalJob, what string, work func(ctx context.Context)) error {
 	s.evals.mu.Lock()

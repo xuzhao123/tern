@@ -23,13 +23,37 @@ export const ui = {
   page: "chat", tab: "trace", run: null, events: [], source: null, selected: null, follow: true, chatFollow: true, open: new Set(),
   collapsed: new Set(), expanded: false, search: "", zoom: null, checked: new Set(), compare: [], compareSel: null,
   replay: null, ctxWindow: Number(load("ctxWindow")) || 128000, queued: false, sending: false, loading: false,
-  inspectorTab: "overview", filesOpen: false, files: {}, models: null,
+  steers: {}, // 待发送的插话，按对话 ID：{items: [{id, text}], immediate}（见 composer.js）；切换、重新订阅对话时不丢
+  inspectorTab: "overview", filesOpen: false, files: {}, diffOpen: false, diff: {}, models: null,
   hosts: [], // /connection 推来的各台主机（含连不上的）：顶栏主机菜单与左侧分组列表用
+  updated: {}, // 上次取列表时各条的 updated_at（主机|对话ID → 毫秒）：记“看过”时用它（见 shell.js 的 markCurrentSeen）
+  runStates: null, // 上次列表里各条跑完没有、在等什么（同上）：下一次取列表时和它比，决定发不发通知
+  hint: "", // 发送失败的原因：重画时 syncComposer 把它放在输入框下面（见 shell.js 的 rewindTurn），打开对话、新对话时清掉
+  waiting: 0, // 在等审批、等回答的对话条数：标签页标题前面的 (N)（见 renderShell）
 };
 
 // ---------- 小工具 ----------
 function load(key) { try { return localStorage.getItem(key); } catch { return null; } }
 export function save(key, value) { try { localStorage.setItem(key, value); } catch {} }
+// ---------- 未读与浏览器通知 ----------
+// 看过的状态只记在这个浏览器里（和 Codex 不同，不存 app-server）：主机|对话ID → 那次看到的最新 updated_at。
+// 列表里某条比它新，就在行尾标一个未读圆点（见 shell.js 的 runRow）；只留最近 500 条，免得越攒越大。
+const SEEN_KEY = "tern-seen", SEEN_MAX = 500, NOTIFY_KEY = "tern-notify";
+export const runKey = (alias, id) => `${alias}|${id}`;
+function seenMap() { try { return JSON.parse(load(SEEN_KEY) || "{}") || {}; } catch { return {}; } }
+export const seenAt = (alias, id) => seenMap()[runKey(alias, id)] || 0;
+export function markSeen(alias, id, updatedAt) {
+  if (!id || !updatedAt) return;
+  const map = seenMap(), key = runKey(alias, id);
+  if (map[key] === updatedAt) return;
+  map[key] = updatedAt;
+  const keys = Object.keys(map);
+  for (const k of keys.sort((a, b) => map[a] - map[b]).slice(0, Math.max(0, keys.length - SEEN_MAX))) delete map[k];
+  save(SEEN_KEY, JSON.stringify(map));
+}
+// 通知是浏览器的事，每台电脑各自决定，所以也不进 app-server 的设置（见 pages.js 的“通知”一节）。
+export const notifyOn = () => load(NOTIFY_KEY) === "on";
+export const setNotify = (on) => save(NOTIFY_KEY, on ? "on" : "");
 // 对话流里的小图标：内联 SVG 线条图标，不依赖系统字体里有没有这个符号。
 const ICONS = { think: '<circle cx="12" cy="12" r="3.5"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8"/>',
   caps: '<path d="M12 3l1.9 4.6 4.6 1.9-4.6 1.9L12 16l-1.9-4.6-4.6-1.9 4.6-1.9Z"/>', hook: '<path d="M5 21V4h12l-2.5 4 2.5 4H5"/>', mem: '<path d="M6 3h12v18l-6-4-6 4Z"/>',

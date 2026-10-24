@@ -14,12 +14,11 @@ import (
 	"github.com/xuzhao123/tern/internal/retrieval"
 	"github.com/xuzhao123/tern/internal/sandbox"
 	"github.com/xuzhao123/tern/internal/skills"
-	"github.com/xuzhao123/tern/internal/tools"
 	"github.com/xuzhao123/tern/internal/websearch"
 	"github.com/xuzhao123/tern/internal/workspace"
 )
 
-// 按工具名分发：检索、记忆、skill、浏览器与 MCP 在各自的包里；内置工具交给 tools.Run。
+// 按工具名分发：检索、记忆、skill、浏览器与 MCP 在各自的包里。
 // offered 报告这个工具在不在本轮发给模型的工具列表里。
 func offered(name string) bool {
 	for _, definition := range llm.Tools {
@@ -155,5 +154,5 @@ func runTool(ctx context.Context, call llm.ToolCall) (result any, err error) {
 			return conn.Call(ctx, call.Function.Name, call.Function.Arguments)
 		}
 	}
-	return tools.Run(ctx, call.Function.Name, call.Function.Arguments)
+	return nil, llm.Permanent(fmt.Errorf("未知工具：%s", call.Function.Name))
 }

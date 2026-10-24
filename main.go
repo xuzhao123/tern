@@ -40,7 +40,6 @@ import (
 	"github.com/xuzhao123/tern/internal/skills"
 	"github.com/xuzhao123/tern/internal/telemetry"
 	"github.com/xuzhao123/tern/internal/tenant"
-	"github.com/xuzhao123/tern/internal/tools"
 	"github.com/xuzhao123/tern/internal/web"
 	"github.com/xuzhao123/tern/internal/websearch"
 	"github.com/xuzhao123/tern/internal/workspace"
@@ -159,8 +158,8 @@ func appServer(args []string) error {
 // （-workspace、-image、-hooks）按它转成绝对路径，输入时的相对路径才还是原来的意思。
 var startDir string
 
-// setupHome 确定数据目录 TERN_HOME：没设时，在 tern 源码根目录里就用当前目录（原来的用法），
-// 否则用 ~/.tern；目录不存在就建（0700）。算出后写回环境变量让子进程继承，再 chdir 过去。
+// setupHome 确定数据目录 TERN_HOME：没设时用 ~/.tern，在哪个目录启动都一样（同 Codex 的 `CODEX_HOME`）；
+// 目录不存在就建（0700）。算出后写回环境变量让子进程继承，再 chdir 过去。
 func setupHome() error {
 	dir, err := os.Getwd()
 	if err != nil {
@@ -169,8 +168,6 @@ func setupHome() error {
 	startDir = dir
 	home := os.Getenv("TERN_HOME")
 	switch {
-	case home == "" && tenant.SourceRoot(dir):
-		home = dir
 	case home == "":
 		userHome, err := os.UserHomeDir()
 		if err != nil {
@@ -293,7 +290,7 @@ func run() error {
 	resume := flag.String("resume", "", "从这个ID的检查点续跑；配置取自检查点，须单独使用")
 	flag.BoolVar(&browser.Enabled, "browser", false, "增加 web_search 与 open_page，用无头 Chrome 查资料（CHROME_PATH 可指定浏览器）")
 	flag.BoolVar(&websearch.Enabled, "ds-search", false, "增加 ds_search 与 ds_fetch，用 DeepSeek 的搜索与抓取 API 查资料（读取 DEEPSEEK_API_KEY）")
-	disallowedTools := flag.String("disallowed-tools", "", "从工具清单里去掉单个工具（与 Claude Code 的 --disallowed-tools 同名，只认工具名；按调用拦用 -deny），逗号分隔：内置的 calculator、get_current_datetime，浏览器的 web_search、open_page")
+	disallowedTools := flag.String("disallowed-tools", "", "从工具清单里去掉单个工具（与 Claude Code 的 --disallowed-tools 同名，只认工具名；按调用拦用 -deny），逗号分隔：浏览器的 web_search、open_page")
 	flag.BoolVar(&sandbox.Enabled, "bash", false, "增加 bash 与 request_network_access，在 bubblewrap 沙箱里执行命令（仅 Linux）")
 	flag.BoolVar(&sandbox.ProjectRO, "bash-project-ro", false, "配合 -bash：把项目目录只读挂到 /project（.env、.data、.git 除外）")
 	var netAllow stringList
@@ -307,6 +304,7 @@ func run() error {
 	flag.Var(&denyRules, "deny", "拒绝规则，如 Bash(git push *)、Read(.env)（可重复）；顺序 deny › ask › allow")
 	hooksConfig := flag.String("hooks", "", "生命周期 hooks 配置（Claude Code 的 hooks 格式）：JSON 原文或文件路径；命令在宿主机上运行，只由用户提供")
 	workspaceDir := flag.String("workspace", "", "增加编码工具 read_file、glob、grep、edit_file、write_file，只在这个仓库目录里读写")
+	personalInstructions := flag.Bool("personal-instructions", true, "读 TERN_HOME 下的 AGENTS.md 作为个人指令放进系统提示词，排在项目指令前面，没选工作区也带上；评测关掉，结果才可比")
 	subagents := flag.Bool("subagents", false, "增加 spawn_agent：把独立子任务交给全新上下文的子 agent（子进程）")
 	flag.IntVar(&agent.SubagentSteps, "subagent-steps", agent.SubagentSteps, "每个子 agent 的模型请求预算，1到20")
 	flag.Parse()
@@ -375,12 +373,15 @@ func run() error {
 				interrupt()
 				protocol.Client.Reply(*m.ID, nil, nil)
 			case "turn/steer": // 运行中插话，排进下一次模型请求；这一轮已经结束时如实拒绝，界面改作下一轮的问题
-				var p struct{ Text string }
+				var p struct {
+					Text     string `json:"text"`
+					ClientID string `json:"client_id"` // 可选：发它的页面用它认回执，见 agent.steerItem
+				}
 				json.Unmarshal(m.Params, &p)
 				switch {
 				case strings.TrimSpace(p.Text) == "":
 					protocol.Client.Reply(*m.ID, nil, &protocol.Error{Code: -32602, Message: "turn/steer 需要非空的 text"})
-				case agent.Steer(strings.TrimSpace(p.Text)):
+				case agent.Steer(strings.TrimSpace(p.Text), strings.TrimSpace(p.ClientID)):
 					protocol.Client.Reply(*m.ID, nil, nil)
 				default:
 					protocol.Client.Reply(*m.ID, nil, &protocol.Error{Code: -32000, Message: "这一轮已经结束"})
@@ -623,22 +624,25 @@ func run() error {
 			return fmt.Errorf("无法读取续聊上下文：%w", err)
 		}
 	}
-	// 本次运行发给模型的工具：先放内置工具，再按开关追加。复制一份，不改动 tools.Definitions。
-	// -disallowed-tools 去掉其中单个工具（网页端设置里内置工具和 web_search、open_page 各有开关）；拼错的名字直接报错，免得悄悄不生效。
+	// 本次运行发给模型的工具：从空开始，按开关追加。
+	// -disallowed-tools 去掉其中的单个工具（网页端设置里 web_search、open_page 各有开关）；拼错的名字直接报错，免得悄悄不生效。
 	off := map[string]bool{}
 	for _, name := range strings.Split(*disallowedTools, ",") {
 		if name = strings.TrimSpace(name); name == "" {
 			continue
 		}
-		if !slices.ContainsFunc(slices.Concat(tools.Definitions, browser.Definitions), func(d map[string]any) bool { return d["name"] == name }) {
-			return fmt.Errorf("disallowed-tools 只能去掉 calculator、get_current_datetime、web_search、open_page：%s", name)
+		// 这两个工具已经去掉，老对话的快照和检查点里还会带，照旧接受。
+		if name == "calculator" || name == "get_current_datetime" {
+			continue
+		}
+		if !slices.ContainsFunc(browser.Definitions, func(d map[string]any) bool { return d["name"] == name }) {
+			return fmt.Errorf("disallowed-tools 只能去掉 web_search、open_page：%s", name)
 		}
 		off[name] = true
 	}
 	kept := func(definitions []map[string]any) []map[string]any {
 		return slices.DeleteFunc(slices.Clone(definitions), func(d map[string]any) bool { return off[d["name"].(string)] })
 	}
-	llm.Tools = kept(tools.Definitions)
 	if retrieval.Enabled {
 		llm.Tools = append(llm.Tools, retrieval.SearchDefinition)
 	}
@@ -689,6 +693,11 @@ func run() error {
 			// 环境信息里写清 bash 里的工作区路径：编码工具用的是宿主机路径，bash 里是 /workspace。
 			workspace.BashMount = "/workspace"
 		}
+	}
+	// 个人指令和项目指令一样写进系统提示词；和工作区无关，所以放在 workspace.Open 之后（要看 TERN_HOME 是不是工作区根目录），
+	// 但没选工作区也照样读。评测传 -personal-instructions=false，结果才可比。
+	if *personalInstructions {
+		workspace.LoadPersonal(os.Getenv("TERN_HOME"))
 	}
 	// bash 的描述要等工作区定下来再写（/workspace 指的目录不同），时限就是单条命令的时限。
 	// 不开 bash 也照样设上：日志里的 bash_timeout 显示的是这次给的值，而不是沙箱包里的初始值。
@@ -789,7 +798,7 @@ func run() error {
 		// 子 agent 继承工具开关和运行参数；不继承长期记忆（子 agent 的“用户”是父 agent，不是真人）、
 		// 不继承 -subagents（只允许一层）、不继承续聊与整次时限（由父进程的 ctx 管）。
 		share := map[string]bool{"parallel": true, "retries": true, "reasoning-effort": true, "context-window": true, "max-output-tokens": true,
-			"reasoning-reserve": true, "tool-output-tokens": true, "keep-groups": true, "rag": true, "embedding": true, "min-score": true, "skills": true, "tool-timeout": true, "bash-timeout": true, "browser": true, "ds-search": true, "disallowed-tools": true, "provider": true, "model": true, "verifier": true, "bash": true, "bash-project-ro": true, "workspace": true, "permission-mode": true, "hooks": true}
+			"reasoning-reserve": true, "tool-output-tokens": true, "keep-groups": true, "rag": true, "embedding": true, "min-score": true, "skills": true, "tool-timeout": true, "bash-timeout": true, "browser": true, "ds-search": true, "disallowed-tools": true, "provider": true, "model": true, "verifier": true, "bash": true, "bash-project-ro": true, "workspace": true, "permission-mode": true, "hooks": true, "personal-instructions": true}
 		agent.SubagentArgs = []string{}
 		flag.Visit(func(f *flag.Flag) {
 			if share[f.Name] {

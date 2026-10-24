@@ -13,9 +13,15 @@ import { restoreRunURL } from "./follow.js";
 import { watchConnection } from "./connection.js";
 import { mathLoaded } from "./md.js";
 import { loadEnabled } from "./pages.js";
-import { loadModels, loadSettings, syncComposer } from "./shell.js";
+import { loadModels, loadRuns, loadSettings, markCurrentSeen, syncComposer } from "./shell.js";
 import { $, ui } from "./util.js";
 window.addEventListener("popstate", restoreRunURL);
+// 切回前台补记一次“看过”：在后台时跑完、或者停在等你审批的对话，回来就不留未读圆点。
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible") return;
+  markCurrentSeen();
+  loadRuns();
+});
 // 会话过期或被注销时，接口返回 401，回到登录页。
 const rawFetch = window.fetch.bind(window);
 window.fetch = async (...args) => {

@@ -218,6 +218,7 @@ func closedAfter(done <-chan struct{}, d time.Duration) <-chan struct{} {
 }
 
 // finish 在 agent 进程结束后收尾：并入没经过协议的输出，删掉 live 文件，记 exit。
+// 记完 exit 再看队列里有没有排着的后续消息：有就接着发下一条（人点停止结束的不发，见 followUp）。
 func (s *Server) finish(r *run, text string) {
 	r.mu.Lock()
 	r.proc, r.conn, r.approvals, r.toolWaits, r.asks = nil, nil, nil, nil, nil
@@ -231,6 +232,7 @@ func (s *Server) finish(r *run, text string) {
 	}
 	s.cleanLive(r)
 	r.add(event{Kind: "exit", Text: text})
+	s.followUp(r)
 }
 
 func (s *Server) cleanLive(r *run) {

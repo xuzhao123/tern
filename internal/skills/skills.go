@@ -1,8 +1,10 @@
 package skills
 
 import (
+	"embed"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -20,7 +22,17 @@ import (
 var Enabled bool
 var Index []Skill // nil 表示未启用
 
-type Skill struct{ Name, Description, Path string }
+type Skill struct {
+	Name, Description, Path string
+	Builtin                 bool // 编进程序的：路径写成 builtin/<名字>/SKILL.md，正文从嵌入的文件系统读
+}
+
+// 内置 skill 编进程序，不往磁盘上写；目录里的同名 skill 整份盖住内置的那份。
+//
+//go:embed builtin
+var builtinFS embed.FS
+
+const builtinDir = "builtin"
 
 var LoadDefinition = map[string]any{
 	"name":        "load_skill",
@@ -36,25 +48,71 @@ var skillNamePattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
 const maxSkillBytes = 64 << 10
 
+// BuiltinNames 列出编进程序的 skill 名字（按字母序）。app-server 用它把内置的也算进新对话要带上的 skill。
+func BuiltinNames() []string {
+	entries, _ := fs.ReadDir(builtinFS, builtinDir)
+	names := []string{}
+	for _, e := range entries {
+		if e.IsDir() {
+			names = append(names, e.Name())
+		}
+	}
+	slices.Sort(names)
+	return names
+}
+
+type candidate struct {
+	skill Skill
+	body  string
+}
+
+// candidates 把目录里的 skill 和内置的合起来：目录里有这个名字的目录就整份盖住内置的，哪怕它没通过校验。
+// 坏文件不返回，放进 failures 里，由调用方报错或列给 Skills 中心。
+func candidates(dir string) ([]candidate, []map[string]string) {
+	list, failures := []candidate{}, []map[string]string{}
+	taken := map[string]bool{}
+	paths, _ := filepath.Glob(filepath.Join(dir, "*", "SKILL.md"))
+	for _, path := range paths {
+		name := filepath.Base(filepath.Dir(path))
+		taken[name] = true
+		s, body, err := readSkill(path)
+		if err != nil {
+			failures = append(failures, map[string]string{"path": path, "dir": name, "error": err.Error()})
+			continue
+		}
+		list = append(list, candidate{s, body})
+	}
+	for _, name := range BuiltinNames() {
+		if taken[name] {
+			continue
+		}
+		s, body, err := readBuiltin(name)
+		if err != nil {
+			failures = append(failures, map[string]string{"path": builtinDir + "/" + name + "/SKILL.md", "dir": name, "error": err.Error()})
+			continue
+		}
+		list = append(list, candidate{s, body})
+	}
+	return list, failures
+}
+
 // 坏文件逐个报错并跳过，不让一个 skill 拖垮启动：索引是可选增强，降级比 fail-fast 合适。
 // only 非空时只启用其中的名字（网页端 Skills 中心的开关）；列了却不存在的名字同样报错跳过。
 func Scan(dir string, only []string) []Skill {
-	paths, _ := filepath.Glob(filepath.Join(dir, "*", "SKILL.md"))
+	list, failures := candidates(dir)
+	for _, failure := range failures {
+		protocol.Event("capability/event", "skill_error", fmt.Sprintf("Skill error: %s: %v", failure["path"], failure["error"]))
+	}
 	skills := []Skill{}
 	names := []string{}
 	found := map[string]bool{}
-	for _, path := range paths {
-		s, _, err := readSkill(path)
-		if err != nil {
-			protocol.Event("capability/event", "skill_error", fmt.Sprintf("Skill error: %s: %v", path, err))
+	for _, c := range list {
+		found[c.skill.Name] = true
+		if len(only) > 0 && !slices.Contains(only, c.skill.Name) {
 			continue
 		}
-		found[s.Name] = true
-		if len(only) > 0 && !slices.Contains(only, s.Name) {
-			continue
-		}
-		skills = append(skills, s)
-		names = append(names, s.Name)
+		skills = append(skills, c.skill)
+		names = append(names, c.skill.Name)
 	}
 	for _, name := range only {
 		if !found[name] {
@@ -67,15 +125,10 @@ func Scan(dir string, only []string) []Skill {
 
 // -skills-list：网页端 Skills 中心用同一套解析与校验列出 skill，不在网页端另写一份规则。
 func List(dir string) map[string]any {
-	paths, _ := filepath.Glob(filepath.Join(dir, "*", "SKILL.md"))
-	skills, failures := []map[string]any{}, []map[string]string{}
-	for _, path := range paths {
-		s, body, err := readSkill(path)
-		if err != nil {
-			failures = append(failures, map[string]string{"path": path, "dir": filepath.Base(filepath.Dir(path)), "error": err.Error()})
-			continue
-		}
-		skills = append(skills, map[string]any{"name": s.Name, "description": s.Description, "path": path, "body": body})
+	list, failures := candidates(dir)
+	skills := []map[string]any{}
+	for _, c := range list {
+		skills = append(skills, map[string]any{"name": c.skill.Name, "description": c.skill.Description, "path": c.skill.Path, "body": c.body, "builtin": c.skill.Builtin})
 	}
 	return map[string]any{"skills": skills, "errors": failures}
 }
@@ -92,12 +145,28 @@ func readSkill(path string) (Skill, string, error) {
 	if err != nil {
 		return Skill{}, "", err
 	}
+	return parseSkill(path, filepath.Base(filepath.Dir(path)), false, data)
+}
+
+// 内置的从嵌入的文件系统读：和磁盘上的走同一套校验，name 仍要与目录名一致。
+func readBuiltin(name string) (Skill, string, error) {
+	path := builtinDir + "/" + name + "/SKILL.md"
+	data, err := fs.ReadFile(builtinFS, path)
+	if err != nil {
+		return Skill{}, "", err
+	}
+	if len(data) > maxSkillBytes {
+		return Skill{}, "", fmt.Errorf("文件超过 %d 字节", maxSkillBytes)
+	}
+	return parseSkill(path, name, true, data)
+}
+
+func parseSkill(path, dir string, builtin bool, data []byte) (Skill, string, error) {
 	fields, body, err := ParseFrontmatter(string(data))
 	if err != nil {
 		return Skill{}, "", err
 	}
 	name, description := fields["name"], fields["description"]
-	dir := filepath.Base(filepath.Dir(path))
 	switch {
 	case name == "":
 		return Skill{}, "", errors.New("缺少 name")
@@ -112,7 +181,7 @@ func readSkill(path string) (Skill, string, error) {
 	case utf8.RuneCountInString(fields["compatibility"]) > 500:
 		return Skill{}, "", errors.New("compatibility 超过500字符")
 	}
-	return Skill{Name: name, Description: description, Path: path}, body, nil
+	return Skill{Name: name, Description: description, Path: path, Builtin: builtin}, body, nil
 }
 
 // 只解析顶层 key: value；缩进行属于上一个键的嵌套值（如 metadata），v1 跳过。
@@ -169,8 +238,8 @@ func Load(name, file string) (any, error) {
 		if s.Name != name {
 			continue
 		}
-		// 调用时重新读取并校验，启动后被改坏的文件不会被当作指南返回。
-		_, body, err := readSkill(s.Path)
+		// 调用时重新读取并校验，启动后被改坏的文件不会被当作指南返回；内置的从嵌入的文件读。
+		_, body, err := readAt(s)
 		if err != nil {
 			return nil, fmt.Errorf("skill %s 读取失败：%v", name, err)
 		}
@@ -182,12 +251,31 @@ func Load(name, file string) (any, error) {
 	return map[string]any{"error": "unknown_skill", "message": fmt.Sprintf("没有名为 %q 的 skill", name), "available": available}, nil
 }
 
+// readAt 按 skill 的来源重读一遍：内置的从嵌入的文件系统读，磁盘上的照旧读文件。
+func readAt(s Skill) (Skill, string, error) {
+	if s.Builtin {
+		return readBuiltin(s.Name)
+	}
+	return readSkill(s.Path)
+}
+
 // 第三级：只开放 references/ 下的 Markdown，examples/、scripts/ 等开发用文件不给模型。
 // 先 Clean 再判断前缀：references/../examples/x.md 在 os.Root 里不算逃逸，但不该被读到。
 func loadReference(s Skill, file string) (any, error) {
 	file = path.Clean(file)
 	if !filepath.IsLocal(file) || !strings.HasPrefix(file, "references/") || filepath.Ext(file) != ".md" {
 		return map[string]any{"error": "bad_file", "message": "file 只能是 references/ 下的 .md 文件"}, nil
+	}
+	if s.Builtin {
+		// 嵌入的文件系统里没有符号链接，按路径直接读；读不到就是没有这个文件。
+		data, err := fs.ReadFile(builtinFS, builtinDir+"/"+s.Name+"/"+file)
+		if err != nil {
+			return map[string]any{"error": "unknown_file", "message": fmt.Sprintf("skill %s 里没有 %s", s.Name, file)}, nil
+		}
+		if len(data) > maxSkillBytes {
+			return nil, llm.Permanent(fmt.Errorf("%s 超过 %d 字节", file, maxSkillBytes))
+		}
+		return map[string]any{"name": s.Name, "file": file, "content": string(data)}, nil
 	}
 	root, err := os.OpenRoot(filepath.Dir(s.Path))
 	if err != nil {

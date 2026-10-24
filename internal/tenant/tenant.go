@@ -34,7 +34,7 @@ func Path(space string, parts ...string) string {
 func Here(parts ...string) string { return Path(Current, parts...) }
 
 // SourceRoot 判断目录是不是 tern 的源码根目录：go.mod 的第一行是 tern 自己的 module。
-// 与数据路径放在一起：`TERN_HOME` 没设时，在源码根目录里就用当前目录，网页端的 -dev 也只在这里可用。
+// 只给 `-dev` 用：`-dev` 用 `go run .` 启动 agent，`TERN_HOME` 得是源码根目录。
 func SourceRoot(dir string) bool {
 	data, err := os.ReadFile(filepath.Join(dir, "go.mod"))
 	if err != nil {

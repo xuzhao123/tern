@@ -18,7 +18,6 @@ import (
 	"github.com/xuzhao123/tern/internal/llm"
 	"github.com/xuzhao123/tern/internal/protocol"
 	"github.com/xuzhao123/tern/internal/telemetry"
-	"github.com/xuzhao123/tern/internal/tools"
 
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
@@ -157,7 +156,7 @@ func Connect(ctx context.Context, command string) (conn *Connection, listed []sd
 
 var invalidToolChars = regexp.MustCompile(`[^A-Za-z0-9_-]`)
 
-// MCP tool → 方舟 function 定义：name 加 mcp_ 前缀避免和本地工具重名（本地也有 calculator），
+// MCP tool → 方舟 function 定义：name 加 mcp_ 前缀避免和本地工具重名，
 // inputSchema 本身就是 JSON Schema，原样作为 parameters。
 func (m *Connection) Definitions(tools []sdk.Tool) []map[string]any {
 	taken := map[string]bool{}
@@ -413,7 +412,7 @@ func newServer(logger *log.Logger) *server.MCPServer {
 		server.WithRecovery(),
 	)
 	tool := sdk.NewTool("calculator",
-		sdk.WithDescription(tools.Definitions[0]["description"].(string)), // 和内置 calculator 同一份描述
+		sdk.WithDescription(calculatorDescription),
 		// 如实声明只读、无破坏性、不访问外部（mcp-go 的默认值按规范是“可能破坏、会访问外部”）。
 		sdk.WithReadOnlyHintAnnotation(true), sdk.WithDestructiveHintAnnotation(false), sdk.WithIdempotentHintAnnotation(true), sdk.WithOpenWorldHintAnnotation(false),
 		sdk.WithString("expression", sdk.Required(), sdk.MaxLength(1024), sdk.Description("数学表达式，例如 (1234*5678) 或 floor(sqrt(2))")),
@@ -433,8 +432,8 @@ func newServer(logger *log.Logger) *server.MCPServer {
 			failure = err
 			return sdk.NewToolResultError(err.Error()), nil
 		}
-		// 第三道：Calculate 只解释数学 AST，限制长度与可用函数。
-		value, err := tools.Calculate(expression)
+		// 第三道：calculate 只解释数学 AST，限制长度与可用函数。
+		value, err := calculate(expression)
 		if err != nil {
 			logger.Printf("calculator error: expression=%q error=%v", expression, err)
 			failure = err

@@ -28,7 +28,7 @@ export function show(id, updateURL = true) {
   stopReplay();
   if (ui.source) ui.source.close();
   if (ui.tab === "compare") ui.tab = "trace";
-  Object.assign(ui, { run: newRun(id), events: [], follow: true, zoom: null, selected: null, expanded: false, loading: true, search: "", open: new Set(), subOpen: null, webOpen: null, webClosed: false, chatFollow: true, unseen: false });
+  Object.assign(ui, { run: newRun(id), events: [], follow: true, zoom: null, selected: null, expanded: false, loading: true, search: "", open: new Set(), subOpen: null, webOpen: null, webClosed: false, chatFollow: true, unseen: false, hint: "" });
   if (updateURL) syncRunURL(id);
   $("search").value = "";
   ui.collapsed.clear();

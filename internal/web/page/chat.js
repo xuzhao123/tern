@@ -2,13 +2,14 @@ import { agentCard, renderSubPanel } from "./agents.js";
 import { analyze, endLabel, tokenParts, toolResult } from "./analysis.js";
 import { WEB_TOOLS, webCard } from "./browser.js";
 import { start } from "./composer.js";
+import { openDiff } from "./diff.js";
 import { exploreCall, exploreLabel } from "./explore.js";
 import { show } from "./follow.js";
 import { claimViz, md, parkViz } from "./md.js";
 import { openMCP, openMemory, openSkills } from "./pages.js";
 import { render } from "./render.js";
 import { approvalCard, askCard, bashCard, netCard, proxyNetCards } from "./sandbox.js";
-import { forkTurn, loadRuns, rewindTurn, syncComposer, toolOn } from "./shell.js";
+import { forkTurn, loadRuns, markCurrentSeen, rewindTurn, syncComposer, toolOn } from "./shell.js";
 import { $, AUX_LABEL, MEM_KIND, MEM_STATUS, MEM_TYPE, callPosition, clip, compact, el, fold, ico, idleText, kfmt, parse, pretty, rawIO, sec, textOf, ui, userPictures } from "./util.js";
 // agent 终端行形如 "Memory recall: id=M1 kind=semantic score=0.48 content=…"；content 放在最后，可含空格。
 export function memFields(text) {
@@ -109,9 +110,34 @@ function chatFlow(r) {
     if (c.compact) flow.push({ kind: "compact", call: c });
     else flow.push({ kind: "call", call: c });
     const next = r.calls.find((x) => x.n > c.n);
-    if (next?.turn !== c.turn) flow.push({ kind: "memory", turn: c.turn, phase: "end" });
+    if (next?.turn !== c.turn) flow.push({ kind: "memory", turn: c.turn, phase: "end" }, { kind: "changed", turn: c.turn });
   });
   return flow;
+}
+// 这一轮成功改过的工作区文件：edit_file / write_file 的 path 参数，按调用顺序去重。
+function turnFiles(r, turn) {
+  const files = [];
+  for (const c of r.calls) {
+    if (c.turn !== turn) continue;
+    for (const t of c.tools) {
+      if (t.name !== "edit_file" && t.name !== "write_file") continue;
+      const path = t.state === "ok" ? parse(t.args)?.path : "";
+      if (path && !files.includes(path)) files.push(path);
+    }
+  }
+  return files;
+}
+// 每轮末尾那一行“这一轮改了 N 个文件：…（看改动）”：只在有成功的改动时出现。
+function changedLine(r, turn) {
+  const files = turnFiles(r, turn);
+  if (!files.length) return null;
+  const bar = el("div", "turn-files");
+  bar.append(el("span", "meta", `这一轮改了 ${files.length} 个文件：` + files.slice(0, 5).join("、") + (files.length > 5 ? ` 等 ${files.length} 个` : "")));
+  const link = el("button", "link", "看改动");
+  link.title = "打开改动面板：工作区相对 HEAD 的 diff，并展开这一轮改过的文件";
+  link.onclick = () => openDiff(r, files);
+  bar.append(link);
+  return bar;
 }
 export function step(key, head, body) {
   const box = el("details", "step");
@@ -276,7 +302,6 @@ function welcome() {
   const box = el("div", "welcome"), sugs = el("div", "sugs");
   box.append(el("h1", "", "想让 agent 做什么？"), sugs);
   const suggestions = toolOn("memory") ? ["记住：我偏好 Go 而不是 Python", "你还记得我偏好什么语言吗？", "记住流程：代码评审先跑构建，再看逻辑"] : toolOn("rag") ? ["本项目工具失败后总共尝试几次，等待多久？", "我们项目 TS-999 错误码是什么？请给出资料依据。"] : [
-    toolOn("calculator") && toolOn("get_current_datetime") && "计算 (1234×5678) 开根号取整，并查询当前日期时间。两项独立，请同轮调用。",
     toolOn("ds_search") && "搜索一下有什么方式可以学习 agent harness，注明来源。",
   ].filter(Boolean);
   for (const q of suggestions) {
@@ -305,6 +330,8 @@ export function renderChat() {
   parkViz();
   drawChat();
   claimViz();
+  // 这条对话正开着、页面也在前台，重画一次就记一次“看过”：行尾的未读圆点不用等列表刷新。
+  markCurrentSeen();
 }
 function drawChat() {
   const box = $("thread"), scroller = $("chat-scroll");
@@ -349,6 +376,14 @@ function drawChat() {
         b.onclick = () => rewindTurn(r, turn);
         tools.append(b);
       }
+      // 编辑这一轮的问题重新发：撤销这一轮及之后，再把改过的问题发出去。和分叉一样不要求有工作区，
+      // 没有工作区时只能只退对话（rewindTurn 里把另外两种退法灰掉）。
+      if (turn?.checkpoint && !turn.rewound && !turn.inherited && r.exit && !r.source && !r.eval && !ui.replay && !ui.loading) {
+        const b = el("button", "link", "编辑");
+        b.title = "改这一轮的问题重新发：撤销这一轮及之后，再按改过的问题问一遍";
+        b.onclick = () => rewindTurn(r, turn, true);
+        tools.append(b);
+      }
       // 从这一轮之后另起一段对话：前面各轮带过去，原对话不变、文件不动，所以不要求有工作区。
       if (turn?.checkpoint && !turn.rewound && r.exit && !r.source && !r.eval && !ui.replay && !ui.loading) {
         const b = el("button", "link", "分叉");
@@ -361,7 +396,7 @@ function drawChat() {
     }
     if (f.kind === "steer") {
       const u = el("div", "u steer"), bubble = el("div", "", f.text);
-      u.title = "运行中插话：排进了这一次模型请求";
+      u.title = "运行中补充的";
       u.append(bubble); box.append(u); group = null;
       return;
     }
@@ -370,6 +405,7 @@ function drawChat() {
     if (f.kind === "aux") { if (!group) fresh(); group.append(auxCard(r, f.call)); return; }
     if (f.kind === "caps") { const card = capsCard(r, f.turn); if (card) { if (!group) fresh(); group.append(card); } return; }
     if (f.kind === "memory") { const card = memoryCard(r, f.turn, f.phase); if (card) { if (!group) fresh(); group.append(card); } return; }
+    if (f.kind === "changed") { const row = changedLine(r, f.turn); if (row) { if (!group) fresh(); group.append(row); } return; }
     if (!group) fresh();
     if (f.kind === "explore") {
       group.append(exploreGroup(r, f.calls));

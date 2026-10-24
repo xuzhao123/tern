@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/xuzhao123/tern/internal/appclient"
+	"github.com/xuzhao123/tern/internal/commands"
 	"github.com/xuzhao123/tern/internal/protocol"
 	"github.com/xuzhao123/tern/internal/tenant"
 )
@@ -141,8 +142,12 @@ func Run(args []string) error {
 	if s.remote != "" {
 		client, _, err = appclient.DialRemote("tern chat", s.remote)
 	} else {
-		if _, err := appclient.Start(false); err != nil {
+		var info appclient.Info
+		if info, err = appclient.Start(false); err != nil {
 			return err
+		}
+		if info.Notice != "" {
+			fmt.Println(info.Notice)
 		}
 		client, _, err = appclient.Dial("tern chat")
 	}
@@ -280,6 +285,7 @@ func (s *session) command(line string) (quit bool) {
 	switch fields[0] {
 	case "/help":
 		fmt.Println(help + s.logPath)
+		s.listCommands()
 	case "/exit", "/quit":
 		return true
 	case "/new":
@@ -338,9 +344,46 @@ func (s *session) command(line string) (quit bool) {
 	case "/fork":
 		s.fork(fields)
 	default:
+		// 不是 chat 自己的命令：/名字 参数 当一轮发给 agent 展开（和网页端一样），拼错的由 agent 报可用命令。
+		if commands.IsInvocation(line) {
+			s.turn(line)
+			break
+		}
 		fmt.Println("不认识的命令；/help 查看")
 	}
 	return false
+}
+
+// listCommands 接着 /help 列出可用的斜杠命令：内置的、个人级的，选了工作区时还有项目级的。
+// 取不到只打一行原因，不影响其余输出。
+func (s *session) listCommands() {
+	params := map[string]any{}
+	if s.workspace != nil {
+		params["workspace"] = *s.workspace
+	}
+	var list []struct {
+		Name         string `json:"name"`
+		Description  string `json:"description"`
+		ArgumentHint string `json:"argument_hint"`
+		Scope        string `json:"scope"`
+	}
+	if err := s.client.Call(context.Background(), "command/list", params, &list); err != nil {
+		fmt.Println("斜杠命令列表没取到：" + err.Error())
+		return
+	}
+	if len(list) == 0 {
+		fmt.Println("没有可用的斜杠命令。")
+		return
+	}
+	scopes := map[string]string{"builtin": "内置", "user": "个人", "project": "项目"}
+	fmt.Println("斜杠命令（发出去由 agent 展开成提示词）：")
+	for _, c := range list {
+		name := "/" + c.Name
+		if c.ArgumentHint != "" {
+			name += " " + c.ArgumentHint
+		}
+		fmt.Printf("  %-28s %s（%s）\n", name, c.Description, cmp.Or(scopes[c.Scope], c.Scope))
+	}
 }
 
 // newThread 让下一句开一条新对话；这一侧的事件、审批与插话都不再属于它。

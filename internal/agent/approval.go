@@ -222,7 +222,19 @@ func readJournal(call llm.ToolCall) (llm.Observation, bool) {
 // ---------- 循环检测 ----------
 
 // 滑动窗口：最近 6 个动作里同一工具与参数出现 3 次就熔断。连续重复、A/B 交替都算。
+// 窗口抓的是“原地打转”。改过文件以后工作区已经变了，同一条命令再跑是在看新的结果，所以成功的文件编辑会清空窗口（见 clearOnEdit）。
 const actionWindow, actionLimit = 6, 3
+
+// clearOnEdit 在一批结果里有成功的 edit_file、write_file 时清空动作窗口，从下一批开始重新计数。
+// 只看成功的：同一个失败的编辑原样重试 3 次，仍然是死循环。
+func clearOnEdit(p *progress, observations []llm.Observation) {
+	for _, o := range observations {
+		if o.Status == "ok" && (o.Tool == "edit_file" || o.Tool == "write_file") {
+			p.Recent = nil
+			return
+		}
+	}
+}
 
 func pushAction(recent []string, key string) ([]string, int) {
 	recent = append(recent, key)
@@ -301,6 +313,7 @@ func replayProgress(messages []llm.Message) progress {
 		}
 		if len(batch) > 0 {
 			p.observe(batch)
+			clearOnEdit(&p, batch) // 和实时检测一致：这一批里有成功的编辑就清空窗口，从下一批重新计数
 		}
 	}
 	return p

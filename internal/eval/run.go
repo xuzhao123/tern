@@ -346,7 +346,8 @@ func (r *Runner) execute(ctx context.Context, t *Trial, common []string) {
 		abs, _ := filepath.Abs(work)
 		args = append(slices.Clone(args), "-workspace", abs, "-bash")
 	}
-	result := queue.RunTask(ctx, queue.Task{ID: t.TaskID, Question: c.Question}, append(slices.Clone(args), common...), 2, child)
+	// 评测不读个人指令：试次的结果要能互相比较，不能混进个人偏好。
+	result := queue.RunTask(ctx, queue.Task{ID: t.TaskID, Question: c.Question}, append(append(slices.Clone(args), common...), "-personal-instructions=false"), 2, child)
 	cp, err := agent.LoadCheckpoint(t.TaskID)
 	r.mu.Lock()
 	t.Tools, t.Model = append(t.Tools, capture.tools...), capture.model
