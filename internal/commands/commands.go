@@ -1,16 +1,21 @@
 // Package commands 是自定义斜杠命令：用户输入 /名字参数，harness 把对应的 Markdown 模板展开成本轮的提示词。
 // 和 skill 的区别在于谁来触发：skill 由模型看索引后决定加载，斜杠命令由用户明确输入；内容都只是文字，不执行任何东西。
 //
+//	内置级  internal/commands/builtin/<名字>.md（编进程序，随程序发布）
 //	个人级  commands/<名字>.md（harness 目录，所有工作区都能用）
-//	项目级  <工作区>/.agents/commands/<名字>.md（随仓库共享；同名时项目级优先）
+//	项目级  <工作区>/.agents/commands/<名字>.md（随仓库共享）
+//
+// 同名时后面的整份覆盖前面的：项目级 › 个人级 › 内置级。
 //
 // 文件可以有 frontmatter（description、argument-hint），正文里 $ARGUMENTS 换成全部参数，$1…$9 换成按空格切开的第几个参数；
 // 正文没有引用参数而用户给了参数时，参数追加在末尾（和 Claude Code 一致）。
 package commands
 
 import (
+	"embed"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -20,20 +25,48 @@ import (
 	"github.com/xuzhao123/tern/internal/skills"
 )
 
+// 内置命令编进程序：改内置的就是改源码、重新编译，不往磁盘上写。
+//
+//go:embed builtin
+var builtinFS embed.FS
+
+// builtinDir 是嵌入文件系统里内置命令的目录，内置命令的 path 写成 builtin/<名字>.md。
+const builtinDir = "builtin"
+
 type Command struct {
 	Name         string `json:"name"`
 	Description  string `json:"description"`
 	ArgumentHint string `json:"argument_hint,omitempty"`
-	Scope        string `json:"scope"` // user、project
+	Scope        string `json:"scope"` // builtin、user、project
 	path         string
 }
 
 // 只有 /名字 后面是空白或结尾才算命令，所以 /home/dev/x 这样的路径不会被当成命令。
 var invocation = regexp.MustCompile(`^/([a-z0-9][a-z0-9_-]*)(?:\s+([\s\S]*))?$`)
 
-// List 列出可用的命令；workspace 为空时只有个人级。坏文件跳过，不影响其他命令。
+// IsInvocation 判断输入是不是 /名字 形式的命令调用：chat 用它决定把这一行当命令还是当一轮发给 agent。
+func IsInvocation(input string) bool {
+	return invocation.MatchString(strings.TrimSpace(input))
+}
+
+// builtinPaths 列出编进程序的内置命令文件。
+func builtinPaths() []string {
+	entries, _ := fs.ReadDir(builtinFS, builtinDir)
+	paths := []string{}
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") {
+			paths = append(paths, builtinDir+"/"+e.Name())
+		}
+	}
+	return paths
+}
+
+// List 列出可用的命令：内置的、个人级、项目级，同名的后面覆盖前面的；workspace 为空时没有项目级。坏文件跳过，不影响其他命令。
 func List(harness, workspace string) []Command {
-	found := map[string]Command{}
+	files := [][2]string{}
+	for _, path := range builtinPaths() {
+		files = append(files, [2]string{path, "builtin"})
+	}
 	dirs := [][2]string{{filepath.Join(harness, "commands"), "user"}}
 	if workspace != "" {
 		dirs = append(dirs, [2]string{filepath.Join(workspace, ".agents", "commands"), "project"})
@@ -41,17 +74,21 @@ func List(harness, workspace string) []Command {
 	for _, d := range dirs {
 		paths, _ := filepath.Glob(filepath.Join(d[0], "*.md"))
 		for _, path := range paths {
-			name := strings.TrimSuffix(filepath.Base(path), ".md")
-			if !invocation.MatchString("/" + name) {
-				continue
-			}
-			c, _, err := read(path)
-			if err != nil {
-				continue
-			}
-			c.Name, c.Scope = name, d[1]
-			found[name] = c
+			files = append(files, [2]string{path, d[1]})
 		}
+	}
+	found := map[string]Command{}
+	for _, f := range files {
+		name := strings.TrimSuffix(filepath.Base(f[0]), ".md")
+		if !invocation.MatchString("/" + name) {
+			continue
+		}
+		c, _, err := read(f[0])
+		if err != nil {
+			continue
+		}
+		c.Name, c.Scope = name, f[1]
+		found[name] = c
 	}
 	out := []Command{}
 	for _, c := range found {
@@ -61,8 +98,15 @@ func List(harness, workspace string) []Command {
 	return out
 }
 
+// read 读一个命令文件：内置的 path 以 builtin/ 开头，从嵌入的文件系统读；其余按磁盘路径读。
 func read(path string) (Command, string, error) {
-	data, err := os.ReadFile(path)
+	var data []byte
+	var err error
+	if strings.HasPrefix(path, builtinDir+"/") {
+		data, err = fs.ReadFile(builtinFS, path)
+	} else {
+		data, err = os.ReadFile(path)
+	}
 	if err != nil {
 		return Command{}, "", err
 	}

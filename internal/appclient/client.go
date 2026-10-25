@@ -41,11 +41,14 @@ const (
 	logTailLines       = 5 // 子进程提前退出时，错误里带 app-server.log 的最后几行
 )
 
-// Info 是 start 的输出：控制 socket（相对 TERN_HOME）、进程号、版本。
+// Info 是 start 的输出：控制 socket（相对 TERN_HOME）、进程号、版本、build；
+// Notice 是给人看的一行：换掉了后台的 app-server，或者为什么没换。
 type Info struct {
 	Socket  string `json:"socket"`
 	PID     int    `json:"pid"`
 	Version string `json:"version"`
+	Build   string `json:"build"`
+	Notice  string `json:"notice,omitempty"`
 }
 
 // connect 连本机控制 socket 并完成 initialize，返回连接与服务端信息；name 是这个界面的名字（见 SelfName），
@@ -95,16 +98,57 @@ func initialize(rwc io.ReadWriteCloser, name string, handle func(protocol.Messag
 	return c, res.Server, nil
 }
 
-// Start 保证本机 app-server 在运行：控制 socket 能答 initialize 就直接返回（已在运行的不会因为 dev 换模式），
-// 否则以新会话（setsid）在后台起一个，等它能答 initialize 再返回；子进程提前退出就不再等，报错并带上日志尾巴。
-// dev 是 -dev：每轮用 go run . 启动 agent。-dev 由 app-server 自己判断，这里只把它传给后台进程。
-// 这里不往 stdout 打印：proxy 的 stdout 是协议通道，要报告结果的调用方自己打印 Info。
+// Start 保证本机 app-server 在运行，并且是该用的那个程序：控制 socket 能答 initialize，就按 decide 看要不要把它换成自己；
+// 没在运行就以新会话（setsid）在后台起一个，等它能答 initialize 再返回；子进程提前退出就不再等，报错并带上日志尾巴。
+// 换的时候正在跑的 agent 不动，由新的 app-server 接管（appserver 的 adopt），所以不用等它们跑完。
+// dev 是 -dev：每轮用 go run . 启动 agent。-dev 由 app-server 自己判断，这里只把它传给后台进程；
+// 程序相同时不会因为 dev 换模式，换程序时旧的是 -dev 就保留。
+// 这里不往 stdout 打印：proxy 的 stdout 是协议通道，要报告结果的调用方自己打印 Info（包括 Notice）。
 func Start(dev bool) (Info, error) {
-	if c, srv, err := connect(SelfName, nil); err == nil {
+	unlock, err := lockStart()
+	if err != nil {
+		return Info{}, err
+	}
+	defer unlock()
+	notice := ""
+	c, srv, err := connect(SelfName, nil)
+	var rejected *protocol.Error
+	switch {
+	case err == nil:
+		replace, why := decide(srv)
+		if !replace {
+			c.Close()
+			i := info(srv)
+			i.Notice = why
+			return i, nil
+		}
+		old := "build " + srv.Build
+		if srv.Build == "" {
+			old = "不报 build 的旧版本"
+		}
+		notice = fmt.Sprintf("后台的 app-server 换成了这次启动的程序（%s → build %s），正在跑的对话由新的接管", old, appserver.Build())
+		dev = dev || srv.Dev
+		err = shutdown(c)
 		c.Close()
-		return info(srv), nil
-	} else if !errors.Is(err, ErrNotRunning) {
-		return Info{}, err // 有在跑的，但握手没成（协议版本不一致等），不另起一个
+		if err != nil {
+			return Info{}, err
+		}
+	case errors.As(err, &rejected):
+		// 握手被拒，多半是协议版本不一致：拿不到它的 build 和启动时间，启动时间改用 pid 文件的修改时间。
+		// 比这个进程早启动才换（发 SIGTERM，和 server/shutdown 同一套收尾）；否则是更新的界面起的，照旧报错。
+		pid := readPID()
+		if pid == 0 || !pidFileTime().Before(startedAt) {
+			return Info{}, err
+		}
+		if err := syscall.Kill(pid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+			return Info{}, fmt.Errorf("停掉旧的 app-server（pid %d）：%w", pid, err)
+		}
+		if err := waitGone(pid); err != nil {
+			return Info{}, err
+		}
+		notice = fmt.Sprintf("后台的 app-server 和这次启动的程序协议不同（%v），换成了这次启动的程序，正在跑的对话由新的接管", err)
+	case !errors.Is(err, ErrNotRunning):
+		return Info{}, err
 	}
 	exited, err := spawn(dev)
 	if err != nil {
@@ -114,7 +158,9 @@ func Start(dev bool) (Info, error) {
 		c, srv, err := connect(SelfName, nil)
 		if err == nil {
 			c.Close()
-			return info(srv), nil
+			i := info(srv)
+			i.Notice = notice
+			return i, nil
 		}
 		if !errors.Is(err, ErrNotRunning) {
 			return Info{}, err
@@ -130,9 +176,51 @@ func Start(dev bool) (Info, error) {
 	return Info{}, fmt.Errorf("启动 app-server 后 %s 内没能连上 %s，见 %s", startTimeout, appserver.Socket, appserver.LogFile)
 }
 
+// decide 判断要不要把连上的 app-server 换成这个进程的程序：最后启动的界面说了算。
+// 程序不同（build 不一样），它又比这个进程先启动，才换；它比这个进程晚，说明是自己起的，或者被更晚启动的界面换过，
+// 开着的旧界面重连时也就不会把它换回去。评测的试次是 app-server 的普通子进程，不能接管，有评测在跑时不换，返回给人看的原因。
+func decide(srv appserver.ServerInfo) (replace bool, why string) {
+	if srv.Build == appserver.Build() || srv.Started.After(startedAt) {
+		return false, ""
+	}
+	if srv.Evals > 0 {
+		return false, fmt.Sprintf("后台的 app-server 是另一个程序（build %s），有 %d 个评测在跑，这次不换；评测跑完后再启动界面就会换", srv.Build, srv.Evals)
+	}
+	return true, ""
+}
+
+// startedAt 是这个进程启动的时间（包初始化时记下），decide 拿它和 app-server 的启动时间比。
+var startedAt = time.Now()
+
+// lockStart 拿 .data/app-server/start.lock 的文件锁，返回放锁的函数：同一个 TERN_HOME 里同时启动的界面排队，
+// 不会两个一起去换、一起去起。文件以 O_CLOEXEC 打开，起的 app-server 不会继承这把锁。
+func lockStart() (func(), error) {
+	if err := os.MkdirAll(appserver.Dir, 0o700); err != nil {
+		return nil, fmt.Errorf("建 %s：%w", appserver.Dir, err)
+	}
+	f, err := os.OpenFile(startLock, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		f.Close()
+		return nil, fmt.Errorf("锁 %s：%w", startLock, err)
+	}
+	return func() { f.Close() }, nil
+}
+
+const startLock = appserver.Dir + "/start.lock"
+
+// pidFileTime 是 pid 文件的修改时间：app-server 启动时写一次，用作握手被拒时它的启动时间；读不到时是零值。
+func pidFileTime() time.Time {
+	st, err := os.Stat(appserver.PIDFile)
+	if err != nil {
+		return time.Time{}
+	}
+	return st.ModTime()
+}
+
 // Stop 发 server/shutdown 并等它退出；没有在运行的 app-server 时提示一句就正常返回。
-// 按 pid 文件等进程真的不在了，而不是等 socket 消失：删掉 socket 之后进程还要做收尾，
-// 文件锁这时还没放开，紧接着的 start 会起不来。
 func Stop() error {
 	c, _, err := connect(SelfName, nil)
 	if err != nil {
@@ -143,12 +231,23 @@ func Stop() error {
 		return err
 	}
 	defer c.Close()
+	return shutdown(c)
+}
+
+// shutdown 在一条已经握过手的连接上发 server/shutdown，再按 pid 文件等进程真的不在了，而不是等 socket 消失：
+// 删掉 socket 之后进程还要做收尾，文件锁这时还没放开，紧接着的 start 会起不来。
+func shutdown(c *protocol.Conn) error {
 	pid := readPID()
 	ctx, cancel := context.WithTimeout(context.Background(), handshakeTimeout)
 	defer cancel()
 	if err := c.Call(ctx, "server/shutdown", nil, nil); err != nil {
 		return fmt.Errorf("server/shutdown：%w", err)
 	}
+	return waitGone(pid)
+}
+
+// waitGone 等 app-server 退出：有 pid 就等进程不在，读不到 pid 时退回到等 socket 被删掉。
+func waitGone(pid int) error {
 	deadline := time.Now().Add(stopTimeout)
 	for time.Now().Before(deadline) {
 		if pid > 0 {
@@ -156,7 +255,7 @@ func Stop() error {
 				return nil
 			}
 		} else if _, err := os.Stat(appserver.Socket); errors.Is(err, os.ErrNotExist) {
-			return nil // 读不到 pid 时退回到等 socket 被删掉
+			return nil
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
@@ -182,8 +281,12 @@ func gone(pid int) bool {
 // Proxy 先保证本机 app-server 在运行，再把标准输入输出与控制 socket 原样转发，任何一边断开就退出。
 // stdout 就是协议通道，所以那次 start 不能往 stdout 写别的。经 SSH 时不知道该用哪种模式，已在运行的照旧；没在运行的不带 -dev 起。
 func Proxy() error {
-	if _, err := Start(false); err != nil {
+	info, err := Start(false)
+	if err != nil {
 		return err
+	}
+	if info.Notice != "" {
+		fmt.Fprintln(os.Stderr, info.Notice)
 	}
 	nc, err := net.Dial("unix", appserver.Socket)
 	if err != nil {
@@ -263,5 +366,5 @@ func readPID() int {
 
 // info 从 pid 文件和握手结果拼出 start 的输出。
 func info(srv appserver.ServerInfo) Info {
-	return Info{Socket: appserver.Socket, PID: readPID(), Version: srv.Version}
+	return Info{Socket: appserver.Socket, PID: readPID(), Version: srv.Version, Build: srv.Build}
 }

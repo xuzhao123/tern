@@ -58,7 +58,7 @@ type event struct {
 	AskUser    bool            `json:"ask_user,omitempty"`         // 本对话提供 ask_user，模型可以在运行中向人提问，续聊沿用
 	Browser    bool            `json:"browser,omitempty"`          // 本对话启用浏览器工具，续聊沿用
 	DSSearch   bool            `json:"ds_search,omitempty"`        // 本对话启用 DeepSeek 搜索工具，续聊沿用
-	Disallowed []string        `json:"disallowed_tools,omitempty"` // 设置快照：关掉的单个工具（内置工具、web_search、open_page），续聊沿用；旧存档没有，表示都开
+	Disallowed []string        `json:"disallowed_tools,omitempty"` // 设置快照：关掉的单个工具（web_search、open_page），续聊沿用；旧存档没有，表示都开。老存档里可能还有已经去掉的 calculator、get_current_datetime，agent 遇到时忽略
 	Provider   string          `json:"provider,omitempty"`         // 本对话的模型供应商（-provider），续聊沿用
 	Model      string          `json:"model,omitempty"`            // 本对话的具体模型（agent 的 -model）；空表示用这家供应商的默认值
 	Bash       bool            `json:"bash,omitempty"`             // 本对话启用 bash 沙箱，续聊沿用
@@ -70,24 +70,27 @@ type event struct {
 	ToolOutput int             `json:"tool_output,omitempty"`      //
 	Permission string          `json:"permission,omitempty"`       // 本轮的权限模式（续聊可以换）与权限规则快照
 	Rules      []string        `json:"permission_rules,omitempty"`
-	Hooks      string          `json:"hooks,omitempty"`          // 平台设置里的 hooks 配置原文快照，续聊沿用
-	NetAllow   []string        `json:"net_allow,omitempty"`      // 本轮沙箱可访问的域名，记在 start/continue 上：start 上是设置里的白名单，continue 上再加上本对话批准过的
-	Task       string          `json:"task,omitempty"`           // 发出这次请求的 agent 任务ID（X-Agent-Task）
-	Sub        bool            `json:"sub,omitempty"`            // 请求来自子 agent：不进入父对话流、不参与续聊恢复
-	Trace      string          `json:"trace,omitempty"`          // start/continue 上记这次交互的 trace_id
-	Span       string          `json:"span,omitempty"`           // request 上记 agent 的 chat span ID（来自 traceparent 头）
-	Method     string          `json:"method,omitempty"`         // notify / approval 事件的协议方法名，参数在 Body
-	RPC        int64           `json:"rpc,omitempty"`            // agent 发来的请求ID（approval），回复时带回
-	ASeq       int64           `json:"aseq,omitempty"`           // 接管：这条事件对应的协议消息在 agent 一侧的序号；重启后从最大的序号之后补齐
-	Chunks     int             `json:"chunks,omitempty"`         // 流式响应的 chunk 数；Body 是按 chunk 拼回的完整响应
-	FirstToken int64           `json:"first_token_ms,omitempty"` // 从转发请求到收到第一段正文或推理的毫秒数
-	Protocol   bool            `json:"protocol,omitempty"`       // start/continue 上标记这一轮经协议运行；之前的存档没有，界面据此启用旧存档兼容
-	Eval       string          `json:"eval,omitempty"`           // 由评测发起的试次（评测ID · 用例 #序号），对话列表里不显示
-	Source     string          `json:"source,omitempty"`         // 导入的对话：codex 或 claude-code，记在 start 上；只读，不能续聊
+	Effort     string          `json:"reasoning_effort,omitempty"` // 本轮的推理强度（-reasoning-effort），和权限模式一样每轮可以换；旧存档没有，续聊时从上一轮请求里读
+	Hooks      string          `json:"hooks,omitempty"`            // 平台设置里的 hooks 配置原文快照，续聊沿用
+	NetAllow   []string        `json:"net_allow,omitempty"`        // 本轮沙箱可访问的域名，记在 start/continue 上：start 上是设置里的白名单，continue 上再加上本对话批准过的
+	Task       string          `json:"task,omitempty"`             // 发出这次请求的 agent 任务ID（X-Agent-Task）
+	Sub        bool            `json:"sub,omitempty"`              // 请求来自子 agent：不进入父对话流、不参与续聊恢复
+	Trace      string          `json:"trace,omitempty"`            // start/continue 上记这次交互的 trace_id
+	Span       string          `json:"span,omitempty"`             // request 上记 agent 的 chat span ID（来自 traceparent 头）
+	Method     string          `json:"method,omitempty"`           // notify / approval 事件的协议方法名，参数在 Body
+	RPC        int64           `json:"rpc,omitempty"`              // agent 发来的请求ID（approval），回复时带回
+	ASeq       int64           `json:"aseq,omitempty"`             // 接管：这条事件对应的协议消息在 agent 一侧的序号；重启后从最大的序号之后补齐
+	Chunks     int             `json:"chunks,omitempty"`           // 流式响应的 chunk 数；Body 是按 chunk 拼回的完整响应
+	FirstToken int64           `json:"first_token_ms,omitempty"`   // 从转发请求到收到第一段正文或推理的毫秒数
+	Protocol   bool            `json:"protocol,omitempty"`         // start/continue 上标记这一轮经协议运行；之前的存档没有，界面据此启用旧存档兼容
+	Eval       string          `json:"eval,omitempty"`             // 由评测发起的试次（评测ID · 用例 #序号），对话列表里不显示
+	Source     string          `json:"source,omitempty"`           // 导入的对话：codex 或 claude-code，记在 start 上；只读，不能续聊
 }
 
 type run struct {
 	ID, Query string
+	Name      string // 人取的名字，存在 .data/runs/<ID>.meta.json；空表示列表显示第一句话
+	Archived  bool   // 已归档：列表默认不显示（见 threads.go）
 	Eval      string // 评测发起的试次，见 event.Eval
 	Source    string // 从 Codex / Claude Code 导入的对话，见 event.Source
 	ForkOf    string // 分出来的对话是这个 ID 的原对话，见 fork 事件；其余为空
@@ -99,6 +102,7 @@ type run struct {
 	calls      int
 	seq        int // 最后一个事件的序号：只增不减。delta 只在内存里也占序号，所以重启后要从存档里最大的序号接着编
 	events     []event
+	queue      []queueItem // 排队的后续消息，存在 .meta.json：这一轮结束后由 followUp 接着发
 	changed    chan struct{}
 	file       *os.File
 	proc       *os.Process // 正在运行的 agent 进程；强制结束时向它的进程组发 SIGKILL
@@ -157,6 +161,7 @@ func (c *conn) threadStart(m protocol.Message) (any, *protocol.Error) {
 		Model      string      `json:"model"`      // 第二级下拉选的具体模型；空：用这家供应商的默认值
 		Workspace  *string     `json:"workspace"`  // nil：用设置里的默认工作区；"": 本对话不用工作区
 		Permission string      `json:"permission"` // 空：用设置里的默认权限模式
+		Effort     string      `json:"effort"`     // 空：用设置里的默认推理强度
 		Images     []attachRef `json:"images"`     // 附图：先经 attachment/upload 存好，这里只带引用
 	}
 	if ferr := decode(m, &input); ferr != nil {
@@ -225,7 +230,7 @@ func (c *conn) threadStart(m protocol.Message) (any, *protocol.Error) {
 	// 设置快照：这一刻打开的工具，写进 start 事件，续聊沿用。
 	snap := event{Kind: "start", RAG: settings.on("rag"), Memory: settings.on("memory"), MemoryTTL: settings.Values["memory_ttl"], Subagents: settings.on("subagents"), AskUser: settings.on("ask_user"),
 		Browser: settings.on("web_search") || settings.on("open_page"), DSSearch: settings.on("ds_search"), Provider: input.Provider, Model: input.Model, Bash: settings.on("bash"), Workspace: workspace, WorkDir: workDir,
-		Permission: settings.Values["permission_mode"], Rules: ruleLines(settings.Values["permission_rules"])}
+		Permission: settings.Values["permission_mode"], Rules: ruleLines(settings.Values["permission_rules"]), Effort: settings.Values["reasoning_effort"]}
 	for _, tool := range singleTools {
 		if !settings.on(tool) {
 			snap.Disallowed = append(snap.Disallowed, tool)
@@ -236,6 +241,12 @@ func (c *conn) threadStart(m protocol.Message) (any, *protocol.Error) {
 			return nil, bad(400, "permission 取 plan、ask、edit 或 full")
 		}
 		snap.Permission = input.Permission
+	}
+	if input.Effort != "" {
+		if valid("reasoning_effort", input.Effort, settingsFile{}) != nil {
+			return nil, bad(400, "effort 取 minimal、low、medium 或 high")
+		}
+		snap.Effort = input.Effort
 	}
 	if snap.Hooks, err = hooksConfig(settings.Values["hooks"]); err != nil {
 		return nil, bad(500, "平台设置里的 hooks 无法使用："+err.Error())
@@ -333,28 +344,42 @@ func (s *Server) threadOf(id string) (*run, *protocol.Error) {
 	return r, nil
 }
 
+// turnInput 是一轮的问题与这一轮的选择。排队接着发（followUp）时只用 Query：权限模式与推理强度沿用上一轮的。
+type turnInput struct {
+	Query      string      `json:"query"`
+	Permission string      `json:"permission"` // 权限模式可以每轮换（和 Codex 的 /approvals、Claude Code 的 Shift+Tab 一样）；工具与规则沿用快照
+	Effort     string      `json:"effort"`     // 推理强度同样每轮可以换；空：沿用这条对话上一轮的
+	Images     []attachRef `json:"images"`     // 附图：同新对话，只带 attachment/upload 得到的引用
+	Compact    bool        `json:"compact"`    // 这一轮第一次请求模型之前先压缩上下文（chat 的 /compact），原样交给 agent
+}
+
 // turn/start：同一条对话一次只处理一个提问；恢复历史不会重新执行已经完成的工具。
 func (c *conn) turnStart(m protocol.Message) (any, *protocol.Error) {
-	s := c.s
 	var input struct {
-		ThreadID   string      `json:"threadId"`
-		Query      string      `json:"query"`
-		Permission string      `json:"permission"` // 权限模式可以每轮换（和 Codex 的 /approvals、Claude Code 的 Shift+Tab 一样）；工具与规则沿用快照
-		Images     []attachRef `json:"images"`     // 附图：同新对话，只带 attachment/upload 得到的引用
-		Compact    bool        `json:"compact"`    // 这一轮第一次请求模型之前先压缩上下文（chat 的 /compact），原样交给 agent
+		ThreadID string `json:"threadId"`
+		turnInput
 	}
 	if ferr := decode(m, &input); ferr != nil {
 		return nil, ferr
 	}
-	r, ferr := s.threadOf(input.ThreadID)
+	r, ferr := c.s.threadOf(input.ThreadID)
 	if ferr != nil {
 		return nil, ferr
 	}
+	return c.s.startTurn(r, input.turnInput, userName(m))
+}
+
+// startTurn 真正开始一轮：检查能不能续聊、拼出这一轮的 start/continue 事件、起 agent。
+// turn/start 与一轮结束后接着发排队的消息（followUp）共用。
+func (s *Server) startTurn(r *run, input turnInput, user string) (any, *protocol.Error) {
 	if strings.TrimSpace(input.Query) == "" {
 		return nil, bad(400, "请填写续聊问题")
 	}
 	if input.Permission != "" && valid("permission_mode", input.Permission, settingsFile{}) != nil {
 		return nil, bad(400, "permission 取 plan、ask、edit 或 full")
+	}
+	if input.Effort != "" && valid("reasoning_effort", input.Effort, settingsFile{}) != nil {
+		return nil, bad(400, "effort 取 minimal、low、medium 或 high")
 	}
 	if len(input.Images) > 0 {
 		if ferr := s.checkImages(input.Images); ferr != nil {
@@ -366,14 +391,20 @@ func (c *conn) turnStart(m protocol.Message) (any, *protocol.Error) {
 		r.mu.Unlock()
 		return nil, bad(409, "对话正在运行或尚未正常完成，暂不能续聊")
 	}
-	history, err := r.resumeHistory()
-	if err != nil {
-		r.mu.Unlock()
-		return nil, bad(409, err.Error())
+	// 撤销到了第一轮之前：这一轮接着的是空的对话，不恢复续聊上下文（history 为空，agent 按新对话
+	// 处理：不带 -continue、不记续接关系），由下面 start 事件的快照像新对话一样起第一轮。
+	over := r.startsOver()
+	var history *resumeInput
+	if !over {
+		var err error
+		if history, err = r.resumeHistory(); err != nil {
+			r.mu.Unlock()
+			return nil, bad(409, err.Error())
+		}
 	}
 	// 分支还没跑过、原对话就撤销到了分叉点之前：接着的那一轮已经不在了。这里先挡下，
 	// 否则 agent 起来以后才报错退出。分叉、撤销留下的提醒同样在这里算出来（见 notes）。
-	if history.Continues != "" && agent.Rewound(history.Continues) {
+	if history != nil && history.Continues != "" && agent.Rewound(history.Continues) {
 		r.mu.Unlock()
 		return nil, bad(409, "接着的那一轮已经撤销，不能接着聊")
 	}
@@ -390,13 +421,23 @@ func (c *conn) turnStart(m protocol.Message) (any, *protocol.Error) {
 			snap = e
 		}
 	}
-	snap.Kind, snap.Text, snap.Embedding = "continue", strings.TrimSpace(input.Query), history.Embedding
+	snap.Kind, snap.Text = "continue", strings.TrimSpace(input.Query)
+	if history != nil {
+		snap.Embedding = history.Embedding
+	}
 	if input.Permission != "" {
 		snap.Permission = input.Permission
 	}
-	snap.RAG = snap.RAG || history.RAG // 之前的存档没有 rag 字段，按上一次请求里有没有 search_docs 判断
+	if input.Effort != "" {
+		snap.Effort = input.Effort
+	}
+	// 旧存档的 start/continue 没有 reasoning_effort：沿用上一轮实际用的那个（从它发出的请求里读）。
+	if snap.Effort == "" && history != nil {
+		snap.Effort = history.Effort
+	}
+	snap.RAG = snap.RAG || (history != nil && history.RAG) // 之前的存档没有 rag 字段，按上一次请求里有没有 search_docs 判断
 	// 模型跟着检查点走：续聊用上一轮实际用的模型（agent 的 history.Model），换模型要新建对话。
-	if history.Model != "" {
+	if history != nil && history.Model != "" {
 		snap.Model = history.Model
 	}
 	// 带图时按这条对话实际用的模型判断能不能看图（snap.Model 为空就是 snap.Provider 的默认值）。
@@ -414,14 +455,15 @@ func (c *conn) turnStart(m protocol.Message) (any, *protocol.Error) {
 	ctx, span := r.beginTurn(snap.Text)
 	snap.Trace = span.SpanContext().TraceID().String()
 	r.add(snap)
-	args := []string{}
-	if history.Effort != "" {
-		args = append(args, "-reasoning-effort", history.Effort)
-	}
-	args = append(args, snapshotArgs(snap, r.netAllow())...)
+	args := snapshotArgs(snap, r.netAllow())
 	// 问题、续聊上下文与续接关系放进 turn/start。每一轮都用新的检查点ID，旧检查点保持原样（“一个ID一个问题”），
-	// 续接关系让模型可以按 task_id 续跑之前各轮的子任务。
-	turn := map[string]any{"question": strings.TrimSpace(input.Query), "history": history, "continues": history.Continues}
+	// 续接关系让模型可以按 task_id 续跑之前各轮的子任务。全部撤销后重新开始时 history 为空、也没有续接关系，
+	// agent 当新对话处理（不给续聊上下文，不带 -continue）。
+	continues := ""
+	if history != nil {
+		continues = history.Continues
+	}
+	turn := map[string]any{"question": strings.TrimSpace(input.Query), "history": history, "continues": continues}
 	if len(notes) > 0 {
 		// 分叉、只退一边的撤销之后，记录和磁盘上的文件对不上：作为提醒追加在问题后面（agent 的 notes）。
 		turn["notes"] = notes
@@ -432,8 +474,50 @@ func (c *conn) turnStart(m protocol.Message) (any, *protocol.Error) {
 	if input.Compact {
 		turn["compact"] = true
 	}
-	s.launch(ctx, r, args, turn, userName(m))
+	s.launch(ctx, r, args, turn, user)
 	return r.summary(), nil
+}
+
+// followUp 在这一轮结束（exit）后接着发队首那条，直到取完：问题就是这一项的文字，权限模式、推理强度沿用上一轮。
+// 人点停止结束的这一轮（r.stopping）不发，队列原样留着，等人自己发（页面上给“发第一条”）。
+// 开始下一轮失败（上一轮没留下检查点、配置坏了）时把这一项放回队首，只记一行日志，不重试。
+func (s *Server) followUp(r *run) {
+	r.mu.Lock()
+	ready := !r.stopping && len(r.queue) > 0 && r.canContinue()
+	r.mu.Unlock()
+	if !ready {
+		return
+	}
+	// 先把它从队列里拿出来再开始：这一轮很快就出错退出时，不会又把同一条发一遍。
+	var item queueItem
+	if ferr := s.setMeta(r, func(meta *runMeta) {
+		if len(meta.Queue) > 0 {
+			item, meta.Queue = meta.Queue[0], meta.Queue[1:]
+		}
+	}); ferr != nil {
+		r.add(event{Kind: "stdout", Text: "排队的消息没有发出去（" + ferr.Message + "），队列留在原处"})
+		return
+	}
+	if item.ID == "" {
+		return // 别的页面刚好把它删了
+	}
+	_, startErr := s.startTurn(r, turnInput{Query: item.Text}, "")
+	// startTurn 起不来 agent 时也算失败：它返回前已经把 exit 记成这一轮的结局了（r.proc 还是空的）。
+	r.mu.Lock()
+	started := startErr == nil && r.proc != nil
+	r.mu.Unlock()
+	if started {
+		return
+	}
+	if ferr := s.setMeta(r, func(meta *runMeta) { meta.Queue = append([]queueItem{item}, meta.Queue...) }); ferr != nil {
+		r.add(event{Kind: "stdout", Text: "排队的消息放不回队列（" + ferr.Message + "）：" + item.Text})
+		return
+	}
+	reason := ""
+	if startErr != nil {
+		reason = "（" + startErr.Message + "）"
+	}
+	r.add(event{Kind: "stdout", Text: "排队的消息没有发出去" + reason + "，放回队首：" + item.Text})
 }
 
 // 每次交互（首问或续聊）一个 trace，根 span 是 app-server 的 interaction；agent 进程的 invoke_agent 挂在它下面。
@@ -565,6 +649,10 @@ func snapshotArgs(e event, netAllow []string) []string {
 	}
 	if e.Permission != "" {
 		args = append(args, "-permission-mode", e.Permission)
+	}
+	// 推理强度按这条对话记下的值传；旧存档没有时续聊早已从上一轮请求里补上（见 turnStart）。
+	if e.Effort != "" {
+		args = append(args, "-reasoning-effort", e.Effort)
 	}
 	for _, line := range e.Rules {
 		effect, rule, _ := strings.Cut(line, ":")
@@ -1158,23 +1246,37 @@ func (r *run) withEmbedding(result *resumeInput) *resumeInput {
 // 调用方持有r.mu。正常结束的对话从最后一个完整回答接着聊；
 // 中途停下的对话（停止按钮、超时、出错）只要 agent 写过检查点，就从检查点接着聊。
 func (r *run) canContinue() bool {
-	// 人的网络审批（allow/deny）、撤销（rewind）与分叉（fork）可能追加在 exit 之后，不算对话进程的事件。
-	i, rewound := len(r.events)-1, false
-	for i >= 0 && (r.events[i].Kind == "allow" || r.events[i].Kind == "deny" || r.events[i].Kind == "rewind" || r.events[i].Kind == "fork") {
-		rewound = rewound || r.events[i].Kind == "rewind"
-		i--
-	}
+	i, rewound := r.lastTurnEvent()
 	if r.Source != "" || !r.Done || i < 0 || r.events[i].Kind != "exit" {
 		return false
 	}
-	// 撤销之后从撤销点的上一轮接着聊；连第一轮也撤销了，就没有可以接着的对话。
+	// 撤销之后从撤销点的上一轮接着聊；连第一轮也撤销了，就在这条对话里重新开始（见 startsOver）。
 	if rewound {
-		return r.lastCheckpoint() != ""
+		return true
 	}
 	if r.events[i].Text == "exit 0" {
 		return r.calls > 0
 	}
 	return r.lastCheckpoint() != ""
+}
+
+// 人的网络审批（allow/deny）、撤销（rewind）与分叉（fork）可能追加在 exit 之后，不算对话进程的事件。
+// 返回最后一条对话进程事件的下标，以及它后面有没有撤销。调用方持有 r.mu。
+func (r *run) lastTurnEvent() (int, bool) {
+	i, rewound := len(r.events)-1, false
+	for i >= 0 && (r.events[i].Kind == "allow" || r.events[i].Kind == "deny" || r.events[i].Kind == "rewind" || r.events[i].Kind == "fork") {
+		rewound = rewound || r.events[i].Kind == "rewind"
+		i--
+	}
+	return i, rewound
+}
+
+// 撤销到了第一轮之前：撤销过、又没有可以接着的检查点，这条对话一轮都不剩。
+// canContinue 这时也算能继续，意思是“在这条对话里重新开始”：startTurn 不带续聊上下文，
+// 照 start 事件里的快照像新对话一样起第一轮，检查点与沙箱目录都是新的。调用方持有 r.mu。
+func (r *run) startsOver() bool {
+	_, rewound := r.lastTurnEvent()
+	return rewound && r.lastCheckpoint() == ""
 }
 
 // 启动时读回 .data/runs/*.jsonl，重启后仍能查看、回放和对比历史运行。
@@ -1187,6 +1289,10 @@ func (s *Server) loadRuns() {
 			continue
 		}
 		r := &run{s: s, ID: strings.TrimSuffix(filepath.Base(path), ".jsonl"), Done: true, changed: make(chan struct{})}
+		// 名字、归档与排队的消息在旁边的 .meta.json 里；没有这个文件就是没改过名、没归档、没排队。
+		if meta, err := readMeta(s.metaPath(r.ID)); err == nil {
+			r.Name, r.Archived, r.queue = meta.Name, meta.Archived, meta.Queue
+		}
 		for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
 			var e event
 			if json.Unmarshal([]byte(line), &e) != nil {
@@ -1228,13 +1334,45 @@ func firstUserMessage(body json.RawMessage) string {
 	return ""
 }
 
+// workspaceName 是这条对话开始时的快照里的工作区名字（续聊沿用开始时的那个），没有工作区就是空。
+// 只看快照、不查设置：工作区改了名或移除了，列表里照旧显示开始时的名字。调用方持有 r.mu。
+func (r *run) workspaceName() string {
+	for i := len(r.events) - 1; i >= 0; i-- {
+		if e := r.events[i]; (e.Kind == "start" || e.Kind == "continue") && e.Workspace != "" {
+			return e.Workspace
+		}
+	}
+	return ""
+}
+
 func (r *run) summary() map[string]any {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	summary := map[string]any{"id": r.ID, "query": r.Query, "done": r.Done, "can_continue": r.canContinue(), "eval": r.Eval, "source": r.Source, "fork_of": r.ForkOf}
+	// 工作区名字给左侧列表按工作区筛用（有才带）：只按名字筛，改了名的老对话还在旧名字那一栏。
+	if name := r.workspaceName(); name != "" {
+		summary["workspace"] = name
+	}
+	// 名字与归档都是可选的：没有名字就不带 name（界面显示第一句话），没归档就不带 archived。
+	if r.Name != "" {
+		summary["name"] = r.Name
+	}
+	if r.Archived {
+		summary["archived"] = true
+	}
+	// 排队的后续消息（有才带）：页面在待发送区里列出它们，所有打开这条对话的页面看到的一样。
+	if len(r.queue) > 0 {
+		summary["queue"] = r.queue
+	}
 	// 时间给 Unix 毫秒时间戳，由界面按看的人所在的时区显示。
 	if len(r.events) > 0 {
 		summary["created_at"], summary["updated_at"] = r.events[0].Time.UnixMilli(), r.events[len(r.events)-1].Time.UnixMilli()
+	}
+	// 这条对话在等人：联网审批与工具审批都算 approval，提问算 question，两样都有时只报 approval（界面按它标一种）。
+	if len(r.approvals) > 0 || len(r.toolWaits) > 0 {
+		summary["waiting"] = "approval"
+	} else if len(r.asks) > 0 {
+		summary["waiting"] = "question"
 	}
 	return summary
 }
@@ -1429,6 +1567,12 @@ func (s *Server) status(threadID, status string) {
 	s.broadcast("thread/status/changed", map[string]string{"threadId": threadID, "status": status})
 }
 
+// waitingChanged 在等待表（联网审批、工具审批、提问）增删条目后叫各界面重新取列表：
+// 左侧列表上的“等你审批”“等你回答”跟着变。状态照现在的报，界面对这路通知只关心列表变了。
+func (r *run) waitingChanged() {
+	r.s.status(r.ID, r.liveStatus())
+}
+
 // addRun 把新对话放进列表，并告诉所有连接列表变了（各连接分别发，不等这条对话往下走）。
 func (s *Server) addRun(r *run) {
 	r.s = s
@@ -1530,6 +1674,7 @@ func (s *Server) decideNetwork(ctx context.Context, r *run, name, by, domain str
 	conn, waiting := r.conn, r.approvals[domain]
 	delete(r.approvals, domain)
 	r.mu.Unlock()
+	r.waitingChanged()
 	for _, id := range waiting {
 		if conn != nil {
 			conn.Reply(id, map[string]string{"decision": kind}, nil)
@@ -1550,6 +1695,7 @@ func (s *Server) decideTool(ctx context.Context, r *run, name, by, callID string
 	wait, waiting := r.toolWaits[callID]
 	delete(r.toolWaits, callID)
 	r.mu.Unlock()
+	r.waitingChanged()
 	if !waiting || conn == nil {
 		return nil, bad(409, "这项操作已不在等待确认（可能已超时或 agent 已结束）")
 	}
@@ -1562,6 +1708,7 @@ func (s *Server) decideTool(ctx context.Context, r *run, name, by, callID string
 			r.mu.Lock()
 			r.toolWaits[callID] = wait
 			r.mu.Unlock()
+			r.waitingChanged()
 			return nil, bad(400, "这项操作只能单次允许")
 		}
 		decision, detail = "allow_session", by+"；本对话内都允许："+wait.Scope
@@ -1574,6 +1721,7 @@ func (s *Server) decideTool(ctx context.Context, r *run, name, by, callID string
 		r.mu.Lock()
 		r.toolWaits[callID] = wait
 		r.mu.Unlock()
+		r.waitingChanged()
 		return nil, bad(500, "审计日志写入失败，没有回复 agent："+err.Error())
 	}
 	r.add(event{Kind: "decision", Text: callID, Body: json.RawMessage(`{"decision":"` + decision + `"}`)})
@@ -1591,6 +1739,7 @@ func (s *Server) answerQuestion(r *run, callID, answer string) (any, *protocol.E
 	rpc, waiting := r.asks[callID]
 	delete(r.asks, callID)
 	r.mu.Unlock()
+	r.waitingChanged()
 	if !waiting || conn == nil {
 		return nil, bad(409, "agent 没有在等这个问题的回答（已经回答过、已超时或这一轮已结束）")
 	}
@@ -1631,12 +1780,13 @@ func (c *conn) approvalRespond(m protocol.Message) (any, *protocol.Error) {
 	return nil, bad(400, "kind 取 tool、network 或 question")
 }
 
-// turn/steer：运行中插话。agent 把它排进下一次模型请求；这一轮已经结束时返回 409，界面提示人在结束后照常发送。
-// 插话真正送进模型时 agent 会发 userMessage（steer=true）的通知，存档里以那条为准。
+// turn/steer：运行中插话。agent 把它排进下一次模型请求；这一轮已经结束时返回 409，界面把这条留到结束后当下一轮的问题。
+// 插话真正送进模型时 agent 会发 userMessage（steer=true）的通知，存档里以那条为准；界面给的 client_id 随这条通知回去。
 func (c *conn) turnSteer(m protocol.Message) (any, *protocol.Error) {
 	var input struct {
 		ThreadID string `json:"threadId"`
 		Text     string `json:"text"`
+		ClientID string `json:"client_id"`
 	}
 	if ferr := decode(m, &input); ferr != nil {
 		return nil, ferr
@@ -1656,8 +1806,12 @@ func (c *conn) turnSteer(m protocol.Message) (any, *protocol.Error) {
 	}
 	ctx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
 	defer cancel()
-	if err := conn.Call(ctx, "turn/steer", map[string]string{"text": strings.TrimSpace(input.Text)}, nil); err != nil {
-		return nil, bad(409, "没有送到：这一轮已经结束（"+err.Error()+"），结束后照常发送即可")
+	params := map[string]string{"text": strings.TrimSpace(input.Text)}
+	if id := strings.TrimSpace(input.ClientID); id != "" {
+		params["client_id"] = id
+	}
+	if err := conn.Call(ctx, "turn/steer", params, nil); err != nil {
+		return nil, bad(409, "这一轮刚结束，没插进去")
 	}
 	return nil, nil
 }
@@ -1892,6 +2046,7 @@ func (r *run) handle(m protocol.Message) {
 			}
 			r.asks[p.CallID] = *m.ID
 			r.mu.Unlock()
+			r.waitingChanged()
 			if !seen {
 				r.add(event{Kind: "approval", Method: m.Method, RPC: *m.ID, Body: m.Params, ASeq: m.Seq})
 			}
@@ -1915,6 +2070,7 @@ func (r *run) handle(m protocol.Message) {
 				r.toolWaits[params.CallID] = toolWait{*m.ID, params.Task, params.Tool, params.Risk, params.Arguments, params.Scope}
 			}
 			r.mu.Unlock()
+			r.waitingChanged()
 			if !seen {
 				r.add(event{Kind: "approval", Method: m.Method, RPC: *m.ID, Body: m.Params, ASeq: m.Seq})
 			}
@@ -1938,6 +2094,7 @@ func (r *run) handle(m protocol.Message) {
 			r.approvals[params.Domain] = append(r.approvals[params.Domain], *m.ID)
 		}
 		r.mu.Unlock()
+		r.waitingChanged()
 		if !seen {
 			r.add(event{Kind: "approval", Method: m.Method, RPC: *m.ID, Body: m.Params, ASeq: m.Seq})
 		}

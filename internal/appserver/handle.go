@@ -2,23 +2,32 @@ package appserver
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"runtime/debug"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/xuzhao123/tern/internal/protocol"
 )
 
 // ServerInfo 是 initialize 的回复：版本只用来显示，协议版本给界面核对，host 与 home 说明连的是哪台机器、哪个数据目录。
+// build、started、dev、evals 给界面判断要不要把 app-server 换成自己的程序（见 appclient.Start）；旧的 app-server 没有这几项。
 type ServerInfo struct {
-	Version  string `json:"version"`
-	Protocol int    `json:"protocol"`
-	Host     string `json:"host"`
-	Home     string `json:"home"`
+	Version  string    `json:"version"`
+	Protocol int       `json:"protocol"`
+	Host     string    `json:"host"`
+	Home     string    `json:"home"`
+	Build    string    `json:"build,omitempty"`
+	Started  time.Time `json:"started,omitzero"`
+	Dev      bool      `json:"dev,omitempty"`
+	Evals    int       `json:"evals,omitempty"` // 正在跑的评测：试次不能接管，有它们在时界面不换
 }
 
 // 一个连接一份状态：第一条必须是 initialize，之后的方法才认。
@@ -88,50 +97,62 @@ func (c *conn) handle(m protocol.Message) {
 
 // methods 是这一期的全部方法，见设计第 5 节。每个方法返回的结果原样成为 JSON-RPC 的 result，出错时 code 是原来网页端的 HTTP 状态码。
 var methods = map[string]func(*conn, protocol.Message) (any, *protocol.Error){
-	"thread/list":        (*conn).threadList,
-	"thread/start":       (*conn).threadStart,
-	"thread/resume":      (*conn).threadResume,
-	"thread/unsubscribe": (*conn).threadUnsubscribe,
-	"thread/rewind":      (*conn).threadRewind,
-	"thread/fork":        (*conn).threadFork,
-	"thread/import":      (*conn).threadImport,
-	"thread/attribute":   (*conn).threadAttribute,
-	"turn/start":         (*conn).turnStart,
-	"turn/steer":         (*conn).turnSteer,
-	"turn/interrupt":     (*conn).turnInterrupt,
-	"approval/respond":   (*conn).approvalRespond,
-	"settings/read":      (*conn).settingsRead,
-	"settings/write":     (*conn).settingsWrite,
-	"workspace/add":      (*conn).workspaceAdd,
-	"workspace/remove":   (*conn).workspaceRemove,
-	"model/list":         (*conn).modelList,
-	"command/list":       (*conn).commandList,
-	"attachment/upload":  (*conn).attachmentUpload,
-	"attachment/read":    (*conn).attachmentRead,
-	"files/list":         (*conn).filesList,
-	"files/read":         (*conn).filesRead,
-	"files/write":        (*conn).filesWrite,
-	"files/delete":       (*conn).filesDelete,
-	"browser/frame":      (*conn).browserFrame,
-	"trace/spans":        (*conn).traceSpans,
-	"trace/metrics":      (*conn).traceMetrics,
-	"memory/list":        (*conn).memoryList,
-	"memory/forget":      (*conn).memoryForget,
-	"audit/list":         (*conn).auditList,
-	"hub/list":           (*conn).hubList,
-	"hub/enabled":        (*conn).hubEnabled,
-	"hub/skill/create":   (*conn).skillCreate,
-	"hub/skill/delete":   (*conn).skillDelete,
-	"hub/skill/toggle":   (*conn).skillToggle,
-	"hub/mcp/add":        (*conn).mcpAdd,
-	"hub/mcp/delete":     (*conn).mcpDelete,
-	"hub/mcp/toggle":     (*conn).mcpToggle,
-	"hub/mcp/test":       (*conn).mcpTest,
-	"eval/list":          (*conn).evalList,
-	"eval/cases":         (*conn).evalCases,
-	"eval/get":           (*conn).evalGet,
-	"eval/start":         (*conn).evalStart,
-	"eval/action":        (*conn).evalAction,
+	"thread/list":          (*conn).threadList,
+	"thread/search":        (*conn).threadSearch,
+	"thread/start":         (*conn).threadStart,
+	"thread/resume":        (*conn).threadResume,
+	"thread/unsubscribe":   (*conn).threadUnsubscribe,
+	"thread/rewind":        (*conn).threadRewind,
+	"thread/fork":          (*conn).threadFork,
+	"thread/import":        (*conn).threadImport,
+	"thread/attribute":     (*conn).threadAttribute,
+	"thread/name/set":      (*conn).threadNameSet,
+	"thread/archive":       (*conn).threadArchive,
+	"thread/unarchive":     (*conn).threadUnarchive,
+	"thread/delete":        (*conn).threadDelete,
+	"thread/queue/add":     (*conn).threadQueueAdd,
+	"thread/queue/delete":  (*conn).threadQueueDelete,
+	"turn/start":           (*conn).turnStart,
+	"turn/steer":           (*conn).turnSteer,
+	"turn/interrupt":       (*conn).turnInterrupt,
+	"approval/respond":     (*conn).approvalRespond,
+	"settings/read":        (*conn).settingsRead,
+	"settings/write":       (*conn).settingsWrite,
+	"workspace/add":        (*conn).workspaceAdd,
+	"workspace/browse":     (*conn).workspaceBrowse,
+	"workspace/candidates": (*conn).workspaceCandidates,
+	"workspace/diff":       (*conn).workspaceDiff,
+	"workspace/files":      (*conn).workspaceFiles,
+	"workspace/remove":     (*conn).workspaceRemove,
+	"workspace/rename":     (*conn).workspaceRename,
+	"model/list":           (*conn).modelList,
+	"command/list":         (*conn).commandList,
+	"attachment/upload":    (*conn).attachmentUpload,
+	"attachment/read":      (*conn).attachmentRead,
+	"files/list":           (*conn).filesList,
+	"files/read":           (*conn).filesRead,
+	"files/write":          (*conn).filesWrite,
+	"files/delete":         (*conn).filesDelete,
+	"browser/frame":        (*conn).browserFrame,
+	"trace/spans":          (*conn).traceSpans,
+	"trace/metrics":        (*conn).traceMetrics,
+	"memory/list":          (*conn).memoryList,
+	"memory/forget":        (*conn).memoryForget,
+	"audit/list":           (*conn).auditList,
+	"hub/list":             (*conn).hubList,
+	"hub/enabled":          (*conn).hubEnabled,
+	"hub/skill/create":     (*conn).skillCreate,
+	"hub/skill/delete":     (*conn).skillDelete,
+	"hub/skill/toggle":     (*conn).skillToggle,
+	"hub/mcp/add":          (*conn).mcpAdd,
+	"hub/mcp/delete":       (*conn).mcpDelete,
+	"hub/mcp/toggle":       (*conn).mcpToggle,
+	"hub/mcp/test":         (*conn).mcpTest,
+	"eval/list":            (*conn).evalList,
+	"eval/cases":           (*conn).evalCases,
+	"eval/get":             (*conn).evalGet,
+	"eval/start":           (*conn).evalStart,
+	"eval/action":          (*conn).evalAction,
 }
 
 // initialize 核对协议版本：版本对不上就拒绝，两边的方法与参数可能读不懂。
@@ -159,7 +180,7 @@ func (c *conn) initialize(m protocol.Message) {
 	c.mu.Lock()
 	c.initialized, c.client = true, name
 	c.mu.Unlock()
-	c.pc.Reply(*m.ID, map[string]any{"server": info()}, nil)
+	c.pc.Reply(*m.ID, map[string]any{"server": c.s.info()}, nil)
 }
 
 // clientName 是这个连接的界面名字，写进审计记录的 Detail。
@@ -201,9 +222,10 @@ func userName(m protocol.Message) string {
 	return p.User
 }
 
-func info() ServerInfo {
+func (s *Server) info() ServerInfo {
 	host, _ := os.Hostname()
-	return ServerInfo{Version: Version(), Protocol: Protocol, Host: host, Home: home()}
+	return ServerInfo{Version: Version(), Protocol: Protocol, Host: host, Home: home(),
+		Build: Build(), Started: s.started, Dev: s.dev, Evals: s.runningEvals()}
 }
 
 // home 是 TERN_HOME 的绝对路径：main 已经 chdir 过去，环境变量也写回了。
@@ -242,6 +264,37 @@ func Version() string {
 	}
 	return rev
 }
+
+// Build 是这个进程的可执行文件内容的 sha256 前 12 位，进程里只算一次。界面靠它判断 app-server 是不是自己这个程序：
+// 版本号是提交号，同一个提交上没提交的改动分不出来；而同一份源码编两次链接结果相同，build 也相同。
+// 读 /proc/self/exe：go run 编出的临时文件被删了也读得到。读不到时是 unknown。
+func Build() string {
+	buildOnce.Do(func() {
+		build = "unknown"
+		path := "/proc/self/exe"
+		if _, err := os.Stat(path); err != nil {
+			if path, err = os.Executable(); err != nil {
+				return
+			}
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			return
+		}
+		defer f.Close()
+		h := sha256.New()
+		if _, err := io.Copy(h, f); err != nil {
+			return
+		}
+		build = hex.EncodeToString(h.Sum(nil))[:12]
+	})
+	return build
+}
+
+var (
+	buildOnce sync.Once
+	build     string
+)
 
 // broadcast 把通知发给所有连接。各连接各发各的队列，写不出去只堵住它自己，不堵住会话（run.add）。
 func (s *Server) broadcast(method string, params any) {

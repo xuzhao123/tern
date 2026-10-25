@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tern 架构图</title>
+<style>
+  :root {
+    --ink: #1e222a;
+    --muted: #5b6472;
+    --line: #d8dde5;
+    --ui: #2563eb;
+    --link: #0f766e;
+    --srv: #7c3aed;
+    --job: #b45309;
+    --data: #475569;
+    --ext: #be123c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 28px 30px 40px;
+    background: #f6f7f9;
+    color: var(--ink);
+    font-family: system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB",
+                 "Microsoft YaHei", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif;
+    font-size: 13px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1500px; margin: 0 auto; }
+  header h1 { margin: 0 0 6px; font-size: 21px; letter-spacing: .3px; }
+  header p { margin: 0 0 22px; color: var(--muted); font-size: 12.5px; }
+  header code, .path { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 11.5px; }
+
+  .cols { display: grid; grid-template-columns: minmax(0, 1fr) 336px; gap: 26px; align-items: start; }
+  main { display: grid; gap: 0; min-width: 0; }
+  aside { display: grid; gap: 16px; }
+
+  .tier {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(20, 26, 38, .05);
+    overflow: hidden;
+  }
+  .tier > .th {
+    display: flex; align-items: baseline; gap: 10px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--line);
+    font-weight: 600;
+    font-size: 13.5px;
+  }
+  .tier > .th .tag {
+    font-size: 11px; font-weight: 600; letter-spacing: .5px;
+    padding: 2px 8px; border-radius: 999px;
+  }
+  .tier > .th .note { margin-left: auto; color: var(--muted); font-weight: 400; font-size: 11.5px; }
+  .body { padding: 12px 14px 14px; }
+
+  .ui  { background: #eff5ff; }
+  .ui .th { background: #eaf1ff; color: #1d4ed8; }
+  .ui .tag { background: var(--ui); color: #fff; }
+  .link .th { background: #e9f6f4; color: #0b5f59; }
+  .link .tag { background: var(--link); color: #fff; }
+  .srv .th { background: #f3ecff; color: #5b21b6; }
+  .srv .tag { background: var(--srv); color: #fff; }
+  .job .th { background: #fdf1e3; color: #92400e; }
+  .job .tag { background: var(--job); color: #fff; }
+
+  .cards { display: grid; gap: 10px; }
+  .cards.c3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .cards.c2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+  .card {
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    background: #fff;
+    padding: 9px 11px 10px;
+    min-width: 0;
+  }
+  .card h3 { margin: 0 0 2px; font-size: 12.8px; }
+  .card h3 .path { color: var(--muted); font-weight: 400; margin-left: 4px; }
+  .card ul { margin: 5px 0 0; padding-left: 15px; color: #333a45; font-size: 11.8px; }
+  .card li { margin: 2px 0; }
+  .card .sub { color: var(--muted); font-size: 11.5px; margin-top: 3px; }
+
+  /* 层与层之间的连线 */
+  .wire {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 0 9px 4px;
+    color: var(--muted);
+    font-size: 11.5px;
+  }
+  .wire .bar {
+    flex: 0 0 auto; width: 2px; height: 30px; margin-left: 26px;
+    background: repeating-linear-gradient(to bottom, #b8c0cc 0 5px, transparent 5px 9px);
+  }
+  .wire .txt { background: #eef1f6; border-radius: 6px; padding: 3px 9px; }
+  .wire .arrow { font-size: 12px; color: #7b8494; }
+  .wire.two { justify-content: flex-start; }
+
+  aside .tier > .th { font-size: 12.5px; }
+  aside .tier .body { padding: 10px 12px 12px; }
+  .grp { margin: 0 0 9px; }
+  .grp:last-child { margin-bottom: 0; }
+  .grp h4 {
+    margin: 0 0 3px; font-size: 11.5px; letter-spacing: .4px;
+    color: #6b7482; text-transform: uppercase;
+  }
+  .grp ul { margin: 0; padding-left: 15px; font-size: 11.6px; color: #333a45; }
+  .grp li { margin: 1.5px 0; }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 11px; }
+  .ext .th { background: #fdeef1; color: #9f1239; }
+  .ext .tag { background: var(--ext); color: #fff; }
+  .dat .th { background: #eef1f5; color: #334155; }
+  .dat .tag { background: var(--data); color: #fff; }
+
+  footer {
+    margin-top: 20px; padding-top: 14px;
+    border-top: 1px dashed var(--line);
+    color: var(--muted); font-size: 11.8px;
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px;
+  }
+  footer b { color: var(--ink); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>tern 架构：三层进程（界面 → app-server → agent）</h1>
+    <p>
+      一个 Go 模块、一个入口 <code>main.go</code>。界面随人开关，app-server 常驻管对话，agent 一轮一个进程真正干活；
+      运行数据都在 <code>TERN_HOME/.data/</code>（<code>TERN_HOME</code> 没设时是 <code>~/.tern</code>）。
+      详细说明见 <a href="architecture.md">architecture.md</a>。
+    </p>
+  </header>
+
+  <div class="cols">
+    <main>
+      <!-- ① 界面 -->
+      <section class="tier ui">
+        <div class="th"><span class="tag">① 界面</span>用户直接接触的三种入口<span class="note">随人开关，不持有对话</span></div>
+        <div class="body cards c3">
+          <div class="card">
+            <h3>浏览器<span class="path">internal/web</span></h3>
+            <ul>
+              <li>登录 cookie、页面（page/ 原生 ES 模块）</li>
+              <li>HTTP 接口 → 协议方法；事件流 SSE</li>
+              <li>多主机 <span class="mono">/h/&lt;别名&gt;/</span>、内置计算器 MCP</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>终端<span class="path">internal/chat</span></h3>
+            <ul>
+              <li>交互输入、斜杠命令</li>
+              <li><span class="mono">/fork &lt;n&gt;</span>、<span class="mono">/rewind &lt;n&gt;</span></li>
+              <li>流式输出、运行中插话</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>一次性 CLI<span class="path">queue / eval / metrics / audit / rewind / -question</span></h3>
+            <ul>
+              <li>不经 app-server，直接读写 <span class="mono">.data/</span></li>
+              <li>队列与评测试次：每个任务一个子进程</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <div class="wire">
+        <span class="bar"></span>
+        <span class="txt">HTTP（登录 cookie、SSE）｜终端标准输入输出　<span class="arrow">▼</span></span>
+      </div>
+
+      <!-- ② 连接层 -->
+      <section class="tier link">
+        <div class="th"><span class="tag">② 连接层</span>internal/appclient<span class="note">界面侧不启动 agent、不读写 .data 里的对话</span></div>
+        <div class="body cards c2">
+          <div class="card">
+            <h3>连哪条路</h3>
+            <ul>
+              <li>本机：<span class="mono">.data/app-server/control.sock</span>（Unix socket，目录 0700）</li>
+              <li>远程：<span class="mono">ssh -T &lt;别名&gt; 'exec "$SHELL" -lc "tern app-server proxy"'</span></li>
+              <li>远程用 ssh 的 stdin/stdout 当协议通道：不开端口，鉴权就是 SSH</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>说什么、断了怎么办</h3>
+            <ul>
+              <li>一行一条 JSON-RPC：<span class="mono">initialize</span>、<span class="mono">thread/*</span>、<span class="mono">turn/*</span>、<span class="mono">approval/respond</span>、<span class="mono">settings/*</span></li>
+              <li>退避 1、2、4…秒（最多 30 秒）重连；按最后收到的 seq 重新 <span class="mono">thread/resume</span> 补齐</li>
+              <li><span class="mono">Start</span>：socket 连不上就后台起一个；发现旧 build 且自己更新，就换掉它</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <div class="wire">
+        <span class="bar"></span>
+        <span class="txt">control.sock（本机）｜ssh → 远端的 app-server proxy → 远端 control.sock　<span class="arrow">▼</span></span>
+      </div>
+
+      <!-- ③ app-server -->
+      <section class="tier srv">
+        <div class="th"><span class="tag">③ 常驻服务</span>tern app-server<span class="note">一个 TERN_HOME 一个；internal/appserver</span></div>
+        <div class="body cards c3">
+          <div class="card">
+            <h3>协议入口<span class="path">server.go</span></h3>
+            <ul>
+              <li><span class="mono">thread/start · fork · rewind · resume</span></li>
+              <li><span class="mono">turn/start · steer · interrupt</span></li>
+              <li><span class="mono">approval/respond</span>、<span class="mono">settings/*</span>、<span class="mono">files/*</span>、<span class="mono">hub/*</span>（Skills、MCP）、<span class="mono">eval/*</span></li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>对话与设置<span class="path">archive · settings</span></h3>
+            <ul>
+              <li>存档 <span class="mono">runs/&lt;对话ID&gt;.jsonl</span>：start、通知、request/response、approval、exit</li>
+              <li>设置 <span class="mono">settings.json</span>：内置 › 平台 › 个人</li>
+              <li><span class="mono">hub.json</span>：登记的 Skills 与 MCP</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>生命周期<span class="path">live · launch</span></h3>
+            <ul>
+              <li>每轮用 <span class="mono">/proc/self/exe -agent-server</span> 起进程，进程号与令牌记 <span class="mono">live/&lt;ID&gt;.json</span></li>
+              <li>连上 agent 发 <span class="mono">session/attach</span> + <span class="mono">turn/start</span></li>
+              <li>自己重启后 <em>adopt</em> 接管还在跑的 agent；有评测在跑时不换 build</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>模型代理<span class="path">llm.sock</span></h3>
+            <ul>
+              <li>校验 <span class="mono">X-Agent-Token</span>，按 <span class="mono">X-Agent-Upstream</span> 转发</li>
+              <li>请求、响应记成存档事件；<span class="mono">Authorization</span> 只透传不记录</li>
+              <li>app-server 重启后，agent 的模型请求在这里等代理回来（最多 10 分钟）</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>审批与订阅<span class="path">hub · subscribe</span></h3>
+            <ul>
+              <li>approval、<span class="mono">user/requestInput</span> 推给所有界面，先到先得</li>
+              <li>人的决定先写审计，再答复 agent</li>
+              <li><span class="mono">item/delta</span> 只推正在看的界面，不进存档</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>附件·文件·评测·导入<span class="path">attachments · eval · import</span></h3>
+            <ul>
+              <li>图片按内容寻址，消息里只放 <span class="mono">attachment://</span></li>
+              <li>评测试次、pass^k、归因与回放</li>
+              <li>导入 Codex rollout 与 Claude Code 会话 JSONL</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <div class="wire two">
+        <span class="bar"></span>
+        <span class="txt">
+          ⇅ 下行：<span class="mono">AGENT_APP_SOCKET=live/&lt;对话ID&gt;.sock</span>，session/attach + turn/start
+          　⇅ 上行：模型请求走 <span class="mono">AGENT_PROXY_SOCKET</span>（llm.sock）
+        </span>
+      </div>
+
+      <!-- ④ agent -->
+      <section class="tier job">
+        <div class="th"><span class="tag">④ 执行进程</span>tern -agent-server<span class="note">一轮一个进程；app-server 重启照常跑，由新的接管</span></div>
+        <div class="body cards c3">
+          <div class="card">
+            <h3>执行循环<span class="path">react · dispatch · approval</span></h3>
+            <ul>
+              <li>请求模型 → 执行工具 → 结果回填 → 下一步</li>
+              <li>独立工具并发（默认 4）、分类重试</li>
+              <li>高风险确认、重复动作与无进展熔断</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>上下文与恢复<span class="path">context_manager · checkpoint</span></h3>
+            <ul>
+              <li>Transcript / View、超预算结果进 <span class="mono">outputs/</span></li>
+              <li>压缩与摘要；每轮新检查点，用 <span class="mono">continues</span> 串成续接链</li>
+              <li>撤销 rewind；会话记录 <span class="mono">sessions/</span> 供补齐</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>工具（全在进程内）</h3>
+            <ul>
+              <li><span class="mono">workspace</span>：read_file / write_file / edit_file / glob / grep，边界 <span class="mono">os.Root</span>；<span class="mono">permission</span>、<span class="mono">hooks</span>、<span class="mono">commands</span></li>
+              <li><span class="mono">sandbox</span> bash（bubblewrap，每对话一个目录）+ <span class="mono">netguard</span> 联网审批</li>
+              <li><span class="mono">browser</span>、<span class="mono">websearch</span>(ds_search)、<span class="mono">mcp</span>、<span class="mono">skills</span>、<span class="mono">memory</span> / <span class="mono">retrieval</span>、<span class="mono">read_output</span></li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>模型客户端<span class="path">internal/llm</span></h3>
+            <ul>
+              <li>Chat Completions、Anthropic Messages、Responses 三种协议</li>
+              <li>路由表（供应商 → 模型）、重试、上下文窗口</li>
+              <li>请求经 <span class="mono">llm.sock</span> 交给 app-server 的代理</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>子 agent 与子进程<span class="path">subagent · child</span></h3>
+            <ul>
+              <li><span class="mono">spawn_agent</span> 再起一个 <span class="mono">tern -agent-server</span></li>
+              <li>父子之间走同一套协议（标准输入输出）</li>
+              <li>任务队列、评测试次也经 <span class="mono">RunChild</span> 起子进程</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>一轮怎么收尾</h3>
+            <ul>
+              <li>写检查点 → 退出，app-server 记 <span class="mono">exit</span> 并删 <span class="mono">live/</span> 里这一轮的三个文件</li>
+              <li>续聊是下一轮：再起一个 agent，带上之前各轮与 <span class="mono">continues</span></li>
+              <li>没人连回来超过 10 分钟：中断、写好检查点、退出</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <aside>
+      <section class="tier ext">
+        <div class="th"><span class="tag">外部</span>服务与宿主资源</div>
+        <div class="body">
+          <div class="grp">
+            <h4>模型服务（app-server 转发）</h4>
+            <ul>
+              <li>方舟 Ark（Coding Plan 入口）</li>
+              <li>DeepSeek（Chat 与 Anthropic 接口）</li>
+              <li>Coconut（Responses 协议，本机服务）</li>
+            </ul>
+          </div>
+          <div class="grp">
+            <h4>agent 进程内直连</h4>
+            <ul>
+              <li>无头 Chrome / Chromium：open_page</li>
+              <li>bubblewrap + cgroup：bash 沙箱</li>
+              <li>netguard 代理：白名单外的域名要人批准</li>
+              <li>MCP server（子进程或 HTTP）、ds_search / ds_fetch</li>
+              <li>向量模型：方舟线上，或本地纯 Go MiniLM</li>
+            </ul>
+          </div>
+          <div class="grp">
+            <h4>可观测</h4>
+            <ul>
+              <li>OpenTelemetry span → <span class="mono">.data/traces/</span></li>
+              <li>OTLP 另发给 Jaeger 等平台</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="tier dat">
+        <div class="th"><span class="tag">数据</span>.data/（TERN_HOME，默认 ~/.tern）</div>
+        <div class="body">
+          <div class="grp">
+            <h4>app-server 写</h4>
+            <ul>
+              <li><span class="mono">app-server/</span>：control.sock · llm.sock · pid · lock · log</li>
+              <li><span class="mono">runs/&lt;对话ID&gt;.jsonl</span>：界面看到的一切</li>
+              <li><span class="mono">settings.json</span> · <span class="mono">hub.json</span> · <span class="mono">eval/</span></li>
+            </ul>
+          </div>
+          <div class="grp">
+            <h4>agent 写</h4>
+            <ul>
+              <li><span class="mono">live/&lt;对话ID&gt;.{sock,json,err}</span>：正在跑的这一轮</li>
+              <li><span class="mono">checkpoints/</span> · <span class="mono">sessions/</span> · <span class="mono">outputs/</span></li>
+              <li><span class="mono">sandbox/&lt;对话ID&gt;/</span>：bash 工作目录，续聊各轮共用</li>
+              <li><span class="mono">memory.json</span> · <span class="mono">memory-index/</span></li>
+            </ul>
+          </div>
+          <div class="grp">
+            <h4>共用</h4>
+            <ul>
+              <li><span class="mono">attachments/</span>：图片按内容寻址</li>
+              <li><span class="mono">audit/audit.jsonl</span>：只追加、哈希链</li>
+              <li><span class="mono">traces/</span> · <span class="mono">users.json</span> · <span class="mono">web-hosts.json</span></li>
+            </ul>
+          </div>
+        </div>
+      </section>
+    </aside>
+  </div>
+
+  <footer>
+    <div><b>一轮的链路：</b>用户问题 → 组织上下文 → 请求模型 → tool_calls → 执行工具 → 结果回填 → 下一轮或结束。工具结果标来源，不当作新的授权。</div>
+    <div><b>断开时谁接着谁：</b>界面 ↔ app-server 由界面退避重连、按 seq 补推；app-server ↔ agent 由新 app-server 读 <span class="mono">live/*.json</span> 接管，agent 补发之后的消息。</div>
+    <div><b>远程：</b>界面在本机，对话、agent、代码、模型密钥都在远端；同一条协议走 ssh 的标准输入输出，所以远程、本机代码路径完全相同。</div>
+  </footer>
+</div>
+</body>
+</html>

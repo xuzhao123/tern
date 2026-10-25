@@ -258,7 +258,7 @@ func Run(ctx context.Context, config llm.Config, question string, images []llm.I
 			}
 		}()
 	}
-	if workspace.Dir != "" && resume == nil {
+	if resume == nil {
 		environment(conversation, history != nil)
 	}
 	if submitted.Block {
@@ -335,20 +335,20 @@ func Run(ctx context.Context, config llm.Config, question string, images []llm.I
 				fmt.Printf("Reminder: %s\n", firstLine(text))
 			}
 			// 用户在这一轮进行中说的话，作为用户消息排在最后，和首问一样先过 UserPromptSubmit hook。
-			for _, text := range takeSteers() {
+			for _, s := range takeSteers() {
 				if hooks.Has("UserPromptSubmit") {
-					if r := hooks.Run(ctx, "UserPromptSubmit", "", map[string]any{"prompt": text}); r.Block {
+					if r := hooks.Run(ctx, "UserPromptSubmit", "", map[string]any{"prompt": s.text}); r.Block {
 						fmt.Printf("Steer blocked: %s\n", r.Reason)
-						protocol.ItemCompleted(CheckpointID, protocol.Item{ID: fmt.Sprintf("steer-%d", step), Type: "userMessage", Data: map[string]any{"text": "（这条插话被 UserPromptSubmit hook 拦下）", "steer": true}})
+						protocol.ItemCompleted(CheckpointID, steerItem(fmt.Sprintf("steer-%d", step), "（这条插话被 UserPromptSubmit hook 拦下）", s.clientID))
 						continue
 					}
 				}
-				conversation.Append(llm.Message{Role: "user", Content: text})
+				conversation.Append(llm.Message{Role: "user", Content: s.text})
 				if memory.Active != nil {
-					memory.Active.UserTexts = append(memory.Active.UserTexts, text)
+					memory.Active.UserTexts = append(memory.Active.UserTexts, s.text)
 				}
-				fmt.Printf("Steer: %s\n", firstLine(text))
-				protocol.ItemCompleted(CheckpointID, protocol.Item{ID: fmt.Sprintf("steer-%d", step), Type: "userMessage", Data: map[string]any{"text": text, "steer": true}})
+				fmt.Printf("Steer: %s\n", firstLine(s.text))
+				protocol.ItemCompleted(CheckpointID, steerItem(fmt.Sprintf("steer-%d", step), s.text, s.clientID))
 			}
 			response, err := conversation.Next(ctx, client)
 			if err != nil {
@@ -437,6 +437,8 @@ func Run(ctx context.Context, config llm.Config, question string, images []llm.I
 		}
 		// 无进展：连续几轮拿到的都是见过的结果。先提示模型收尾，再不行就熔断，不让它把预算耗在换说法重查上。
 		stale := loop.observe(observations)
+		// 工作区改过了：同一批里先编辑、后执行的动作在执行前已经计过数，这里清空窗口，从下一批开始重新数。
+		clearOnEdit(&loop, observations)
 		if stale >= staleHint {
 			fmt.Printf("No progress: stale_rounds=%d/%d\n", stale, staleLimit)
 			for i := range observations {
@@ -955,6 +957,7 @@ func SystemPrompt() string {
 	if sandbox.Enabled {
 		prompt += sandbox.Rules()
 	}
+	prompt += workspace.PersonalInstructions()
 	if workspace.Dir != "" {
 		prompt += workspace.Rules() + workspace.Instructions()
 		if offered("verify_feature") {
@@ -1001,6 +1004,10 @@ func environment(c *Context, continued bool) {
 		}
 	}
 	c.env = current
+	if inst := strings.TrimSpace(workspace.PersonalInstructions()); inst != "" && !strings.Contains(c.View[0].Content, inst) {
+		c.Append(llm.Reminder("个人指令在上一轮之后改过，以这一份为准：\n" + inst))
+		fmt.Println("Reminder: personal instructions changed")
+	}
 	if inst := strings.TrimSpace(workspace.Instructions()); inst != "" && !strings.Contains(c.View[0].Content, inst) {
 		c.Append(llm.Reminder("根目录的项目指令在上一轮之后改过，以这一份为准：\n" + inst))
 		fmt.Println("Reminder: project instructions changed")

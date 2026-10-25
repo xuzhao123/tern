@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -47,17 +48,31 @@ var (
 )
 
 // goEnv 是宿主机上 Go 工具链与模块缓存的位置：有工作区时只读挂进沙箱，命令能离线 go build / go test。
+// 在工作区里跑 go env：GOTOOLCHAIN=auto 时它按工作区的 go.mod 选工具链，沙箱里挂的就是在
+// 那个仓库里手动敲 go build 会用的那份。工作区里跑不成（比如要求的工具链下载不了）就在
+// 进程的当前目录里再跑一次，沙箱里至少有一份 Go，版本不够时由 go 自己报错。
+// 用 sync.OnceValue 只算一次：一个 agent 进程只有一个工作区。
 var goEnv = sync.OnceValue(func() [2]string {
-	out, err := exec.Command("go", "env", "GOROOT", "GOMODCACHE").Output()
+	if env, ok := goEnvIn(Project); ok || Project == "" {
+		return env
+	}
+	env, _ := goEnvIn("")
+	return env
+})
+
+func goEnvIn(dir string) ([2]string, bool) {
+	cmd := exec.Command("go", "env", "GOROOT", "GOMODCACHE")
+	cmd.Dir = dir // 空表示当前目录
+	out, err := cmd.Output()
 	if err != nil {
-		return [2]string{}
+		return [2]string{}, false
 	}
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 	if len(lines) != 2 {
-		return [2]string{}
+		return [2]string{}, false
 	}
-	return [2]string{lines[0], lines[1]}
-})
+	return [2]string{lines[0], lines[1]}, true
+}
 
 // 前端工具：宿主机上有 Node、Chrome 时只读挂进沙箱，改页面的任务能检查脚本语法、用无头 Chrome 加载页面看脚本跑完的 DOM。
 // 装在 /usr 下的本来就看得到；装在别处的（nvm 的 Node、/opt/google/chrome）分别挂到 /opt/node、/opt/chrome。
@@ -90,6 +105,50 @@ var front = sync.OnceValue(func() (t frontTools) {
 	}
 	return t
 })
+
+// 沙箱里的 chrome 命令是 /opt/chrome-bin 下的包装脚本（名字和真正的程序一样，PATH 最前面）：
+// Chrome 自己的后台联网（组件更新、安全浏览、优化提示、自动填充、同步）不是任务需要的，
+// 但沙箱的代理会把每个域名都当成一次联网审批推给界面，所以固定关掉。
+func chromeName() string { return filepath.Base(front().Chrome) }
+
+// chromeReal 是包装脚本 exec 的真正的 Chrome：挂在 /opt/chrome 下时是挂进去的那一份，
+// 装在 /usr 下时是宿主机上的绝对路径（/usr 在沙箱里本来就看得到）。
+func chromeReal() string {
+	if t := front(); t.ChromeDir != "" {
+		return "/opt/chrome/" + t.Chrome
+	}
+	return front().Chrome
+}
+
+// chromePAC 是给沙箱里的 Chrome 用的 PAC：光有关后台联网的参数不够，Chrome 155 加载本地页面时仍会去连
+// accounts.google.com、update.googleapis.com、www.google.com、www.gstatic.com（试过
+// --disable-extensions、--disable-field-trial-config、--host-resolver-rules 都拦不住）。
+// 这里把 Google 家的域名指向一个不通的端口：失败就走不到沙箱的代理，也就不会弹联网审批；
+// 别的域名照旧交给沙箱的代理，照旧问人。base64 内嵌在 data: URL 里，省得处理引号和转义。
+func chromePAC() string {
+	pac := `function FindProxyForURL(url, host) {
+  if (/(^|\.)(google\.com|googleapis\.com|gstatic\.com|gvt1\.com)$/.test(host)) return "PROXY 127.0.0.1:9";
+  return "PROXY 127.0.0.1:` + proxyPort + `";
+}
+`
+	return base64.StdEncoding.EncodeToString([]byte(pac))
+}
+
+// chromeWrapper 生成沙箱里 chrome 命令的包装脚本。PAC 那个参数整个用单引号括起来：里面的 `;` 在 sh 里是命令分隔符，
+// 不括住的话 Chrome 只收到 --proxy-pac-url=data:application/x-javascript-config，后面的 base64 被当成另一条命令，
+// PAC 等于没生效。base64 只有 A-Z a-z 0-9 + / =，放进单引号没有转义问题。
+func chromeWrapper() string {
+	return `#!/bin/sh
+# tern 的沙箱：Chrome 的后台联网（更新、安全浏览、优化提示等）不是任务需要的，固定关掉。
+exec ` + chromeReal() + ` --disable-background-networking --disable-component-update \
+  --disable-sync --disable-default-apps --disable-domain-reliability \
+  --disable-client-side-phishing-detection --no-first-run --no-default-browser-check \
+  --metrics-recording-only --safebrowsing-disable-auto-update \
+  --disable-features=OptimizationHints,OptimizationGuideModelDownloading,AutofillServerCommunication,Translate,MediaRouter,NetworkTimeServiceQuerying \
+  '--proxy-pac-url=data:application/x-javascript-config;base64,` + chromePAC() + `' \
+  "$@"
+`
+}
 
 // 资源上限：一次命令最多用这么多；时长由 -bash-timeout 控制（见 Timeout）。
 // 内存给 2G：沙箱里冷缓存编译整个 Go 模块时 512M 会被内核 OOM 杀掉。机器 7.7G，前台加后台最多同时 5 个沙箱，这是上限，不是预留。
@@ -182,7 +241,7 @@ func Rules() string {
 			rule += "`node --check 文件.js` 查语法；"
 		}
 		if t.Chrome != "" {
-			rule += "`" + t.Chrome + " --headless --no-sandbox --disable-gpu --user-data-dir=/tmp/chrome --dump-dom file:///路径.html` 输出脚本运行之后的 DOM（加 --enable-logging=stderr 能看到脚本报错），可以写一个小测试页加载改动的代码、模拟点击或悬浮后打印结果（Chrome 启动时访问 Google 的域名被拒是正常的，不影响结果，不用为此申请联网）；"
+			rule += "`" + chromeName() + " --headless --no-sandbox --disable-gpu --user-data-dir=/tmp/chrome --dump-dom file:///路径.html` 输出脚本运行之后的 DOM（加 --enable-logging=stderr 能看到脚本报错），可以写一个小测试页加载改动的代码、模拟点击或悬浮后打印结果（Chrome 启动时访问 Google 的域名被拒是正常的，不影响结果，不用为此申请联网）；这个命令已经关掉了 Chrome 自己的后台联网；自己写脚本启动 Chrome 时也用它，别直接调 /opt/chrome 下的程序。Google 的域名在这个 Chrome 里一律连不上；真要用就用 curl（会照常申请联网）。"
 		}
 	}
 	if len(Allow) == 0 {
@@ -435,6 +494,24 @@ func launch(ctx context.Context, callID, command string, out io.Writer, writable
 	}
 	filter.Seek(0, 0)
 
+	// chrome 的包装脚本经管道交给 bwrap 的 --ro-bind-data：它是 ExtraFiles 的第二项，也就是 fd 4
+	// （第一项是 fd 3 的 seccomp 程序）。脚本几百字节，放得进管道缓冲，写完就关掉写端。
+	var wrapper *os.File
+	if front().Chrome != "" {
+		var pw *os.File
+		wrapper, pw, err = os.Pipe()
+		if err != nil {
+			return nil, "", llm.Permanent(err)
+		}
+		_, err = io.WriteString(pw, chromeWrapper())
+		pw.Close()
+		if err != nil {
+			wrapper.Close()
+			return nil, "", llm.Permanent(err)
+		}
+		defer wrapper.Close()
+	}
+
 	// 和 Claude Code 给 Bash 子进程设 TRACEPARENT 一样：沙箱里的程序愿意的话，可以把自己的 span 接到这次执行下面。
 	argv := bwrapArgs(workspace, netDir, self, command, telemetry.Env(ctx), writable)
 	unit := ""
@@ -455,6 +532,9 @@ func launch(ctx context.Context, callID, command string, out io.Writer, writable
 	fmt.Printf("Bash [%s]: %s\n", callID, oneLine(command, 200))
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.ExtraFiles = []*os.File{filter}
+	if wrapper != nil {
+		cmd.ExtraFiles = append(cmd.ExtraFiles, wrapper) // fd 4：chrome 的包装脚本（--ro-bind-data 4）
+	}
 	cmd.Stdout, cmd.Stderr = out, out
 	// 自己的进程组：没有 cgroup 时退而求其次，杀掉整组（bwrap 带 --die-with-parent，沙箱里的进程随之结束）。
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -502,6 +582,11 @@ func bwrapArgs(workspace, netDir, self, command string, env []string, writable b
 	if t := front(); t.ChromeDir != "" {
 		args, path = append(args, "--ro-bind", t.ChromeDir, "/opt/chrome"), "/opt/chrome:"+path
 	}
+	if t := front(); t.Chrome != "" {
+		// 包装脚本和真正的程序同名的那个文件，放在 PATH 最前面：命令照旧写 chrome 的名字，就带上关掉后台联网的参数。
+		args = append(args, "--perms", "0755", "--ro-bind-data", "4", "/opt/chrome-bin/"+chromeName())
+		path = "/opt/chrome-bin:" + path
+	}
 	var extraEnv []string
 	if Project != "" {
 		mode := "--ro-bind"
@@ -524,7 +609,9 @@ func bwrapArgs(workspace, netDir, self, command string, env []string, writable b
 		args = append(args, "--bind", workspace, "/scratch", "--chdir", "/workspace")
 		home = "/scratch"
 		if g := goEnv(); g[0] != "" && GoCache != "" && os.MkdirAll(filepath.Join(GoCache, "tmp"), 0o700) == nil {
-			args = append(args, "--ro-bind", g[0], "/opt/go", "--ro-bind", g[1], "/opt/gomod", "--bind", GoCache, "/opt/gocache")
+			// 模块缓存按 try 挂：新机器上还没下载过任何模块（或换了 HOME）时这个目录不存在，
+			// --ro-bind 会让整个沙箱起不来；没有依赖的项目照常编译，要用模块的报错说找不到。
+			args = append(args, "--ro-bind", g[0], "/opt/go", "--ro-bind-try", g[1], "/opt/gomod", "--bind", GoCache, "/opt/gocache")
 			path = "/opt/go/bin:" + path
 			extraEnv = []string{"GOROOT=/opt/go", "GOMODCACHE=/opt/gomod", "GOCACHE=/opt/gocache",
 				// 沙箱只有 1 个 CPU（CPUQuota=100%），并行编译只会多占内存，一次编一个包。

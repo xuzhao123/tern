@@ -57,6 +57,14 @@ type progressNote struct {
 	Text string    `json:"text"`
 }
 
+// addNote 追加一条交接说明，只留最近 20 条：人和下一个会话都从这里接着看。
+func (p *progressFile) addNote(text string) {
+	p.Notes = append(p.Notes, progressNote{At: time.Now().UTC(), Text: text})
+	if len(p.Notes) > 20 {
+		p.Notes = p.Notes[len(p.Notes)-20:]
+	}
+}
+
 // VerifierProvider 是验证者用的供应商，由 main 设置：默认和主模型不同的一家，避免自己给自己打分。
 var VerifierProvider string
 
@@ -68,22 +76,25 @@ func DefaultVerifier(provider string) string {
 }
 
 var ProgressDefinitions = []map[string]any{
-	{"name": "progress", "description": "读写本工作区的长任务进度文件 " + progressPath + "（目标、功能清单、交接说明），跨会话接力用。action=read：看清单和上一个会话留下的说明；action=init：第一次接手多步任务时拆成功能清单，每项写一条不联网就能跑的校验命令（退出码 0 表示达到），全部从未通过开始，文件已存在时不能再 init；action=note：写一句交接说明（做到哪、卡在哪、下一步）。一项能否改成通过只能由 verify_feature 判定，这个文件只能用这两个工具改。",
+	{"name": "progress", "description": "读写本工作区的长任务进度文件 " + progressPath + "（目标、功能清单、交接说明），跨会话接力用。action=read：看清单和上一个会话留下的说明；action=init：第一次接手多步任务时拆成功能清单，每项写一条不联网就能跑的校验命令（退出码 0 表示达到），全部从未通过开始，文件已存在时不能再 init；action=note：写一句交接说明（做到哪、卡在哪、下一步）；action=fix_check：初始化时写错的校验命令（路径不对、笔误、依赖了沙箱里没有的东西）用它改，只能改没通过的，要写原因，改动会记进交接说明。一项能否改成通过只能由 verify_feature 判定，这个文件只能用这两个工具改。",
 		"parameters": map[string]any{"type": "object", "properties": map[string]any{
-			"action": map[string]any{"type": "string", "enum": []string{"read", "init", "note"}},
+			"action": map[string]any{"type": "string", "enum": []string{"read", "init", "note", "fix_check"}},
 			"goal":   map[string]string{"type": "string", "description": "init：整个任务的目标"},
 			"features": map[string]any{"type": "array", "description": "init：功能清单", "items": map[string]any{"type": "object", "properties": map[string]any{
 				"id":    map[string]string{"type": "string", "description": "短编号，如 F1"},
 				"desc":  map[string]string{"type": "string", "description": "这一项要达到什么（可以验证的行为）"},
 				"check": map[string]string{"type": "string", "description": "校验命令，在 /workspace 下用 bash 执行，不联网"},
 			}, "required": []string{"id", "desc", "check"}}},
-			"text": map[string]string{"type": "string", "description": "note：交接说明"},
+			"text":   map[string]string{"type": "string", "description": "note：交接说明"},
+			"id":     map[string]string{"type": "string", "description": "fix_check：改哪一项（功能清单里的 id）"},
+			"check":  map[string]string{"type": "string", "description": "fix_check：新的校验命令，和工作区里一样在 bash 里执行"},
+			"reason": map[string]string{"type": "string", "description": "fix_check：原来的校验命令哪里不对（必填）"},
 		}, "required": []string{"action"}}},
 	{"name": "verify_feature", "description": "请独立的验证者判定一项功能是否完成：harness 在工作区只读的沙箱里跑这一项的校验命令，再请另一家模型对照描述和命令输出下结论；退出码为 0 且验证者判定通过，才记为通过。写代码的你不能自己改状态，也不要在回答里自称完成没通过验证的项。",
 		"parameters": llm.Parameters("id")},
 }
 
-const progressRules = "\n长任务接力：任务需要多步、可能做不完一个会话时，开始先调用 progress(action=read)；没有进度文件就用 progress(action=init) 拆成功能清单，每项配一条不联网就能跑的校验命令。每次只做一项，做完调用 verify_feature 判定，没通过就接着改。最终回答只按进度文件报告哪些已经通过验证，不自称完成没通过的项。结束前（包括做不完时）用 progress(action=note) 写交接说明。"
+const progressRules = "\n长任务接力：任务需要多步、可能做不完一个会话时，开始先调用 progress(action=read)；没有进度文件就用 progress(action=init) 拆成功能清单，每项配一条不联网就能跑的校验命令。每次只做一项，做完调用 verify_feature 判定，没通过就接着改。校验命令跑不起来、明显是命令本身写错（路径不对、笔误、依赖了沙箱里没有的东西）时，用 progress(action=fix_check) 改，不要绕开验证。最终回答只按进度文件报告哪些已经通过验证，不自称完成没通过的项。结束前（包括做不完时）用 progress(action=note) 写交接说明。"
 
 var progressMu sync.Mutex
 
@@ -165,8 +176,8 @@ func progressSummary(p *progressFile, note string) map[string]any {
 
 func progressTool(arguments string) (any, error) {
 	var args struct {
-		Action, Goal, Text string
-		Features           []progressFeature
+		Action, Goal, Text, ID, Check, Reason string
+		Features                              []progressFeature
 	}
 	if err := json.Unmarshal([]byte(arguments), &args); err != nil {
 		return nil, llm.Permanent(errors.New("参数不对：action 是字符串，features 是 {id, desc, check} 的数组"))
@@ -210,16 +221,40 @@ func progressTool(arguments string) (any, error) {
 		if strings.TrimSpace(args.Text) == "" {
 			return nil, llm.Permanent(errors.New("note 需要 text"))
 		}
-		p.Notes = append(p.Notes, progressNote{At: time.Now().UTC(), Text: strings.TrimSpace(args.Text)})
-		if len(p.Notes) > 20 {
-			p.Notes = p.Notes[len(p.Notes)-20:] // 只留最近的交接说明
+		p.addNote(strings.TrimSpace(args.Text))
+		if err := saveProgress(p); err != nil {
+			return nil, err
 		}
+		return progressSummary(p, note), nil
+	case "fix_check":
+		// 初始化时写错的校验命令（路径不对、笔误、依赖了沙箱里没有的东西）能改，不然那一项永远判不过，只能绕开验证。
+		if p == nil {
+			return nil, llm.Permanent(errors.New("还没有进度文件，先 action=init"))
+		}
+		id, check, reason := strings.TrimSpace(args.ID), strings.TrimSpace(args.Check), strings.TrimSpace(args.Reason)
+		if id == "" || check == "" {
+			return nil, llm.Permanent(errors.New("fix_check 需要 id 和 check"))
+		}
+		if reason == "" {
+			return nil, llm.Permanent(errors.New("fix_check 需要 reason：说明原来的校验命令哪里不对"))
+		}
+		i := slices.IndexFunc(p.Features, func(f progressFeature) bool { return f.ID == id })
+		if i < 0 {
+			return nil, llm.Permanent(fmt.Errorf("进度文件里没有 %q 这一项", id))
+		}
+		f := &p.Features[i]
+		if f.Passing {
+			return nil, llm.Permanent(fmt.Errorf("%s 已经通过验证，校验命令不能再改", f.ID))
+		}
+		old := f.Check
+		f.Check, f.Verified = check, nil // 命令换了，之前的验证结论不再算数
+		p.addNote(fmt.Sprintf("改了 %s 的校验命令：%s → %s。原因：%s", f.ID, old, check, reason))
 		if err := saveProgress(p); err != nil {
 			return nil, err
 		}
 		return progressSummary(p, note), nil
 	}
-	return nil, llm.Permanent(errors.New("action 只能是 read、init 或 note"))
+	return nil, llm.Permanent(errors.New("action 只能是 read、init、note 或 fix_check"))
 }
 
 const verifierSystem = `你是独立的验证者，判断一项编程任务里的功能是否已经达到。只依据给你的功能描述、校验命令和它的真实输出判断，

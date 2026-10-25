@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/xuzhao123/tern/internal/protocol"
+	"github.com/xuzhao123/tern/internal/skills"
 )
 
 // Skills 中心与 MCP 中心：app-server 只保存“装了哪些、开没开”，解析、校验与连接都交给 agent 自己的命令行模式，
@@ -80,7 +81,7 @@ func (s *Server) updateHub(change func(*hubConfig) error) *protocol.Error {
 }
 
 // 新对话开始时取一次快照，写进 start 事件；续聊沿用快照，中心里之后的改动只影响新对话。
-// skill 只按目录名列出，坏文件由 agent 启动时报错跳过。
+// skill 只按名字列出：磁盘上的目录名加上编进程序的内置 skill，坏文件由 agent 启动时报错跳过。
 func (s *Server) enabledCapabilities() ([]string, []mcpServer, error) {
 	s.hubMu.Lock()
 	config, err := s.readHub()
@@ -89,11 +90,16 @@ func (s *Server) enabledCapabilities() ([]string, []mcpServer, error) {
 		return nil, nil, err
 	}
 	paths, _ := filepath.Glob(filepath.Join(s.dir, "skills", "*", "SKILL.md"))
-	skills := []string{}
+	names := []string{}
 	for _, path := range paths {
 		name := filepath.Base(filepath.Dir(path))
 		if !slices.Contains(config.DisabledSkills, name) {
-			skills = append(skills, name)
+			names = append(names, name)
+		}
+	}
+	for _, name := range skills.BuiltinNames() {
+		if !slices.Contains(names, name) && !slices.Contains(config.DisabledSkills, name) {
+			names = append(names, name)
 		}
 	}
 	servers := []mcpServer{}
@@ -102,7 +108,7 @@ func (s *Server) enabledCapabilities() ([]string, []mcpServer, error) {
 			servers = append(servers, m)
 		}
 	}
-	return skills, servers, nil
+	return names, servers, nil
 }
 
 func appendCapabilityArgs(args, skills []string, servers []mcpServer) []string {
@@ -210,6 +216,7 @@ func (c *conn) skillCreate(m protocol.Message) (any, *protocol.Error) {
 }
 
 // hub/skill/delete：删掉整个 skills/<name> 目录；名字先按 spec 校验，不会拼出 skills/ 之外的路径。
+// 内置的删不掉（它在程序里），只能在中心里关掉。
 func (c *conn) skillDelete(m protocol.Message) (any, *protocol.Error) {
 	var input struct {
 		Name string `json:"name"`
@@ -223,6 +230,9 @@ func (c *conn) skillDelete(m protocol.Message) (any, *protocol.Error) {
 	}
 	dir := filepath.Join(c.s.dir, "skills", name)
 	if _, err := os.Stat(filepath.Join(dir, "SKILL.md")); err != nil {
+		if slices.Contains(skills.BuiltinNames(), name) {
+			return nil, bad(400, "内置的 skill 不能删除，可以在这里关掉")
+		}
 		return nil, bad(404, "找不到 skills/"+name+"/SKILL.md")
 	}
 	if err := os.RemoveAll(dir); err != nil {

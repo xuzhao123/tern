@@ -24,8 +24,6 @@ type Spec struct {
 }
 
 var specs = map[string]Spec{
-	"calculator":             {ReadOnly: true, Repeatable: true},
-	"get_current_datetime":   {ReadOnly: true, Repeatable: true},
 	"search_docs":            {ReadOnly: true, Repeatable: true},
 	"load_skill":             {ReadOnly: true, Repeatable: true},
 	"read_output":            {ReadOnly: true, Repeatable: true},

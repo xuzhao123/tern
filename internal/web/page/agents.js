@@ -1,6 +1,7 @@
 import { analyze } from "./analysis.js";
 import { WEB_TOOLS, renderWebPanel, webLive } from "./browser.js";
 import { renderCall, renderChat, renderCompact } from "./chat.js";
+import { renderDiffPanel } from "./diff.js";
 import { renderFilesPanel } from "./files.js";
 import { md } from "./md.js";
 import { $, clip, el, fold, parse, ui } from "./util.js";
@@ -33,14 +34,15 @@ export function agentCard(r, t) {
   const task = args?.task ?? (args?.task_id ? "续跑：" + (item?.info?.text || args.task_id) : t.args);
   text.append(el("b", "", `子 agent ${i + 1}`), el("span", "", clip(task, 140)));
   card.append(el("span", "av", String(i + 1)), text, el("span", "sub-st " + st.key, st.text), el("span", "chev", "›"));
-  card.onclick = () => { ui.subOpen = ui.subOpen === t.id ? null : t.id; ui.webOpen = null; ui.filesOpen = false; renderChat(); };
+  card.onclick = () => { ui.subOpen = ui.subOpen === t.id ? null : t.id; ui.webOpen = null; ui.filesOpen = false; ui.diffOpen = false; renderChat(); };
   return card;
 }
 export function renderSubPanel() {
   // 运行中开始浏览时自动打开浏览器面板并跟随；用户关掉或正在看子 agent 时不打扰。
   const r0 = ui.run;
-  if (r0 && !r0.exit && !ui.webOpen && !ui.subOpen && !ui.filesOpen && !ui.webClosed && r0.calls.some((c) => c.tools.some((t) => WEB_TOOLS.includes(t.name) && webLive(r0, t)))) ui.webOpen = { follow: true };
+  if (r0 && !r0.exit && !ui.webOpen && !ui.subOpen && !ui.filesOpen && !ui.diffOpen && !ui.webClosed && r0.calls.some((c) => c.tools.some((t) => WEB_TOOLS.includes(t.name) && webLive(r0, t)))) ui.webOpen = { follow: true };
   if (ui.filesOpen) return renderFilesPanel();
+  if (ui.diffOpen) return renderDiffPanel();
   if (ui.webOpen) return renderWebPanel();
   const panel = $("subpanel"), r = ui.run, list = r && ui.page === "chat" ? subList(r) : [];
   const item = list.find((x) => x.t.id === ui.subOpen);

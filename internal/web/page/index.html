@@ -26,6 +26,10 @@
     <button id="evals" class="navbtn"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg></span>评测与归因</button>
     <button id="audit" class="navbtn"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 15l6-6"/><path d="M11 6l1-1a4 4 0 0 1 6 6l-1 1"/><path d="M13 18l-1 1a4 4 0 0 1-6-6l1-1"/></svg></span>审计日志</button>
     <div class="navlabel"><span>对话</span><span id="cmp-hint" hidden>勾选 2–5 条对比</span></div>
+    <div id="list-tools">
+      <select id="run-filter" aria-label="按工作区筛选对话" title="只显示这个工作区的对话（只按名字筛，工作区改名前的对话还在旧名字里）" hidden></select>
+      <input id="run-search" type="search" placeholder="搜索对话：名字、问题、回答" autocomplete="off" aria-label="搜索对话" hidden>
+    </div>
     <div id="runs"></div>
     <div class="whoami"><span class="avatar" id="avatar"></span><span id="whoami"></span><button id="logout" type="button">退出</button></div>
   </aside>
@@ -35,6 +39,7 @@
       <div id="heading"><div id="title">新对话</div><button id="run-id" type="button" aria-label="复制对话 ID" hidden></button></div>
       <div class="seg"><button id="page-chat">对话</button><button id="page-observe">观测</button></div>
       <button id="files-btn" class="ghost" type="button" hidden title="本对话的 /workspace：各轮 bash 共用">沙箱文件</button>
+      <button id="diff-btn" class="ghost" type="button" hidden title="工作区相对 HEAD 的改动：所有轮次加人自己的改动">改动</button>
       <!-- 连的是哪台机器、连上没有：本机或 ssh 别名 · 已连接/重连中/连不上；点开是主机菜单（见 connection.js）。 -->
       <div id="hostbox">
         <button id="host" type="button" aria-haspopup="menu" aria-expanded="false" title="主机的连接状态"></button>
@@ -59,9 +64,10 @@
         <button id="jump" type="button" hidden></button>
         <form id="composer">
           <div id="slash" hidden></div>
+          <div id="steer-strip" hidden></div>
           <div id="attach-strip" hidden></div>
           <textarea id="query" rows="1" placeholder="给 agent 布置一个任务"></textarea>
-          <div class="crow"><button id="attach" type="button" aria-label="附图"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="m4 17 4.5-4.5L12 16l3-3 5 5"/></svg></button><input id="attach-file" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden><select id="provider" class="pick" aria-label="供应商与接口" title="供应商与接口：对话开始后固定（换模型请新建对话）"></select><select id="model" class="pick" aria-label="具体模型" title="具体模型：对话开始后固定；不选时用设置里的默认具体模型" hidden></select><select id="workspace" class="pick" aria-label="工作区" title="工作区：对话开始后固定"></select><select id="perm" class="pick" aria-label="权限模式" title="权限模式：每轮可以换"><option value="plan">只读计划</option><option value="ask">改动都问</option><option value="edit">自动编辑</option><option value="full">全权</option></select><span id="mode-chip"></span><div id="ctx-ring" role="img" aria-label="上下文用量" hidden><svg viewBox="0 0 30 30" aria-hidden="true"><circle class="track" cx="15" cy="15" r="11.5"/><circle class="fill" cx="15" cy="15" r="11.5"/></svg><span class="pct"></span></div><button id="send" aria-label="发送"></button></div>
+          <div class="crow"><button id="attach" type="button" aria-label="附图"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="m4 17 4.5-4.5L12 16l3-3 5 5"/></svg></button><input id="attach-file" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden><select id="provider" class="pick" aria-label="供应商与接口" title="供应商与接口：对话开始后固定（换模型请新建对话）"></select><select id="model" class="pick" aria-label="具体模型" title="具体模型：对话开始后固定；不选时用设置里的默认具体模型" hidden></select><select id="workspace" class="pick" aria-label="工作区" title="工作区：对话开始后固定"></select><select id="perm" class="pick" aria-label="权限模式" title="权限模式：每轮可以换"><option value="plan">只读计划</option><option value="ask">改动都问</option><option value="edit">自动编辑</option><option value="full">全权</option></select><select id="effort" class="pick" aria-label="推理强度" title="推理强度：越高越仔细，也越慢、越贵；每轮可以换"><option value="high">推理：高</option><option value="medium">推理：中</option><option value="low">推理：低</option><option value="minimal">推理：最低</option></select><span id="mode-chip"></span><div id="ctx-ring" role="img" aria-label="上下文用量" hidden><svg viewBox="0 0 30 30" aria-hidden="true"><circle class="track" cx="15" cy="15" r="11.5"/><circle class="fill" cx="15" cy="15" r="11.5"/></svg><span class="pct"></span></div><button id="queue" type="button" aria-label="排队" title="这一轮结束后再发，不打断现在这一步（Tab）" hidden>排队</button><button id="send" aria-label="发送"></button></div>
         </form>
         <p id="hint"></p>
       </div>
@@ -94,8 +100,10 @@
 </div>
 <div id="ctx-tip" hidden></div>
 <!-- 撤销：文件和对话一起退（默认）、只退文件、只退对话，下面是预览；换单选就按这个 mode 重新预览（见 shell.js）。 -->
+<!-- 编辑重发用同一个对话框：多一个装着这一轮问题的文本框（#rw-text），平时藏着。 -->
 <dialog id="rewind-dialog">
   <h2 id="rw-title">撤销</h2>
+  <textarea id="rw-text" rows="2" aria-label="这一轮原来的问题" hidden></textarea>
   <div class="rw-modes">
     <label><input type="radio" name="rw-mode" value="both" checked>文件和对话一起退</label>
     <label><input type="radio" name="rw-mode" value="files">只退文件</label>
@@ -105,6 +113,24 @@
   <div class="rw-actions">
     <button id="rw-cancel" type="button">取消</button>
     <button id="rw-apply" type="button">撤销</button>
+  </div>
+</dialog>
+<!-- 选工作区目录：浏览这台主机上的目录，把 git 仓库登记成工作区（见 pages.js 的 pickWorkspace）。
+     不是 git 仓库时“登记这个目录”换成两个：先 git init 再登记、或者不用 git 也登记（#dir-init、#dir-skip）。 -->
+<dialog id="dir-dialog">
+  <h2 id="dir-title">选工作区目录</h2>
+  <div class="dir-bar">
+    <button id="dir-up" type="button" title="上一级" aria-label="上一级">↑</button>
+    <input id="dir-path" aria-label="目录路径" placeholder="~/work" autocomplete="off" spellcheck="false">
+  </div>
+  <div id="dir-cands" hidden></div>
+  <div id="dir-list"></div>
+  <div id="dir-msg"></div>
+  <div class="rw-actions">
+    <button id="dir-cancel" type="button">取消</button>
+    <button id="dir-init" type="button" hidden>git init 后登记</button>
+    <button id="dir-skip" type="button" hidden>不用 git，直接登记</button>
+    <button id="dir-add" type="button">登记这个目录</button>
   </div>
 </dialog>
 </body>

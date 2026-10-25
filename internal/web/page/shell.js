@@ -1,12 +1,19 @@
 import { SOURCE_LABEL, endLabel } from "./analysis.js";
 import { renderChat } from "./chat.js";
-import { start } from "./composer.js";
+import { backToInput, renderSteers, start } from "./composer.js";
 import { openEvals } from "./eval.js";
 import { show, startReplay, stopReplay, syncRunURL } from "./follow.js";
 import { openCompare, select } from "./observe.js";
+import { pickWorkspace } from "./pages.js";
 import { render } from "./render.js";
 import { apply, newRun } from "./runs.js";
-import { $, HOST, HOST_STATE, MAX_IMAGES, api, el, hostAPI, hostURL, ui } from "./util.js";
+import { $, HOST, HOST_STATE, MAX_IMAGES, api, clip, el, hostAPI, hostURL, markSeen, notifyOn, runKey, save, seenAt, ui } from "./util.js";
+// 工作区下拉的最后一项：选了它就去浏览目录登记一个新的。值不会和工作区名撞上（名字是小写字母或数字开头的目录名）。
+const ADD_WORKSPACE = "__add_workspace__", ADD_WORKSPACE_LABEL = "＋ 添加工作区…";
+// 左侧列表按工作区筛：只按名字筛（summary.workspace），工作区改名前的对话还在旧名字那一栏；
+// WS_NONE 是“无工作区”（工作区名字都以小写字母或数字开头，不会撞上）。
+const WS_FILTER_KEY = "tern-ws-filter", WS_NONE = "__none__";
+let wsFilter = (() => { try { return localStorage.getItem(WS_FILTER_KEY) || ""; } catch { return ""; } })();
 // ---------- 外壳：顶栏、输入框与对话列表 ----------
 export function renderShell() {
   const r = ui.run, chat = ui.page === "chat";
@@ -16,14 +23,17 @@ export function renderShell() {
   $("page-chat").className = chat ? "on" : "";
   $("page-observe").className = chat ? "" : "on";
   $("cmp-hint").hidden = chat;
+  syncRunSearch();
   $("title").textContent = ui.tab === "compare" && !chat ? `对比 ${ui.checked.size} 条运行` : r ? r.query || r.id : "新对话";
   $("files-btn").hidden = !chat || !r?.sandbox;
   $("files-btn").classList.toggle("on", !!ui.filesOpen);
+  $("diff-btn").hidden = !chat || !r?.workspace;
+  $("diff-btn").classList.toggle("on", !!ui.diffOpen);
   const runID = $("run-id");
   runID.hidden = !r;
   runID.textContent = r ? r.id.slice(0, 8) : "";
   runID.title = r ? `对话 ID：${r.id}，点击复制` : "";
-  document.title = r ? `tern · ${r.id}` : "tern";
+  document.title = (ui.waiting ? `(${ui.waiting}) ` : "") + (r ? `tern · ${r.id}` : "tern");
   const status = $("status");
   status.className = r && r.exit && r.exit !== "exit 0" ? "bad" : r && !r.exit ? "run" : "";
   const nSub = r ? Object.values(r.subs).reduce((n, s) => n + s.calls.length, 0) : 0;
@@ -34,8 +44,6 @@ export function renderShell() {
 }
 // 工具在设置里常驻；新对话按设置显示，进行中的对话按它开始时的快照显示。
 export const TOOL_INFO = {
-  calculator: ["计算器", "calculator：四则运算、括号、sqrt 和 floor，只解析数学表达式"],
-  get_current_datetime: ["当前时间", "get_current_datetime：Asia/Shanghai 的日期、时间和星期"],
   rag:["知识库检索", "search_docs：检索项目知识库（retrieval/corpus.md）。打开后系统提示词要求知识问题先查资料，所以默认关"],
   memory: ["长期记忆", "remember / search / forget_memory：新对话开头先召回，要多发几次模型请求，所以默认关"],
   skills: ["Skills", "Skills 中心里启用的 skill：常驻名字和用途，用到时再加载正文"],
@@ -52,7 +60,7 @@ function runTools(r) {
   // 单个工具按最近一次请求实际带的工具列表显示；还没发请求时按开始时的快照（disallowed_tools）。
   const sent = r.calls.at(-1)?.req.tools;
   const has = (name, group = true) => sent ? sent.some((t) => t.function?.name === name) : group && !r.source && !r.disallowedTools.includes(name);
-  return { calculator: has("calculator"), get_current_datetime: has("get_current_datetime"), web_search: has("web_search", r.browser), open_page: has("open_page", r.browser),
+  return { web_search: has("web_search", r.browser), open_page: has("open_page", r.browser),
     rag: r.rag || (sent || []).some((t) => t.function?.name === "search_docs"), memory: r.memory, skills: r.skills.length > 0, mcp: r.mcp.length > 0, subagents: r.subagents, ask_user: has("ask_user", r.askUser), bash: r.bash, ds_search: r.dsSearch, coding: !!r.workspace };
 }
 export function toolOn(key) {
@@ -130,7 +138,9 @@ function updateCtxRing(r) {
   ring.addEventListener("mouseleave", () => { tip.hidden = true; });
 }
 export function syncComposer() {
-  const r = ui.run, busy = r && (ui.loading || !r.exit), broken = r && ((r.exit && r.exit !== "exit 0" && !r.checkpoint) || r.rewoundAll);
+  // 全部撤销之后（rewoundAll）服务端仍可能允许在这条对话里重新开始（can_continue），那就不是“坏了”；
+  // can_continue 由 loadRuns 从对话列表里取（见那里）。
+  const r = ui.run, busy = r && (ui.loading || !r.exit), broken = r && ((r.exit && r.exit !== "exit 0" && !r.checkpoint) || (r.rewoundAll && !r.canContinue));
   const s = ui.settings?.effective;
   ui.picked ||= {};
   // 供应商同样来自 /models（显示名在路由表里）；本机没配好的（缺密钥或地址）灰掉，悬停看原因。
@@ -168,10 +178,12 @@ export function syncComposer() {
   if (!r && !ui.picked.model) pv.value = "";
   pv.title = r ? "具体模型：对话开始后固定（换模型请新建对话）" : "具体模型：默认用这家供应商的默认值，清单来自路由表";
   const ws = $("workspace"), names = r ? (r.workspace ? [r.workspace] : []) : (s?.workspaces || []).map((w) => w.name);
-  const signature = names.join("\n");
+  const signature = (r ? "run|" : "new|") + names.join("\n");
   if (ws.dataset.sig !== signature) {
     const keep = ws.value;
-    ws.replaceChildren(new Option("无工作区", ""), ...names.map((n) => new Option(n, n)));
+    // 新对话的最后一项是“＋ 添加工作区…”：选了它去浏览目录登记一个新的（见页尾的 change 监听）。
+    const opts = [new Option("无工作区", ""), ...names.map((n) => new Option(n, n)), ...(r ? [] : [new Option(ADD_WORKSPACE_LABEL, ADD_WORKSPACE)])];
+    ws.replaceChildren(...opts);
     ws.dataset.sig = signature;
     ws.value = names.includes(keep) ? keep : "";
   }
@@ -179,11 +191,17 @@ export function syncComposer() {
   if (r) ws.value = r.workspace || "";
   else if (!ui.picked.workspace && s) ws.value = codingOK && names.includes(s.values.workspace) ? s.values.workspace : "";
   ws.disabled = !!r || !codingOK;
-  ws.hidden = !r && !names.length;
+  // 编码工具可用时一直显示：没登记过也显示，人才能看到可以在这里添加。
+  ws.hidden = !r && !codingOK;
+  // 记下当前选中的那一项：选了“＋ 添加工作区…”又取消时退回这里（见页尾的 change 监听）。
+  if (ws.value !== ADD_WORKSPACE) ws.dataset.prev = ws.value;
   ws.title = r ? "工作区：对话开始后固定" : !codingOK ? "编码工具没打开或不可用：" + (s?.blocked.coding || "在设置里打开") : "工作区：编码工具只在这个仓库里读写；对话开始后固定";
   // 权限模式每轮可以换：默认取这条对话上一轮的（新对话取设置）；用户改过就保持用户的选择，直到发送。
   if (!ui.picked.permission) $("perm").value = (r && r.permission) || s?.values.permission_mode || "edit";
   $("perm").disabled = !!busy || !!ui.replay;
+  // 推理强度同样每轮可以换，默认同样取上一轮的（新对话取设置）。
+  if (!ui.picked.effort) $("effort").value = (r && r.effort) || s?.values.reasoning_effort || "high";
+  $("effort").disabled = !!busy || !!ui.replay;
   // 运行中发送键变成停止键（Codex 客户端的做法）：第一次优雅停止，第二次强制结束。
   const running = !!r && !r.exit && !ui.replay && (r.calls.length > 0 || r.logs.length > 0);
   $("send").classList.toggle("stop", running);
@@ -191,6 +209,9 @@ export function syncComposer() {
   $("send").innerHTML = running ? '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" stroke="none"/></svg>' : '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
   $("send").title = running ? (r.stopRequested ? "强制结束（SIGKILL）" : "停止（SIGINT：先回填结果、保存检查点）") : "发送";
   $("send").setAttribute("aria-label", running ? (r.stopRequested ? "强制结束" : "停止") : "发送");
+  // “排队”只在运行中有意义（Tab 一样）：把输入框里的话排到这一轮结束后再发；没字时灰着。
+  $("queue").hidden = !running;
+  $("queue").disabled = !running || !$("query").value.trim();
   const imported = SOURCE_LABEL[r?.source];
   // 附图：一条对话的模型固定，能不能看图也固定。不能看图的模型、导入的对话与回放都不给附图；
   // 已经附了图又切到不能看图的模型时，发送前拦下，不自动删图。
@@ -199,18 +220,21 @@ export function syncComposer() {
   $("attach").title = vis.vision ? `附图：PNG、JPEG、GIF、WebP，每条消息最多 ${MAX_IMAGES} 张；也可以粘贴或拖放`
     : `当前模型 ${vis.name} 不能看图，换一个能看图的模型再附图`;
   // 导入的对话只读：模型、工作区、权限与工具都是对方 agent 的，这里不给选择。
-  for (const id of ["provider", "perm"]) $(id).hidden = !!imported;
+  for (const id of ["provider", "perm", "effort"]) $(id).hidden = !!imported;
   // 模型与工作区上面已按清单和对话决定是否显示，这里只在导入的对话里再藏起来，不能把它们重新显示出来。
   if (imported) $("model").hidden = $("workspace").hidden = true;
   $("query").disabled = !!imported;
   $("send").disabled = running ? false : ui.sending || !!busy || !!broken || !!ui.replay || !!imported || !$("query").value.trim();
-  $("query").placeholder = imported ? "导入的对话只能查看" : running ? "运行中：输入的话会排进 agent 的下一次请求（插话）" : r ? "继续提问" : "给 agent 布置一个任务，/ 选命令";
+  $("query").placeholder = imported ? "导入的对话只能查看" : running ? "补充或纠正，agent 做完这一步就会看到（Tab 排到这一轮之后）" : r ? "继续提问" : "给 agent 布置一个任务，/ 选命令";
   // 输入框只放这一轮要选的（同 Claude Code）：工具、请求预算在设置页里看，这里只给导入的对话标出来源。
   $("mode-chip").textContent = imported ? `${imported} · ${r.calls.find((c) => c.res?.model)?.res.model || ""}` : "";
   // 只在需要人注意时提示；常规操作说明不放在输入框下面。
-  $("hint").textContent = !r ? "" : imported ? `从 ${imported} 导入的记录，只能查看；系统提示词、工具定义与耗时以记录里有的为准` : ui.replay ? "回放中，结束后可继续提问" :
-    busy ? (r.stopRequested ? "正在停止：agent 回填结果、保存检查点后退出；再点一次强制结束" : "") : broken ? "上次运行未正常结束、也没有检查点，请新建对话" : "";
+  // 发送失败的原因（ui.hint）优先：它要跟着重画留下来，直到打开对话、新对话时清掉。
+  $("hint").textContent = ui.hint || (!r ? "" : imported ? `从 ${imported} 导入的记录，只能查看；系统提示词、工具定义与耗时以记录里有的为准` : ui.replay ? "回放中，结束后可继续提问" :
+    busy ? (r.stopRequested ? "正在停止：agent 回填结果、保存检查点后退出；再点一次强制结束" : "") : broken ? "上次运行未正常结束、也没有检查点，请新建对话" : "");
   updateCtxRing(r);
+  // 待发送区跟着当前对话走：换了对话、重新订阅以后，显示的都是这条对话还没送出去的话。
+  renderSteers();
 }
 // 列表显示最后一次活动的时间：服务端给 Unix 毫秒时间戳，这里按看的人所在的时区格式化。
 function relTime(r) {
@@ -227,7 +251,90 @@ export async function loadRuns() {
   const mine = hosts.find((h) => h.alias === HOST);
   const groups = mine ? [mine, ...hosts.filter((h) => h !== mine)] : hosts;
   const lists = await Promise.all(groups.map(runList));
-  $("runs").replaceChildren(...groups.map((h, i) => groupRows(h, lists[i], groups.length > 1)));
+  // 正在看的对话被删了（在这个页面删的，或者在别的界面删的）：回到新对话页。
+  if (mine && lists[0] && ui.run && !lists[0].some((r) => r.id === ui.run.id)) { newChat(); return; }
+  // 排队的后续消息在服务端（summary.queue）：列表刷新时带回来交给待发送区；别的页面排的、删的这里也跟着变。
+  const current = ui.run && lists[0]?.find((r) => r.id === ui.run.id);
+  if (current) {
+    // 我们这边的订阅已经随 exit 收尾了，服务端却还在跑：队列接着发了，或者别的页面续聊了——重新订阅看这一轮。
+    if (!current.done && ui.run.exit && !ui.loading) { show(ui.run.id, false); return; }
+    ui.run.queue = current.queue || [];
+    // 服务端说这条对话还能不能接着聊：撤销到第一轮之前以后仍为真（可以在同一条对话里重新开始），
+    // 输入框据此判断要不要当成坏了（见 syncComposer 的 broken）。
+    if (ui.run.canContinue !== !!current.can_continue) {
+      ui.run.canContinue = !!current.can_continue;
+      syncComposer();
+    }
+    renderSteers();
+  }
+  // 各条的 updated_at 留着记“看过”（markCurrentSeen、runRow 都读它）：先把正在看的这条记成看过，
+  // 它的行尾这次就不出未读圆点。
+  const updated = {};
+  groups.forEach((h, i) => { for (const r of lists[i] || []) updated[runKey(h.alias, r.id)] = r.updated_at || 0; });
+  ui.updated = updated;
+  markCurrentSeen();
+  // 标签页标题的条数：在等审批、等回答的对话（评测的试次不进列表，也不算）。
+  const waiting = lists.reduce((n, list) => n + (list || []).filter((r) => r.waiting && !r.eval).length, 0);
+  if (waiting !== ui.waiting) { ui.waiting = waiting; renderShell(); }
+  // 有搜索词时列表是搜索结果：这一轮刷新不把它画回普通列表，清空搜索框时再画（见 clearSearch）。
+  if (!searchText) {
+    syncWsFilter(lists);
+    $("runs").replaceChildren(...groups.map((h, i) => groupRows(h, lists[i], groups.length > 1)));
+  }
+  notifyChanges(groups, lists);
+}
+// 筛选下拉的选项：列表里出现过的工作区名字加上设置里登记的，按名字排，两头是“全部工作区”“无工作区”。
+// 选的那个已经不在了（改名、移除、对话都删了）就回到“全部”。
+function syncWsFilter(lists) {
+  const select = $("run-filter"), names = new Set((ui.settings?.effective?.workspaces || []).map((w) => w.name));
+  for (const list of lists) for (const r of list || []) if (r.workspace && !r.eval) names.add(r.workspace);
+  const sorted = [...names].sort((a, b) => a.localeCompare(b));
+  if (wsFilter !== "" && wsFilter !== WS_NONE && !names.has(wsFilter)) setWsFilter("");
+  const signature = sorted.join("\n") + "|" + wsFilter;
+  if (select.dataset.sig === signature) return;
+  select.replaceChildren(new Option("全部工作区", ""), ...sorted.map((n) => new Option(n, n)), new Option("无工作区", WS_NONE));
+  select.value = wsFilter;
+  select.dataset.sig = signature;
+}
+function setWsFilter(value) {
+  wsFilter = value;
+  save(WS_FILTER_KEY, value);
+}
+// 这一条在这一栏里吗：选了“无工作区”只留没有工作区的对话，选了名字只留名字相同的（只比名字）。
+function wsKeep(r) {
+  return wsFilter === "" || (wsFilter === WS_NONE ? !r.workspace : r.workspace === wsFilter);
+}
+// 正在看的对话、页面又在前台，就算看过了。页面在后台时不记：切回前台时 main.js 补记一次，
+// 后台跑完的那些才留得住未读圆点和通知。
+export function markCurrentSeen() {
+  const r = ui.run;
+  if (!r || document.visibilityState !== "visible") return;
+  markSeen(HOST, r.id, ui.updated[runKey(HOST, r.id)]);
+}
+// 和上一次的列表比：原来没跑完、现在跑完了，或者刚开始等审批、等回答的，页面不在前台时发一条浏览器通知。
+// 第一次取列表只记下状态，不通知；同一条对话同一种通知带同一个 tag，浏览器会合并。
+function notifyChanges(groups, lists) {
+  const first = !ui.runStates, states = {};
+  groups.forEach((h, i) => {
+    for (const r of lists[i] || []) {
+      if (r.eval) continue;
+      const key = runKey(h.alias, r.id), prev = ui.runStates?.[key], title = clip(r.name || r.query || "（无问题）", 40);
+      states[key] = { done: !!r.done, waiting: r.waiting || "" };
+      if (first || !prev) continue; // 页面打开后才出现的对话：第一次见到它，只记状态
+      if (!prev.waiting && r.waiting) notifyOne(h, r, (r.waiting === "approval" ? "等你审批：" : "等你回答：") + title, r.waiting);
+      else if (!prev.done && r.done) notifyOne(h, r, "跑完了：" + title, "done");
+    }
+  });
+  ui.runStates = states;
+}
+function notifyOne(h, r, title, kind) {
+  if (!notifyOn() || typeof Notification === "undefined" || Notification.permission !== "granted" || document.visibilityState === "visible") return;
+  const notice = new Notification(title, { tag: `${runKey(h.alias, r.id)}|${kind}` });
+  notice.onclick = () => {
+    window.focus();
+    notice.close();
+    if (h.alias === HOST) show(r.id); else location.href = hostURL(h.alias, r.id);
+  };
 }
 // runList 是一台主机的对话列表：取不到（在重连、连不上）就是 null，那一组只显示标题和状态。
 async function runList(h) {
@@ -238,6 +345,7 @@ async function runList(h) {
   } catch { return null; }
 }
 // 一组：标题写“主机 · 状态”，下面是那台的对话；只有一台主机时不出标题，也不加分组的框。
+// 已归档的平时不展开：列表最后一行“已归档（N）”，点开才显示在下面。
 function groupRows(h, runs, grouped) {
   const box = el("div", grouped ? "host-group" : "");
   if (grouped) {
@@ -245,14 +353,99 @@ function groupRows(h, runs, grouped) {
     name.title = h.error || "";
     box.append(name);
   }
-  const rows = (runs || []).filter((r) => !r.eval).reverse().map((r) => runRow(r, h));
+  const list = (runs || []).filter((r) => !r.eval && wsKeep(r)).reverse();
+  const rows = list.filter((r) => !r.archived).map((r) => runRow(r, h));
   if (rows.length) box.append(...rows);
+  const archived = list.filter((r) => r.archived);
+  if (archived.length) box.append(archivedGroup(archived, h));
   return box;
 }
-function runRow(r, h) {
+// 展开状态按主机记：每次收到通知列表都会重画，展开的还保持展开。
+const archivedOpen = new Set();
+function archivedGroup(archived, h) {
+  const box = el("div", "archived"), open = archivedOpen.has(h.alias);
+  const toggle = el("button", "archived-toggle", `已归档（${archived.length}）`);
+  toggle.type = "button";
+  toggle.setAttribute("aria-expanded", String(open));
+  if (open) toggle.classList.add("on");
+  const list = el("div", "archived-list");
+  list.hidden = !open;
+  list.append(...archived.map((r) => runRow(r, h, true)));
+  toggle.onclick = () => {
+    if (list.hidden) archivedOpen.add(h.alias); else archivedOpen.delete(h.alias);
+    list.hidden = !list.hidden;
+    toggle.classList.toggle("on", !list.hidden);
+    toggle.setAttribute("aria-expanded", String(!list.hidden));
+  };
+  box.append(toggle, list);
+  return box;
+}
+// 每行右边的“⋯”菜单：改名、归档（已归档的是“取消归档”）、删除。点别处或滚动列表就关掉。
+let rowMenu = null;
+function closeRowMenus() {
+  if (!rowMenu) return;
+  rowMenu.hidden = true;
+  rowMenu = null;
+}
+function runMenu(r, h) {
+  const box = el("div", "runmenu"), more = el("button", "more", "⋯");
+  more.type = "button";
+  more.title = "改名、归档、删除";
+  more.setAttribute("aria-label", "对话操作");
+  const menu = el("div", "runmenu-box");
+  menu.hidden = true;
+  const item = (text, act) => {
+    const button = el("button", "", text);
+    button.type = "button";
+    button.onclick = (ev) => { ev.stopPropagation(); closeRowMenus(); act(); };
+    return button;
+  };
+  menu.append(item("改名", () => renameRun(r, h)), item(r.archived ? "取消归档" : "归档", () => archiveRun(r, h)), item("删除", () => deleteRun(r, h)));
+  more.onclick = (ev) => {
+    ev.stopPropagation();
+    const opened = rowMenu === menu;
+    closeRowMenus();
+    if (opened) return;
+    // 菜单用 fixed 按这一行的位置摆：列表自己会滚动，外框会把里面的绝对定位元素裁掉。
+    const at = more.getBoundingClientRect();
+    menu.hidden = false;
+    menu.style.left = Math.max(8, Math.min(innerWidth - menu.offsetWidth - 8, at.right - menu.offsetWidth)) + "px";
+    menu.style.top = Math.min(innerHeight - menu.offsetHeight - 8, at.bottom + 4) + "px";
+    rowMenu = menu;
+  };
+  menu.onclick = (ev) => ev.stopPropagation();
+  box.append(more, menu);
+  return box;
+}
+document.addEventListener("click", closeRowMenus);
+window.addEventListener("scroll", closeRowMenus, true);
+// 改名、归档、删除都发一次请求，成功后重新加载列表；删的正好是正在看的那条就回到新对话页。
+async function threadCall(h, path, method, body) {
+  try {
+    const res = await fetch(hostAPI(h.alias, path), { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+    if (res.ok) return true;
+    alert((await res.text()).trim() || `请求失败（${res.status}）`);
+  } catch (err) { alert("请求失败：" + err.message); }
+  return false;
+}
+async function renameRun(r, h) {
+  const name = prompt("这条对话的名字（留空就显示第一句话）：", r.name || r.query || "");
+  if (name === null) return;
+  if (await threadCall(h, `/runs/${encodeURIComponent(r.id)}/name`, "PUT", { name })) loadRuns();
+}
+async function archiveRun(r, h) {
+  if (await threadCall(h, `/runs/${encodeURIComponent(r.id)}/archive`, r.archived ? "DELETE" : "POST")) loadRuns();
+}
+async function deleteRun(r, h) {
+  if (!confirm("永久删除这条对话？存档、检查点和沙箱里的文件都会删掉，不能撤销。")) return;
+  if (!(await threadCall(h, `/runs/${encodeURIComponent(r.id)}`, "DELETE"))) return;
+  if (h.alias === HOST && ui.run?.id === r.id) { newChat(); return; }
+  loadRuns();
+}
+function runRow(r, h, archived = false) {
   const current = h.alias === HOST, observe = ui.page === "observe";
   // 评测发起的试次不进对话列表，从“评测”页面打开。
-  const row = el("div", "runitem" + (current && ui.run && r.id === ui.run.id && !(observe && ui.tab === "compare") ? " active" : ""));
+  const row = el("div", "runitem" + (archived ? " archived" : "") + (current && ui.run && r.id === ui.run.id && !(observe && ui.tab === "compare") ? " active" : ""));
   // 观测页的“加入对比”只出现在当前主机这一组：对比的是同一台上的运行。
   if (observe && current) {
     const box = el("input");
@@ -271,7 +464,10 @@ function runRow(r, h) {
   if (!r.done) q.append(el("span", "live"));
   if (SOURCE_LABEL[r.source]) q.append(el("span", "src", SOURCE_LABEL[r.source]));
   if (r.fork_of) q.append(el("span", "src", "分叉"));
-  q.append(r.query || "（无问题）");
+  // 这条对话在等人：醒目的小标签放标题前面，点进对话就能答复。
+  if (r.waiting) q.append(el("span", "wait", r.waiting === "approval" ? "等你审批" : "等你回答"));
+  // 有名字就显示名字；悬停里仍是第一句话和对话 ID，看得出这是哪条。
+  q.append(r.name || r.query || "（无问题）");
   b.title = `${r.query}\n对话 ID：${r.id}`;
   b.append(q, el("small", "", relTime(r)));
   b.onclick = () => {
@@ -281,11 +477,122 @@ function runRow(r, h) {
     show(r.id);
   };
   row.append(b);
+  // 上次看过这条以后又有了新结果：行尾一个小圆点（“看过”的记法见 util.js 的 markSeen）。
+  if (r.updated_at > seenAt(h.alias, r.id)) {
+    const dot = el("span", "unread");
+    dot.title = "有新结果";
+    row.append(dot);
+  }
+  row.append(runMenu(r, h));
   return row;
 }
+// ---------- 搜索对话 ----------
+// 搜索框在列表上面（只有对话页有）：敲字 250 毫秒去抖后请求，连了几台主机就每台各搜一次，
+// 只显示最后一次请求的结果。有搜索词时列表换成结果；清空搜索框或者按 Esc 回到原来的列表。
+const SEARCH_DEBOUNCE = 250;
+// 搜索框与工作区筛选只在对话页：观测页、评测与设置这些面板页（#thread 里是 mempanel）都收起来。
+// 面板是在 newChat 之后才换进 #thread 的，所以除了 renderShell 里调，还盯着 #thread 的内容。
+function syncRunSearch() {
+  const visible = ui.page === "chat" && !$("thread").querySelector(":scope > .mempanel");
+  $("list-tools").hidden = !visible;
+  $("run-search").hidden = !visible;
+  $("run-filter").hidden = !visible;
+}
+new MutationObserver(syncRunSearch).observe($("thread"), { childList: true });
+let searchText = "", searchTimer = 0, searchSeq = 0;
+function clearSearch() {
+  clearTimeout(searchTimer);
+  searchTimer = 0;
+  searchText = "";
+  searchSeq++; // 还在路上的结果不要了
+  $("run-search").value = "";
+  loadRuns();
+}
+// 换筛选只重画列表（正在搜的话先还原成普通列表）：选的记在 localStorage，刷新后还在。
+$("run-filter").onchange = () => {
+  setWsFilter($("run-filter").value);
+  if (searchText) clearSearch(); else loadRuns();
+};
+// 片段里命中的那几个字加粗：用 textContent 一段段拼，不拼 HTML。
+function markHit(text, query) {
+  const box = document.createDocumentFragment(), hay = text.toLowerCase(), needle = query.toLowerCase();
+  let at = 0;
+  while (needle) {
+    const i = hay.indexOf(needle, at);
+    if (i < 0) break;
+    if (i > at) box.append(text.slice(at, i));
+    box.append(el("b", "", text.slice(i, i + needle.length)));
+    at = i + needle.length;
+  }
+  if (at < text.length) box.append(text.slice(at));
+  return box;
+}
+// 一台主机的搜索结果：在重连、连不上、出错的回 null，那一组只显示标题。
+async function searchHost(h, q) {
+  if (h.state === "failed") return null;
+  try {
+    const res = await fetch(hostAPI(h.alias, `/runs/search?q=${encodeURIComponent(q)}`));
+    return res.ok ? await res.json() : null;
+  } catch { return null; }
+}
+async function runSearch(q) {
+  const seq = ++searchSeq;
+  searchText = q;
+  const hosts = ui.hosts.length ? ui.hosts : [{ alias: HOST, host: HOST, remote: !!HOST, state: "connected" }];
+  const mine = hosts.find((h) => h.alias === HOST);
+  const groups = mine ? [mine, ...hosts.filter((h) => h !== mine)] : hosts;
+  const lists = await Promise.all(groups.map((h) => searchHost(h, q)));
+  if (seq !== searchSeq) return;
+  drawSearch(groups, lists);
+}
+// 结果和 loadRuns 一样按主机分组；每条显示名字（没有就第一句话）和“问题/回答：片段”，
+// 已归档的标出来，点一下打开那条对话（别的主机的整页跳过去，照 runRow）。
+function drawSearch(groups, lists) {
+  const total = lists.reduce((n, list) => n + (list?.length || 0), 0), box = $("runs");
+  if (!total) { box.replaceChildren(el("div", "search-none", "没有找到")); return; }
+  box.replaceChildren(...groups.map((h, i) => {
+    const group = el("div", groups.length > 1 ? "host-group" : "");
+    if (groups.length > 1) {
+      const name = el("div", "host-name" + (h.state === "connected" ? "" : " bad"), `${h.alias || "本机"} · ${HOST_STATE[h.state] || h.state}`);
+      name.title = h.error || "";
+      group.append(name);
+    }
+    group.append(...(lists[i] || []).map((hit) => searchRow(h, hit)));
+    return group;
+  }));
+}
+function searchRow(h, hit) {
+  const current = h.alias === HOST, row = el("div", "runitem hit"), b = el("button"), q = el("span", "q");
+  if (hit.archived) q.append(el("span", "src", "已归档"));
+  q.append(hit.name || hit.query || "（无问题）");
+  const where = el("small", "where");
+  where.append(`${hit.where}：`, markHit(hit.snippet || "", searchText));
+  b.append(q, where);
+  b.title = `${hit.query || ""}\n对话 ID：${hit.id}`;
+  b.onclick = () => {
+    document.body.classList.remove("nav-open");
+    if (!current) { location.href = hostURL(h.alias, hit.id); return; }
+    clearSearch();
+    show(hit.id);
+  };
+  row.append(b);
+  return row;
+}
+$("run-search").oninput = () => {
+  const q = $("run-search").value.trim();
+  clearTimeout(searchTimer);
+  if (!q) { clearSearch(); return; }
+  searchTimer = setTimeout(() => runSearch(q), SEARCH_DEBOUNCE);
+};
+$("run-search").onkeydown = (ev) => {
+  if (ev.key !== "Escape") return;
+  ev.preventDefault();
+  clearSearch();
+};
 export function autosize() { const q = $("query"); q.style.height = "auto"; q.style.height = q.scrollHeight + "px"; }
 
-$("files-btn").onclick = () => { ui.filesOpen = !ui.filesOpen; if (ui.filesOpen) { ui.subOpen = ui.webOpen = null; ui.files.run = null; } renderChat(); renderShell(); };
+$("files-btn").onclick = () => { ui.filesOpen = !ui.filesOpen; if (ui.filesOpen) { ui.subOpen = ui.webOpen = null; ui.diffOpen = false; ui.files.run = null; } renderChat(); renderShell(); };
+$("diff-btn").onclick = () => { ui.diffOpen = !ui.diffOpen; if (ui.diffOpen) { ui.subOpen = ui.webOpen = null; ui.filesOpen = false; ui.diff.run = null; } renderChat(); renderShell(); };
 $("page-chat").onclick = () => { ui.page = "chat"; if (ui.tab === "compare") ui.tab = "trace"; render(); loadRuns(); };
 $("page-observe").onclick = () => { ui.page = "observe"; render(); loadRuns(); };
 $("run-id").onclick = async () => {
@@ -325,8 +632,9 @@ $("attribute").onclick = async () => {
 };
 // 撤销：三种退法在对话框里选，每换一种就按这个 mode 重新 dry_run 一次，预览跟着变。
 // 有冲突只挡“一起退”和“只退文件”：只退对话不动文件，冲突不影响。执行后同原来，重新读这条对话。
-export async function rewindTurn(r, t) {
-  const dialog = $("rewind-dialog"), preview = $("rw-preview"), apply = $("rw-apply");
+// 编辑重发（edit）用同一个对话框：多一个装着这一轮问题的文本框，确认后先撤销，再用它续聊。
+export async function rewindTurn(r, t, edit = false) {
+  const dialog = $("rewind-dialog"), preview = $("rw-preview"), apply = $("rw-apply"), field = $("rw-text");
   const mode = () => dialog.querySelector('input[name="rw-mode"]:checked').value;
   const call = async (dryRun, m) => {
     const res = await fetch(api(`/runs/${encodeURIComponent(r.id)}/rewind`), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ turn: t.checkpoint, dry_run: dryRun, mode: m }) });
@@ -354,7 +662,7 @@ export async function rewindTurn(r, t) {
       box.push(el("p", "", `对话退回第 ${t.n} 轮之前，文件不动；下一轮会告诉模型之后各轮改过的文件还在。`));
       files(box, "这几轮改过的文件", [...(plan.restore || []), ...(plan.delete || []), ...(plan.unsnapshotted || [])]);
     } else {
-      box.push(el("p", "", `撤销第 ${t.n} 轮${total > 1 ? `及之后，共 ${total} 轮` : ""}：文件放回这一轮开始之前，对话${plan.continues ? "退回上一轮" : "也全部撤销，之后需要新建对话"}。`));
+      box.push(el("p", "", `撤销第 ${t.n} 轮${total > 1 ? `及之后，共 ${total} 轮` : ""}：文件放回这一轮开始之前，对话${plan.continues ? "退回上一轮" : "也全部撤销，之后在这条对话里重新开始"}。`));
       files(box, "恢复", plan.restore); files(box, "删除（这几轮新建的）", plan.delete);
       if (!plan.restore.length && !plan.delete.length) box.push(el("div", "meta", "这几轮没有用编码工具改过文件。"));
       files(box, "bash 改过、不会还原（没有快照）", plan.unsnapshotted);
@@ -367,17 +675,37 @@ export async function rewindTurn(r, t) {
     preview.replaceChildren(...box);
     apply.disabled = m !== "chat" && !!plan.conflicts?.length;
   };
-  $("rw-title").textContent = `撤销第 ${t.n} 轮及之后`;
-  dialog.querySelector('input[name="rw-mode"][value="both"]').checked = true;
+  $("rw-title").textContent = edit ? `改第 ${t.n} 轮的问题，重新发` : `撤销第 ${t.n} 轮及之后`;
+  apply.textContent = edit ? "撤销并重新发" : "撤销";
+  field.hidden = !edit;
+  field.value = edit ? t.question || "" : "";
+  // 没有工作区的对话只能只退对话：另外两种要退文件，而文件归 app-server 按工作区管。
+  const onlyChat = !r.workspace;
+  dialog.querySelectorAll('input[name="rw-mode"]').forEach((x) => { x.disabled = onlyChat && x.value !== "chat"; });
+  dialog.querySelector(`input[name="rw-mode"][value="${onlyChat ? "chat" : "both"}"]`).checked = true;
   dialog.querySelectorAll('input[name="rw-mode"]').forEach((x) => { x.onchange = refresh; });
   $("rw-cancel").onclick = () => dialog.close();
   apply.onclick = async () => {
     apply.disabled = true;
     try { await call(false, mode()); } catch (err) { preview.append(el("div", "err", err.message)); apply.disabled = false; return; }
     dialog.close();
-    show(r.id, false);
+    if (!edit) { show(r.id, false); return; }
+    // 撤销成功，用文本框里的问题续聊：权限模式、推理强度取输入框旁边当前的选择（和平时续聊一样），附图不带。
+    const query = field.value;
+    try {
+      const res = await fetch(api(`/runs/${encodeURIComponent(r.id)}/messages`), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query, permission: $("perm").value, effort: $("effort").value }) });
+      if (!res.ok) throw new Error(await res.text());
+      show((await res.json()).id);
+    } catch (err) {
+      // 撤销已经生效、这句没发出去：重新读这条对话，把问题放回输入框，原因写在输入框下面，内容不丢。
+      show(r.id);
+      backToInput(query);
+      ui.hint = "没发出去：" + err.message;
+      syncComposer();
+    }
   };
   dialog.showModal();
+  if (edit) { field.focus(); field.setSelectionRange(field.value.length, field.value.length); }
   refresh();
 }
 // 分叉：从这一轮的检查点另起一条对话，点完不再确认；成功后打开新对话（show 也会刷新列表）。
@@ -401,7 +729,7 @@ export async function attribute(runID) {
 export function newChat(updateURL = true) {
   stopReplay();
   if (ui.source) ui.source.close();
-  Object.assign(ui, { chatFollow: true, unseen: false, page: "chat", tab: "trace", run: null, events: [], source: null, selected: null, loading: false, subOpen: null, webOpen: null, webClosed: false, picked: {} });
+  Object.assign(ui, { chatFollow: true, unseen: false, page: "chat", tab: "trace", run: null, events: [], source: null, selected: null, loading: false, subOpen: null, webOpen: null, webClosed: false, picked: {}, hint: "" });
   if (updateURL) syncRunURL(null);
   document.body.classList.remove("nav-open");
   $("stats").hidden = true;
@@ -410,6 +738,20 @@ export function newChat(updateURL = true) {
   render(); loadRuns(); $("query").focus();
 }
 $("new-chat").onclick = () => newChat();
+// 工作区下拉的“＋ 添加工作区…”：打开选目录对话框，登记成功后刷新设置并选中新的；取消就退回原来选的那一项。
+{
+  $("workspace").addEventListener("change", async (ev) => {
+    const ws = ev.currentTarget;
+    if (ws.value !== ADD_WORKSPACE) return;
+    ws.value = ws.dataset.prev || ""; // 对话框开着的时候先退回原来那一项
+    const name = await pickWorkspace();
+    if (!name) { syncComposer(); return; }
+    ui.picked.workspace = true;
+    await loadSettings();
+    ws.value = name;
+    ws.dataset.prev = name; // 下次再选“添加工作区…”又取消时退回这里（syncComposer 在设值之前已经跑完）
+  });
+}
 // 导入 Codex / Claude Code 的会话文件：服务端换成网页端的存档格式，导入后只读。
 $("import").onclick = () => $("import-file").click();
 $("import-file").onchange = async () => {

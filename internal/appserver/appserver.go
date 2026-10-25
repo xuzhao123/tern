@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/xuzhao123/tern/internal/tenant"
 )
@@ -37,8 +38,9 @@ type Server struct {
 	llm  *http.Server // 模型代理，跑在 llm.sock 上，路由同原来的 POST /llm/<对话ID>
 	lock *os.File     // 文件锁一直开着，进程退出（包括崩溃）时由系统释放
 
-	dir string // TERN_HOME：对话存档、沙箱、附件都相对它
-	dev bool   // 每次启动 agent 用 go run .（要求 TERN_HOME 是 tern 源码根目录）
+	dir     string    // TERN_HOME：对话存档、沙箱、附件都相对它
+	dev     bool      // 每次启动 agent 用 go run .（要求 TERN_HOME 是 tern 源码根目录）
+	started time.Time // 什么时候启动的：比它晚启动、程序又不同的界面会把它换掉（见 appclient.Start）
 
 	mu    sync.Mutex
 	conns map[*conn]struct{}
@@ -46,6 +48,9 @@ type Server struct {
 	runs  []*run
 	hubMu sync.Mutex // 保护 .data/hub.json 与 .data/settings.json 的读改写
 	evals evals      // 评测记录（见 eval.go）
+
+	fileMu    sync.Mutex                    // 保护 fileCache
+	fileCache map[string]workspaceFileEntry // 工作区目录 → 最近一次 git ls-files 的候选文件，@ 搜文件用（见 workspacefiles.go）
 
 	once sync.Once
 	done chan struct{}
@@ -68,7 +73,7 @@ func Run(args []string) error {
 	}
 	// -dev 每轮用 go run . 启动 agent，所以 TERN_HOME 得是 tern 源码根目录。
 	if *dev && !tenant.SourceRoot(dir) {
-		return fmt.Errorf("-dev 要用 go run . 启动 agent，TERN_HOME 须是 tern 源码根目录：%s", dir)
+		return fmt.Errorf("-dev 要用 go run . 启动 agent，TERN_HOME 须是 tern 源码根目录（在源码根目录里用 TERN_HOME=$PWD）：%s", dir)
 	}
 	// hooks 配置里的相对路径按 TERN_HOME 解析：agent 与 app-server 的工作目录都是它。
 	hooksBase = dir
@@ -111,7 +116,7 @@ func open(dir string, dev bool) (*Server, error) {
 		lock.Close()
 		return nil, fmt.Errorf("写 %s：%w", PIDFile, err)
 	}
-	s := &Server{lock: lock, dir: dir, dev: dev, conns: map[*conn]struct{}{}, done: make(chan struct{}),
+	s := &Server{lock: lock, dir: dir, dev: dev, started: time.Now(), conns: map[*conn]struct{}{}, done: make(chan struct{}),
 		evals: evals{jobs: map[string]*evalJob{}}}
 	os.Remove(Socket)
 	if s.ln, err = net.Listen("unix", Socket); err != nil {

@@ -10,7 +10,7 @@ tern 是用 Go 实现的 agent harness，由 learning-agent 演变而来。启�
 - 网页端可以同时连几台主机，一台一条连接：远端主机的页面与接口带 `/h/<别名>/` 前缀，页面上连过的主机记在 `.data/web-hosts.json`，下次启动在后台自动连，主机菜单里可以断开。
 - agent 的协议 socket 参数叫 `-agent-server`；app-server 启动 agent 时不传 `-tenant`，这一版只有平台空间。
 - **各包目录下的 AGENTS.md 写着那个包的约束。**tern 读写那个目录的文件时会自动加载；设计或修改某个包之前，先读它的那份。
-- 设计在 `spec/`，索引见 `spec/README.md`。`skills/`、`hooks/`、`commands/` 只放真实使用的；`eval/`、`queue/` 里的题目和示例任务是任务输入，要提交。
+- 设计在 `spec/`，索引见 `spec/README.md`。内置的命令与 skill 在 `internal/commands/builtin/`、`internal/skills/builtin/`，`hooks/` 里放 hook 脚本，都只放真实使用的；`eval/`、`queue/` 里的题目和示例任务是任务输入，要提交。
 
 ## 分工
 
@@ -26,10 +26,11 @@ tern 是用 Go 实现的 agent harness，由 learning-agent 演变而来。启�
 ## 验证
 
 - gofmt、`go vet`、`go build`，改了页面脚本再 `node --check`；然后用真实模型实际运行。不写 mock、脚本模型，不写死模型的工具决策与答案。目前不写 `*_test.go`，要引入先问用户。
-- 会改仓库内容的验证在临时 clone 里做，用完删除。网页端的验证用常驻账号 `qa`（账号名与密码在 `.env` 的 `OBSERVER_TEST_USER`、`OBSERVER_TEST_PASSWORD`，不写进提交的文件）。
+- 会改仓库内容的验证在临时 clone 里做，用完删除；运行 clone 编出的程序时把 `TERN_HOME` 设成 clone 或临时目录，不碰 `~/.tern`。网页端的验证用常驻账号 `qa`（账号名与密码在 `.env` 的 `OBSERVER_TEST_USER`、`OBSERVER_TEST_PASSWORD`，不写进提交的文件）。
 - 验证不在长期记忆里留下不是用户原话的事实；测试写进去的，用 `-memory-forget` 删掉。
 
 ## 数据与密钥
 
-- 数据目录是 `TERN_HOME`：`main` 启动时先算出它（源码根目录里就是当前目录，别处是 `~/.tern`）并 chdir 过去，之后所有相对路径都按它解释。运行数据都在它下面的 `.data/`（不提交），路径由 `internal/tenant` 决定；租户的数据在 `.data/tenants/<租户>/`。
+- 数据目录是 `TERN_HOME`：`main` 启动时先算出它（没设时是 `~/.tern`）并 chdir 过去，之后所有相对路径都按它解释。运行数据都在它下面的 `.data/`（不提交），路径由 `internal/tenant` 决定；租户的数据在 `.data/tenants/<租户>/`。
+- `$TERN_HOME/AGENTS.md` 是用户的个人指令（类似 Codex 的 `~/.codex/AGENTS.md`）：每个对话都放进系统提示词，排在项目指令前面，没选工作区也带；评测不读（`-personal-instructions=false`）。
 - 密钥只放 `.env`（权限 0600）或环境变量。

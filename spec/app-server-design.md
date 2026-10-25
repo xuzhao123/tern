@@ -64,7 +64,7 @@
 - agent 自己的路径参数 `-workspace`、`-image`、`-hooks` 解析完后，相对路径按原来的工作目录转成绝对路径。
   - 写进检查点的启动参数（`agent.CheckpointArgs`）里，这三个参数的值也换成绝对路径，`-x 值` 和 `-x=值` 两种写法都要处理。否则换个目录 `-resume`，相对路径会按新的目录解释。
   - 子命令（`web`、`chat`、`queue`、`eval`…）的参数不做这一步，相对路径按 `TERN_HOME` 解释。
-- 没设 `TERN_HOME` 时：当前目录是 tern 源码根目录就用当前目录，现在的用法不变；否则用 `~/.tern`。判断源码根目录的条件是当前目录的 `go.mod` 第一行 `module` 是 `github.com/xuzhao123/tern`。
+- 没设 `TERN_HOME` 时：当前目录是 tern 源码根目录就用当前目录，现在的用法不变；否则用 `~/.tern`。（2026-10-24 去掉了源码根目录的特例，没设一律 `~/.tern`，见 [tern-home-default.md](tern-home-default.md)）判断源码根目录的条件是当前目录的 `go.mod` 第一行 `module` 是 `github.com/xuzhao123/tern`。
   - 这个判断只写一份，放在 `internal/tenant`（数据路径都由它决定），例如 `tenant.SourceRoot(dir)`。`main` 和网页端的 `-dev` 检查共用它，第一期的 app-server 也用它。
 - 网页端去掉 `go.mod` 检查（`internal/web/server.go:163`）和“请在项目根目录运行”的报错，改用上面的规则。`-dev`（`go run .`）要求 `TERN_HOME` 是源码根目录，不是就报错退出。
 - 新的 `TERN_HOME`（比如第一次用的 `~/.tern`）里还没有 `.data/`，写文件之前要先建目录。现在漏了这一步的是 chat 的日志文件（`internal/chat/chat.go:370` 直接 `OpenFile`，报“打不开日志文件”）：改成先 `MkdirAll(filepath.Dir(…), 0o700)`，同其他写 `.data` 的地方。
@@ -413,7 +413,7 @@ app-server 拿到文件锁后，先删掉旧的 `llm.sock` 再监听，同 `cont
 ## 14. 已答复的问题（2026-10-23）
 
 1. 命名：常驻进程叫 `tern app-server`，agent 的 `-app-server` 改名为 `-agent-server`。
-2. `TERN_HOME` 默认值：在源码根目录里就用当前目录，否则用 `~/.tern`。
+2. `TERN_HOME` 默认值：在源码根目录里就用当前目录，否则用 `~/.tern`。（2026-10-24 改为一律 `~/.tern`，见 [tern-home-default.md](tern-home-default.md)）
 3. 模型代理改走 Unix socket（`AGENT_PROXY_SOCKET`）。
 4. 先去掉租户账号（第 8 节）。
 5. chat 不再透传 agent 参数，工具来自设置；退出 chat 不停对话；不再按检查点ID续聊。

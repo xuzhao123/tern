@@ -71,7 +71,7 @@ var Definitions = []map[string]any{
 			"glob":        map[string]string{"type": "string", "description": "只搜文件名符合这个模式的文件，规则同 glob 工具"},
 			"ignore_case": map[string]string{"type": "boolean", "description": "忽略大小写"},
 		}, "pattern")},
-	{"name": "edit_file", "description": "把文件里的 old_string 替换成 new_string。old_string 要从 read_file 的输出里原样复制（不含行号前缀，空格与缩进一致），并且在文件中只出现一次；要替换所有出现处时设 replace_all=true。改之前必须先 read_file，文件在那之后被改过会被拒绝。返回改动处的片段。",
+	{"name": "edit_file", "description": "把文件里的 old_string 替换成 new_string。old_string 要从 read_file 的输出里原样复制（不含行号前缀，空格与缩进一致），并且在文件中只出现一次；要替换所有出现处时设 replace_all=true。只差空白（行尾空格、缩进、行内对齐的空格数）时会按宽松规则匹配，结果里的 matched 注明是哪种；还是对不上时会给出文件里最接近的原文。改之前必须先 read_file，文件在那之后被改过会被拒绝。返回改动处的片段。",
 		"parameters": object(map[string]any{
 			"path":        map[string]string{"type": "string", "description": "相对工作区根目录的路径"},
 			"old_string":  map[string]string{"type": "string", "description": "要被替换的原文"},
@@ -510,10 +510,10 @@ func editFile(p, oldString, newString string, replaceAll bool) (any, error) {
 	}
 	text := string(data)
 	count := strings.Count(text, oldString)
-	if count == 0 {
-		return nil, llm.Permanent(fmt.Errorf("old_string 在 %s 里没有找到；检查空格、缩进与换行是否和 read_file 输出一致，并且不要带行号前缀", path))
-	}
-	if count > 1 && !replaceAll {
+	var updated, matched string
+	first, replaced := 0, 1
+	switch {
+	case count > 1 && !replaceAll:
 		lines := []string{}
 		for i, from := 0, 0; i < min(count, 10); i++ {
 			at := strings.Index(text[from:], oldString) + from
@@ -521,11 +521,39 @@ func editFile(p, oldString, newString string, replaceAll bool) (any, error) {
 			from = at + len(oldString)
 		}
 		return nil, llm.Permanent(fmt.Errorf("old_string 在 %s 里出现了 %d 次（第 %s 行）；多带几行上下文让它唯一，或设 replace_all=true", path, count, strings.Join(lines, "、")))
-	}
-	first := lineOf(text, strings.Index(text, oldString))
-	updated := strings.Replace(text, oldString, newString, -1)
-	if !replaceAll {
+	case count > 0:
+		first = lineOf(text, strings.Index(text, oldString))
 		updated = strings.Replace(text, oldString, newString, 1)
+		if replaceAll {
+			updated, replaced = strings.Replace(text, oldString, newString, -1), count
+		}
+	default:
+		// 批量替换必须精确，不能顺手改到不该改的地方。
+		if replaceAll {
+			return nil, llm.Permanent(fmt.Errorf("old_string 在 %s 里没有找到；检查空格、缩进与换行是否和 read_file 输出一致，并且不要带行号前缀", path))
+		}
+		var hit *lenientHit
+		if !blank(oldString) {
+			hit = lenientFind(text, oldString)
+		}
+		if hit == nil {
+			return nil, llm.Permanent(notFound(path, text, oldString))
+		}
+		if hit.count > 1 {
+			places := make([]string, len(hit.lines))
+			for i, line := range hit.lines {
+				places[i] = fmt.Sprint(line)
+			}
+			return nil, llm.Permanent(fmt.Errorf("old_string 按%s在 %s 里匹配到 %d 处（第 %s 行），多带几行上下文让它唯一", hit.rule, path, hit.count, strings.Join(places, "、")))
+		}
+		repl := newString
+		to := hit.to
+		// 换掉的是整行、不含行尾换行；文件里原来那个换行还在，new_string 末尾就不用再带一个，否则会多出空行。
+		if to < len(text) && text[to] == '\n' && strings.HasSuffix(repl, "\n") {
+			repl = strings.TrimSuffix(repl, "\n")
+		}
+		first, matched = hit.line, hit.rule
+		updated = text[:hit.from] + repl + text[to:]
 	}
 	if err := snapshot(path, data, true); err != nil {
 		return nil, fmt.Errorf("写入前的快照没存下来，%s 没有改：%w", path, err)
@@ -536,11 +564,11 @@ func editFile(p, oldString, newString string, replaceAll bool) (any, error) {
 	written(path, []byte(updated))
 	seen[path] = hash([]byte(updated))
 	note(path)
-	replaced := 1
-	if replaceAll {
-		replaced = count
+	result := map[string]any{"path": path, "replacements": replaced, "first_line": first, "diff": snippet(first, oldString, newString)}
+	if matched != "" {
+		result["matched"] = matched // 提示模型这次是按宽松规则改的，回头看一眼缩进对不对
 	}
-	return map[string]any{"path": path, "replacements": replaced, "first_line": first, "diff": snippet(first, oldString, newString)}, nil
+	return result, nil
 }
 
 // snippet 给出第一处改动的前后对照，供模型和人核对；不是完整的 unified diff。

@@ -48,6 +48,16 @@ func AllowDomain(domain string) {
 
 const proxyPort = "3128"
 
+// backgroundHosts 是 Chrome 自己的后台联网会连的域名：组件更新、安全浏览、优化提示、自动填充、同步。
+// 沙箱里的 chrome 已经固定关掉这些（见 sandbox.go 的 chromeWrapper），这张表是兜底：这些请求基本不是任务需要的，
+// 直接拒绝，不推给界面让人一个个点拒绝。只比完整域名，不比后缀。
+var backgroundHosts = []string{
+	"update.googleapis.com", "clients2.google.com", "clients4.google.com",
+	"clientservices.googleapis.com", "redirector.gvt1.com", "edgedl.me.gvt1.com",
+	"safebrowsing.googleapis.com", "sb-ssl.google.com",
+	"optimizationguide-pa.googleapis.com", "content-autofill.googleapis.com", "android.clients.google.com",
+}
+
 var domainPattern = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
 
 // ValidDomain：小写域名，不接受 IP 字面量和通配符。
@@ -67,6 +77,16 @@ func allowed(host string) bool {
 // request_network_access（模型发起）与代理（程序发起）共用这一份。
 func askUser(ctx context.Context, record audit.Record, reason string) (_ string, err error) {
 	fmt.Printf("Network request [%s]: domain=%s reason=%s\n", record.CallID, record.Target, reason)
+	// 明摆着是 Chrome 后台的联网：推到界面上也只是让人一个个点拒绝，直接按拒绝处理，任何模式下都一样。
+	// 照常写审计，写不进就按出错返回，也不放行。
+	if slices.Contains(backgroundHosts, record.Target) {
+		record.Event, record.Actor, record.Decision, record.Detail = "network_decision", "program", "deny_background", "Chrome 的后台联网，不询问"
+		if err := audit.Write(ctx, record); err != nil {
+			return "", fmt.Errorf("审计日志写入失败，不放行：%w", err)
+		}
+		fmt.Printf("Network decision [%s]: domain=%s decision=deny_background\n", record.CallID, record.Target)
+		return "deny", nil
+	}
 	record.Event, record.Risk = "network_request", "network"
 	// full 模式同 Claude Code 的 bypassPermissions：不在白名单的域名不问人，由程序放行。照常先写审计，写不进就不放行；
 	// 端口、IP 地址与内网地址的检查在 dialChecked 里照旧。

@@ -147,8 +147,14 @@ func Run(args []string, mcpHandler http.Handler) error {
 	mux.HandleFunc("POST /attachments", s.uploadAttachment)
 	mux.HandleFunc("GET /attachments/{name}", s.serveAttachment)
 	mux.HandleFunc("GET /runs", s.listRuns)
+	// /runs/search 是固定的路径，和 /runs/{id}/… 不冲突：先把 search 当路径而不是对话 ID。
+	mux.HandleFunc("GET /runs/search", s.searchRuns)
 	mux.HandleFunc("POST /runs", s.startRun)
 	mux.HandleFunc("POST /runs/import", s.importRun)
+	mux.HandleFunc("PUT /runs/{id}/name", s.renameRun)
+	mux.HandleFunc("POST /runs/{id}/archive", s.archiveRun)
+	mux.HandleFunc("DELETE /runs/{id}/archive", s.unarchiveRun)
+	mux.HandleFunc("DELETE /runs/{id}", s.deleteRun)
 	mux.HandleFunc("POST /runs/{id}/messages", s.continueRun)
 	mux.HandleFunc("GET /runs/{id}/events", s.streamEvents)
 	mux.HandleFunc("POST /runs/{id}/stop", s.stopRun)
@@ -156,9 +162,12 @@ func Run(args []string, mcpHandler http.Handler) error {
 	mux.HandleFunc("POST /runs/{id}/approval", s.decideTool)
 	mux.HandleFunc("POST /runs/{id}/answer", s.answerQuestion)
 	mux.HandleFunc("POST /runs/{id}/steer", s.steerRun)
+	mux.HandleFunc("POST /runs/{id}/queue", s.queueRun)
+	mux.HandleFunc("DELETE /runs/{id}/queue/{qid}", s.unqueueRun)
 	mux.HandleFunc("POST /runs/{id}/rewind", s.rewindRun)
 	mux.HandleFunc("POST /runs/{id}/fork", s.forkRun)
 	mux.HandleFunc("GET /runs/{id}/files", s.listFiles)
+	mux.HandleFunc("GET /runs/{id}/diff", s.workspaceDiff)
 	mux.HandleFunc("GET /runs/{id}/files/{path...}", s.downloadFile)
 	mux.HandleFunc("DELETE /runs/{id}/files/{path...}", s.deleteFile)
 	mux.HandleFunc("POST /runs/{id}/files", s.uploadFile)
@@ -179,7 +188,11 @@ func Run(args []string, mcpHandler http.Handler) error {
 	mux.HandleFunc("PUT /settings", s.putSettings("user"))
 	mux.HandleFunc("PUT /settings/platform", s.putSettings("platform"))
 	mux.HandleFunc("POST /settings/workspaces", s.addWorkspace)
+	mux.HandleFunc("PUT /settings/workspaces/{name}/name", s.renameWorkspace)
 	mux.HandleFunc("DELETE /settings/workspaces/{name}", s.deleteWorkspace)
+	mux.HandleFunc("GET /workspaces/browse", s.browseWorkspaces)
+	mux.HandleFunc("GET /workspaces/candidates", s.workspaceCandidates)
+	mux.HandleFunc("GET /workspaces/files", s.searchWorkspaceFiles)
 	mux.HandleFunc("GET /hub", s.listHub)
 	mux.HandleFunc("GET /hub/enabled", s.enabledHub)
 	mux.HandleFunc("POST /hub/skills", s.createSkill)
@@ -708,23 +721,28 @@ func (s *server) dialRemembered() {
 	}
 }
 
-// dialHost 连上一台主机：本机先保证 app-server 在运行，远端经 ssh（远端的 app-server 由 proxy 自己 start）。
+// dialHost 连上一台主机：本机先保证 app-server 在运行、并且是这个程序（换掉了旧的就打一行），
+// 远端经 ssh（远端的 app-server 由 proxy 自己 start，换不换也由它定）。
 func dialHost(alias string) (*appclient.Client, appserver.ServerInfo, error) {
 	if alias != "" {
 		return appclient.DialRemote("tern web", alias)
 	}
-	if _, err := appclient.Start(false); err != nil {
+	info, err := appclient.Start(false)
+	if err != nil {
 		return nil, appserver.ServerInfo{}, err
+	}
+	if info.Notice != "" {
+		fmt.Println(info.Notice)
 	}
 	return appclient.Dial("tern web")
 }
 
-// describeHost 是启动时打印的一行：连上的是哪台、它的 TERN_HOME 与版本。
+// describeHost 是启动时打印的一行：连上的是哪台、它的 TERN_HOME、版本与 build。
 func describeHost(alias string, info appserver.ServerInfo) string {
 	if alias == "" {
-		return fmt.Sprintf("app-server：%s · %s · 版本 %s", info.Host, info.Home, info.Version)
+		return fmt.Sprintf("app-server：%s · %s · 版本 %s · build %s", info.Host, info.Home, info.Version, info.Build)
 	}
-	return fmt.Sprintf("app-server：经 ssh 连到 %s（远端主机 %s · %s · 版本 %s）", alias, info.Host, info.Home, info.Version)
+	return fmt.Sprintf("app-server：经 ssh 连到 %s（远端主机 %s · %s · 版本 %s · build %s）", alias, info.Host, info.Home, info.Version, info.Build)
 }
 
 // ---------- 对话 ----------
@@ -733,8 +751,30 @@ func (s *server) listRuns(w http.ResponseWriter, req *http.Request) {
 	s.reply(w, req, "thread/list", nil)
 }
 
+// 搜索对话：q 是搜索词，对应协议里的 query（名字、问题与回答，见 thread/search）。
+func (s *server) searchRuns(w http.ResponseWriter, req *http.Request) {
+	s.reply(w, req, "thread/search", map[string]any{"query": req.URL.Query().Get("q")})
+}
+
 func (s *server) startRun(w http.ResponseWriter, req *http.Request) {
 	s.reply(w, req, "thread/start", nil)
+}
+
+// 改名、归档、删除：请求体里的 JSON 原样作为参数，path 里的 id 是 threadId。
+func (s *server) renameRun(w http.ResponseWriter, req *http.Request) {
+	s.reply(w, req, "thread/name/set", map[string]any{"threadId": req.PathValue("id")})
+}
+
+func (s *server) archiveRun(w http.ResponseWriter, req *http.Request) {
+	s.reply(w, req, "thread/archive", map[string]any{"threadId": req.PathValue("id")})
+}
+
+func (s *server) unarchiveRun(w http.ResponseWriter, req *http.Request) {
+	s.reply(w, req, "thread/unarchive", map[string]any{"threadId": req.PathValue("id")})
+}
+
+func (s *server) deleteRun(w http.ResponseWriter, req *http.Request) {
+	s.replyNone(w, req, "thread/delete", map[string]any{"threadId": req.PathValue("id")})
 }
 
 func (s *server) continueRun(w http.ResponseWriter, req *http.Request) {
@@ -747,6 +787,15 @@ func (s *server) stopRun(w http.ResponseWriter, req *http.Request) {
 
 func (s *server) steerRun(w http.ResponseWriter, req *http.Request) {
 	s.replyNone(w, req, "turn/steer", map[string]any{"threadId": req.PathValue("id")})
+}
+
+// 排队：这一轮结束后再发（请求体是 {text}，成功回排上的这一项）；删除按项ID，回 204。
+func (s *server) queueRun(w http.ResponseWriter, req *http.Request) {
+	s.reply(w, req, "thread/queue/add", map[string]any{"threadId": req.PathValue("id")})
+}
+
+func (s *server) unqueueRun(w http.ResponseWriter, req *http.Request) {
+	s.replyNone(w, req, "thread/queue/delete", map[string]any{"threadId": req.PathValue("id"), "id": req.PathValue("qid")})
 }
 
 func (s *server) decideNetwork(w http.ResponseWriter, req *http.Request) {
@@ -850,6 +899,11 @@ func (s *server) listFiles(w http.ResponseWriter, req *http.Request) {
 	s.reply(w, req, "files/list", map[string]any{"threadId": req.PathValue("id")})
 }
 
+// 改动面板：工作区相对 HEAD 的 diff，包括未跟踪的文件（app-server 里跑 git）。
+func (s *server) workspaceDiff(w http.ResponseWriter, req *http.Request) {
+	s.reply(w, req, "workspace/diff", map[string]any{"threadId": req.PathValue("id")})
+}
+
 // 下载沙箱文件：内容由模型写入，一律当附件下载并禁止嗅探，模型写的 HTML 不会在页面源里执行。
 func (s *server) downloadFile(w http.ResponseWriter, req *http.Request) {
 	path := req.PathValue("path")
@@ -931,6 +985,30 @@ func (s *server) addWorkspace(w http.ResponseWriter, req *http.Request) {
 
 func (s *server) deleteWorkspace(w http.ResponseWriter, req *http.Request) {
 	s.replyText(w, req, "workspace/remove", map[string]any{"name": req.PathValue("name")}, "ok")
+}
+
+// 改名：新名字在请求体里（newName），旧名字在路径里。
+func (s *server) renameWorkspace(w http.ResponseWriter, req *http.Request) {
+	s.reply(w, req, "workspace/rename", map[string]any{"name": req.PathValue("name")})
+}
+
+// 可能要找的仓库：那台主机上还没登记的 git 仓库，给选目录对话框与设置页。
+func (s *server) workspaceCandidates(w http.ResponseWriter, req *http.Request) {
+	s.reply(w, req, "workspace/candidates", nil)
+}
+
+// 选目录对话框：列出那台主机上的子目录，空 path 是家目录；远端主机带 /h/<别名>/ 前缀时浏览的就是远端的目录。
+func (s *server) browseWorkspaces(w http.ResponseWriter, req *http.Request) {
+	s.reply(w, req, "workspace/browse", map[string]any{"path": req.URL.Query().Get("path")})
+}
+
+// 输入框里敲 @ 搜工作区的文件：q 是 @ 后面已经敲的字；新对话用工作区名字，已有对话用 threadId。
+func (s *server) searchWorkspaceFiles(w http.ResponseWriter, req *http.Request) {
+	s.reply(w, req, "workspace/files", map[string]any{
+		"workspace": req.URL.Query().Get("workspace"),
+		"threadId":  req.URL.Query().Get("threadId"),
+		"query":     req.URL.Query().Get("q"),
+	})
 }
 
 func (s *server) listCommands(w http.ResponseWriter, req *http.Request) {
