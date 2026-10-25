@@ -96,6 +96,19 @@ export async function loadSettings() {
   try { const res = await fetch(api("/settings")); if (res.ok) ui.settings = await res.json(); } catch {}
   syncComposer();
 }
+// 新对话选中的工作区取一次设置：项目配置（工作区里的 .agents/tern.json）只在这一层生效，见 spec 的 2.5。
+// 结果按工作区名字缓存在 ui.wsSettings；again 为真时重新取（人重新选了这个工作区，或者刚加进来）。
+// 取不到就记成 null 用平台的：发送时服务端自己按工作区合并，实际用的还是项目的值，只是下拉先显示平台的。
+export async function loadWsSettings(name, again = false) {
+  const cache = (ui.wsSettings ||= {}), loading = (ui.wsLoading ||= new Set());
+  if (!name || loading.has(name) || (!again && name in cache)) return;
+  loading.add(name);
+  try {
+    const res = await fetch(api(`/settings?workspace=${encodeURIComponent(name)}`));
+    cache[name] = res.ok ? (await res.json()).effective : cache[name] ?? null;
+  } catch { cache[name] = cache[name] ?? null; }
+  finally { loading.delete(name); syncComposer(); }
+}
 // 第二级模型下拉的清单：路由表只在 llm 包里，页面从 /models 读它，前端不抄一份。
 export async function loadModels() {
   try {
@@ -164,7 +177,9 @@ export function syncComposer() {
   // 全部撤销之后（rewoundAll）服务端仍可能允许在这条对话里重新开始（can_continue），那就不是“坏了”；
   // can_continue 由 loadRuns 从对话列表里取（见那里）。
   const r = ui.run, busy = r && (ui.loading || !r.exit), broken = r && ((r.exit && r.exit !== "exit 0" && !r.checkpoint) || (r.rewoundAll && !r.canContinue));
-  const s = ui.settings?.effective;
+  // 新对话的默认值跟着所选工作区（项目配置在这一层才生效，见 loadWsSettings）：按工作区取过就用它，
+  // 没选工作区、还没取到就用平台的；已有对话照它自己的快照。
+  const s = r ? ui.settings?.effective : (ui.wsSettings?.[$("workspace").value] || ui.settings?.effective);
   ui.picked ||= {};
   // 供应商同样来自 /models（显示名在路由表里）；本机没配好的（缺密钥或地址）灰掉，悬停看原因。
   const ps = $("provider"), plist = [...(ui.models?.values() || [])], psig = plist.map((p) => p.name + (p.error ? "!" : "")).join(",");
@@ -218,6 +233,8 @@ export function syncComposer() {
   ws.hidden = !r && !codingOK;
   // 记下当前选中的那一项：选了“＋ 添加工作区…”又取消时退回这里（见页尾的 change 监听）。
   if (ws.value !== ADD_WORKSPACE) ws.dataset.prev = ws.value;
+  // 新对话选了工作区：按它取一次设置（项目配置），换选、页面加载时默认选中的那个都算；取回来重画一次，默认值跟着变。
+  if (!r && ws.value && ws.value !== ADD_WORKSPACE) loadWsSettings(ws.value);
   ws.title = r ? "工作区：对话开始后固定" : !codingOK ? "编码工具没打开或不可用：" + (s?.blocked.coding || "在设置里打开") : "工作区：编码工具只在这个仓库里读写；对话开始后固定";
   // 权限模式每轮可以换：默认取这条对话上一轮的（新对话取设置）；用户改过就保持用户的选择，直到发送。
   if (!ui.picked.permission) $("perm").value = (r && r.permission) || s?.values.permission_mode || "edit";
@@ -289,6 +306,9 @@ export async function loadRuns() {
   if (current) {
     // 我们这边的订阅已经随 exit 收尾了，服务端却还在跑：队列接着发了，或者别的页面续聊了——重新订阅看这一轮。
     if (!current.done && ui.run.exit && !ui.loading) { show(ui.run.id, false); return; }
+    // 两轮之间用 ! 跑过的命令（summary.shells）：这条对话停下以后订阅已收尾，shell 事件推不到页面，
+    // 对一下条数，少了就重新加载这条对话（和上面那处同样的写法），卡片才出得来。
+    if (ui.run.exit && !ui.loading && (current.shells || 0) !== ui.run.shells.length) { show(ui.run.id, false); return; }
     ui.run.queue = current.queue || [];
     ui.run.name = current.name || ""; // 列表里的名字（改过名才有）：导出时当标题
     // 目标（summary.goal）：标题下面那一行，别的页面改的、换了对话都照列表里的显示。
@@ -864,6 +884,7 @@ $("new-chat").onclick = () => newChat();
     await loadSettings();
     ws.value = name;
     ws.dataset.prev = name; // 下次再选“添加工作区…”又取消时退回这里（syncComposer 在设值之前已经跑完）
+    loadWsSettings(name, true); // 新工作区的项目配置：默认值跟着变（见 syncComposer）
   });
 }
 // 导入 Codex / Claude Code 的会话文件：服务端换成网页端的存档格式，导入后只读。

@@ -115,6 +115,12 @@ func bashIntro() string {
 // tmpNote 接着 bashIntro 说临时目录：Linux 上是每次新建的内存盘。
 const tmpNote = "/tmp 每次都是空的。"
 
+// serviceNote 写进 bash 的工具描述（见 sandbox.go 的 Definitions）：沙箱有自己的网络 namespace，同一条命令里起的服务连得上。
+const serviceNote = "要测一个服务，在同一条命令里起服务再访问（如 server & sleep 1; curl …）；整个过程超过时限，就把这一整条放到后台。"
+
+// serviceNoteShort 写进后台命令的说明（见 jobs.go 的 startJob）。
+const serviceNoteShort = "要测一个服务，在同一条命令里起服务再访问。"
+
 // 沙箱里的 chrome 命令是 /opt/chrome-bin 下的包装脚本（名字和真正的程序一样，PATH 最前面）：
 // Chrome 自己的后台联网（组件更新、安全浏览、优化提示、自动填充、同步）不是任务需要的，
 // 但沙箱的代理会把每个域名都当成一次联网审批推给界面，所以固定关掉。

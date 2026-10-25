@@ -1,6 +1,6 @@
 # macOS 上的 bash 沙箱（Seatbelt）
 
-状态：设计（2026-10-24），交给 tern 实现（codex-parity-plan.md 6.1）。本机是 Linux，macOS 上的实际效果由用户在 Mac 上测。
+状态：已实现并完成收尾验证（2026-10-25），范围与证据见 [本批收尾记录](closeout-20261025.md)。
 
 ## 1. 为什么要改
 
@@ -42,13 +42,14 @@ Codex 在 macOS 上用 Seatbelt（`sandbox-exec` 加一段策略），在 Linux 
 (allow network-outbound (remote tcp (param "PROXY")))
 ```
 
+- 网络只放开到联网代理那一个端口，**不**放开本机回环的其他端口（`localhost:*`）。验收时发现实现多放开了 `network-inbound/outbound localhost:*`，为的是“同一条命令里起服务再访问”；但 macOS 上沙箱和宿主机共用网络，这样沙箱里的命令连得到 Mac 上所有只听本机的服务（tern 的网页端、免密的本地数据库等），Linux 上没有这个口子。这一期不放开；macOS 的 bash 工具说明里把“要测一个服务，在同一条命令里起服务再访问”换成“macOS 上连不上本机的服务，包括同一条命令里起的”。
 - 上面是意思，写法以 macOS 实际接受的为准：比如 `WRITABLE` 的分支在 Go 里拼两份策略，`PROXY` 写成 `localhost:<端口>`。
 - `TERN_DATA` 是 `$TERN_HOME/.data`，`TERN_ENV` 是 `$TERN_HOME/.env`，`PROJECT_DATA`、`PROJECT_ENV` 是工作区里的 `.data`、`.env`，和 Linux 上用 tmpfs 盖掉的那几样一致。
 
 ### 2.3 联网
 
 - Linux 上沙箱有自己的网络命名空间，联网代理的端口由 `sandbox-init` 转进去；macOS 没有，命令直接连 agent 在宿主机上监听的代理。
-- 代理监听 `127.0.0.1` 的随机端口，`HTTP_PROXY` 和策略里的 `PROXY` 用这个端口。
+- 代理监听 `127.0.0.1` 的随机端口，`HTTP_PROXY` 和策略里的 `PROXY` 用 `localhost:<端口>`（Seatbelt 不接受 `127.0.0.1:<端口>`），HTTP 代理地址仍用 `127.0.0.1:<端口>`。
 - 审批、白名单、内网检查照旧（都在代理里）。
 
 ### 2.4 没有的东西（写进说明和 README）
@@ -100,6 +101,7 @@ Codex 在 macOS 上用 Seatbelt（`sandbox-exec` 加一段策略），在 Linux 
 ### 用户自己测（Mac 上）
 
 4. 在 Mac 上 `go install .`，`tern -bash -workspace <某个仓库> -question '运行 pwd && ls && cat /etc/hosts | head -3'`：能跑，`pwd` 是仓库的真实路径。
-5. `-question '运行 touch ~/x.txt'`：失败（不能写家目录）；`touch <仓库>/x.txt` 在 `edit` 模式下成功、`plan` 模式下失败。
+5. `-question '运行 touch /Users/<你的用户名>/x.txt'`：失败（不能写真实的家目录；沙箱里的 `HOME` 是沙箱目录，所以 `touch ~/x.txt` 写进的是沙箱目录、会成功，这和 Linux 一样）；`touch <仓库>/x.txt` 在 `edit` 模式下成功、`plan` 模式下失败；`touch <仓库>/.git/x` 失败。
+8. `-question '先运行 python3 -m http.server 8765 & sleep 1; curl -sS -m 3 http://127.0.0.1:8765/ | head -3'`：连不上（macOS 上沙箱没有自己的网络，放开本机回环就等于放开 Mac 上所有只听本机的服务，所以不放；工具说明里写明 macOS 上同一条命令里起的服务也连不上）。
 6. `-question '运行 cat <TERN_HOME>/.env'`：读不到。
 7. `-question '运行 curl -sS https://example.com -o /dev/null'`：弹联网审批（网页端）或在命令行里按不可用拒绝。

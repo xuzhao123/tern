@@ -26,6 +26,13 @@ const sandboxExec = "/usr/bin/sandbox-exec"
 // processView 写进 bash 的工具描述：没有 PID namespace，命令看得到别的进程（只是不能给它发信号）。
 const processView = ""
 
+// serviceNote 写进 bash 的工具描述（见 sandbox.go 的 Definitions）：macOS 上没有自己的网络，本机回环也不放开，
+// 命令连不到宿主机上的服务，同一条命令里起的也连不上。
+const serviceNote = "macOS 上连不上本机的服务，包括同一条命令里起的；整个过程超过时限，就把这一整条放到后台。"
+
+// serviceNoteShort 写进后台命令的说明（见 jobs.go 的 startJob）。
+const serviceNoteShort = "macOS 上连不上本机的服务，包括同一条命令里起的。"
+
 // launcher 是启动沙箱的程序名，只用在启动失败的说明里。
 const launcher = "sandbox-exec"
 
@@ -113,7 +120,8 @@ func sandboxCommand(ctx context.Context, workspace, command string, tty, writabl
 		{"PROJECT_DATA", realPath(projectData)}, {"PROJECT_ENV", realPath(projectEnv)},
 		{"SCRATCH", realPath(workspace)}, {"TMP", realPath(os.TempDir())},
 		{"WORKSPACE", realPath(target)}, {"WORKSPACE_GIT", realPath(git)},
-		{"PROXY", proxyEndpoint()},
+		// Seatbelt 的网络地址只接受 localhost 或 *，HTTP_PROXY 仍使用实际监听的 127.0.0.1。
+		{"PROXY", strings.Replace(proxyEndpoint(), "127.0.0.1:", "localhost:", 1)},
 	}
 	spec := &launchSpec{argv: []string{sandboxExec, "-p", policy}, dir: realPath(target)}
 	for _, p := range params {

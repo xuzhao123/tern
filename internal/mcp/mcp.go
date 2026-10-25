@@ -164,22 +164,27 @@ func Connect(ctx context.Context, command string) (conn *Connection, listed []sd
 	span.SetAttributes(attribute.String("mcp.protocol.version", c.ProtocolVersion()), attribute.String("mcp.server.name", info.ServerInfo.Name))
 	capabilities, _ := json.Marshal(info.Capabilities)
 	protocol.Event("capability/event", "mcp_initialize", fmt.Sprintf("MCP initialize: protocol=%s server=%s/%s capabilities=%s", c.ProtocolVersion(), info.ServerInfo.Name, info.ServerInfo.Version, capabilities))
-	if info.Capabilities.Tools == nil {
+	// 只提供资源的 server 是正常用法（文档、表结构这类只读内容）：两者都没声明才连不上。
+	if info.Capabilities.Tools == nil && info.Capabilities.Resources == nil {
 		c.Close()
-		return nil, nil, errors.New("MCP server 没有声明 tools capability")
+		return nil, nil, errors.New("MCP server 既没有声明 tools 也没有声明 resources")
 	}
-	result, err := c.ListTools(ctx, sdk.ListToolsRequest{})
-	if err != nil {
-		c.Close()
-		return nil, nil, fmt.Errorf("tools/list 失败：%w", err)
+	tools := []sdk.Tool{}
+	if info.Capabilities.Tools != nil {
+		result, err := c.ListTools(ctx, sdk.ListToolsRequest{})
+		if err != nil {
+			c.Close()
+			return nil, nil, fmt.Errorf("tools/list 失败：%w", err)
+		}
+		tools = result.Tools
+		protocol.Event("capability/event", "mcp_tools_list", fmt.Sprintf("MCP tools/list: count=%d", len(result.Tools)), "count", len(result.Tools))
 	}
-	protocol.Event("capability/event", "mcp_tools_list", fmt.Sprintf("MCP tools/list: count=%d", len(result.Tools)), "count", len(result.Tools))
 	serverCount++
 	name := info.ServerInfo.Name
 	if name == "" {
 		name = fmt.Sprintf("server%d", serverCount)
 	}
-	return &Connection{client: c, Name: name, hasResources: info.Capabilities.Resources != nil, tools: map[string]string{}, transport: transportName, destructive: map[string]bool{}, hints: map[string]Hints{}}, result.Tools, nil
+	return &Connection{client: c, Name: name, hasResources: info.Capabilities.Resources != nil, tools: map[string]string{}, transport: transportName, destructive: map[string]bool{}, hints: map[string]Hints{}}, tools, nil
 }
 
 // remoteError 是连远程 server 失败时给人看的话：要求授权不是“连不上”，提示去 MCP 中心点“登录”，
@@ -436,6 +441,10 @@ func Inspect(ctx context.Context, command, callName, callArgs string) error {
 		return err
 	}
 	defer conn.Close()
+	// 只提供资源的 server 没有工具：写一行“没有工具”，下面的 resources 数目照常列（见 Connect）。
+	if len(tools) == 0 {
+		fmt.Println("  没有工具")
+	}
 	for i, tool := range tools {
 		schema, _ := json.Marshal(tool.InputSchema)
 		fmt.Printf("  %d. %s — %s\n     inputSchema=%s\n", i+1, tool.Name, tool.Description, schema)

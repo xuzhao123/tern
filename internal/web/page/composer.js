@@ -1,6 +1,6 @@
 import { show } from "./follow.js";
 import { openSettings } from "./pages.js";
-import { autosize, modelVision, syncComposer } from "./shell.js";
+import { autosize, loadRuns, loadWsSettings, modelVision, syncComposer } from "./shell.js";
 import { $, MAX_IMAGES, api, el, refURL, ui } from "./util.js";
 export async function start(url, body) {
   ui.sending = true; syncComposer();
@@ -118,6 +118,8 @@ async function runShell(command) {
     // 结果同时作为 shell 事件推给这条对话的订阅者（页面照它画卡片）；这里只清空输入框里还没改过的命令。
     ui.hint = "";
     if (box.value === typed) box.value = "";
+    // 这条对话停下以后订阅已经收尾，推不到这里：刷新一次列表，loadRuns 按 summary.shells 重新加载这条对话。
+    loadRuns();
   } catch (err) {
     ui.hint = "没跑成：" + err.message;
   } finally {
@@ -279,7 +281,7 @@ $("send").onclick = async (ev) => {
 };
 $("provider").onchange = () => { ui.picked.provider = true; ui.picked.model = false; syncComposer(); };
 $("model").onchange = () => { ui.picked.model = true; syncComposer(); };
-$("workspace").onchange = () => { ui.picked.workspace = true; syncComposer(); };
+$("workspace").onchange = () => { ui.picked.workspace = true; syncComposer(); loadWsSettings($("workspace").value, true); };
 // 副本：勾了就在这个工作区的副本里开对话（thread/start 的 copy），开完对话后不能再改（见 syncComposer）。
 $("copy").onchange = () => { ui.picked.copy = $("copy").checked; syncComposer(); };
 $("perm").onchange = () => { ui.picked.permission = true; syncComposer(); };

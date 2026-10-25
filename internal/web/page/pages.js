@@ -99,7 +99,11 @@ export async function openSettings() {
   try { data = await (await hubCall("GET", "/settings?workspace=" + encodeURIComponent(pickedWs))).json(); }
   catch (err) { panel.lastChild.replaceWith(el("div", "err", "读取失败：" + err.message)); return; }
   if (!panel.isConnected) return;
-  ui.settings = data; syncComposer();
+  // 打开设置页就算重新取过一次：这份是按所选工作区算的，同时当新对话下拉的默认值（见 shell.js 的 loadWsSettings）。
+  // 没选工作区的那份才当 ui.settings 用：带项目层的那份不能留着当“不选工作区”的默认值，否则换回去还是项目里的。
+  if (pickedWs) (ui.wsSettings ||= {})[pickedWs] = data.effective;
+  else ui.settings = data;
+  syncComposer();
   const e = data.effective, values = { ...e.values };
   // 来源一栏多了“项目”：所选工作区里 .agents/tern.json 的键；不生效的键与整份没读进来的原因也在这里说明。
   const projectNote = e.project_error ? `项目配置整份没生效：${e.project_error}。`

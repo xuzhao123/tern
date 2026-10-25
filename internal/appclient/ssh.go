@@ -531,11 +531,12 @@ func sameSet(a, b []string) bool {
 	return true
 }
 
-// writeEnvCommand 把标准输入写成远端的 $HOME/.tern/.env：先写 .new 再改名，中途断了不会留下半个文件；
+// writeEnvCommand 把标准输入写成远端 TERN_HOME/.env：和 proxy 一样经登录 shell 取目录，
+// 未配置时用 $HOME/.tern。先写 .new 再改名，中途断了不会留下半个文件；
 // umask 与 chmod 一起保证别人读不到。
-const writeEnvCommand = `umask 077 && mkdir -p "$HOME/.tern" && cat > "$HOME/.tern/.env.new" && chmod 600 "$HOME/.tern/.env.new" && mv "$HOME/.tern/.env.new" "$HOME/.tern/.env"`
+const writeEnvCommand = `exec "$SHELL" -lc 'dir="${TERN_HOME:-$HOME/.tern}"; umask 077 && mkdir -p "$dir" && cat > "$dir/.env.new" && chmod 600 "$dir/.env.new" && mv "$dir/.env.new" "$dir/.env" && printf "%s\n" "$dir/.env"'`
 
-// WriteRemoteKeys 把几个密钥写进远端 $HOME/.tern/.env：已有同名的行替换，没有的追加，写完 0600。
+// WriteRemoteKeys 把几个密钥写进远端 TERN_HOME/.env：已有同名的行替换，没有的追加，写完 0600。
 // 先读出远端现有内容，在本机合并好再整份传回去，值只走 ssh 的标准输入，不出现在命令行上；
 // 这样不用在远端依赖 awk 之类的工具。返回写入的路径给人看。
 func WriteRemoteKeys(alias string, values map[string]string) (string, error) {
@@ -545,12 +546,15 @@ func WriteRemoteKeys(alias string, values map[string]string) (string, error) {
 	if len(values) == 0 {
 		return "", errors.New("没有要写的密钥")
 	}
-	current, err := sshOutput(alias, `cat "$HOME/.tern/.env" 2>/dev/null`)
+	// 新装的远端还没有 .env：当作空文件合并；已有文件读失败仍报错，避免覆盖原有密钥。
+	current, err := sshOutput(alias, `exec "$SHELL" -lc 'dir="${TERN_HOME:-$HOME/.tern}"; [ ! -e "$dir/.env" ] || cat "$dir/.env"'`)
 	if err != nil {
 		return "", err
 	}
 	cmd := exec.Command("ssh", "-T", "-o", "BatchMode=yes", alias, writeEnvCommand)
 	cmd.Stdin = strings.NewReader(mergeEnv(current, values))
+	var path strings.Builder
+	cmd.Stdout = &path
 	stderr := &tail{}
 	cmd.Stderr = stderr
 	if err := cmd.Run(); err != nil {
@@ -559,7 +563,7 @@ func WriteRemoteKeys(alias string, values map[string]string) (string, error) {
 		}
 		return "", fmt.Errorf("写 %s 的 .env：%w", alias, err)
 	}
-	return "~/.tern/.env", nil
+	return strings.TrimSpace(path.String()), nil
 }
 
 // mergeEnv 把 values 并进 .env 的内容：同名的行原地替换，没有的按名字排在最后。

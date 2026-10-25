@@ -25,8 +25,7 @@
 (allow file-write* (subpath (param "SCRATCH")) (subpath (param "TMP")) (subpath "/dev"))
 ; WRITE-WORKSPACE
 
-; 网络：只能连本机的地址（命令里起的服务自己连，如 server & sleep 1; curl localhost:8080），
+; 网络：只放开到联网代理那一个端口。本机回环不放：沙箱和宿主机共用网络，放开就等于放开 Mac 上
+; 所有只听本机的服务（tern 的网页端、免密的本地数据库等）；Linux 的沙箱有自己的网络 namespace，没有这个口子。
 ; 外网只能经 agent 进程里的联网代理：审批、白名单、内网检查都在代理里。
-(allow network-inbound (local ip "localhost:*"))
-(allow network-outbound (remote ip "localhost:*"))
 (allow network-outbound (remote tcp (param "PROXY")))

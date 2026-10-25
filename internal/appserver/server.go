@@ -110,6 +110,7 @@ type run struct {
 	events     []event
 	queue      []queueItem // 排队的后续消息，存在 .meta.json：这一轮结束后由 followUp 接着发
 	goal       *threadGoal // 人定的目标，存在 .meta.json：界面上常显，设了、改了以后下一轮说给模型一次（见 notes）
+	shellBusy  bool        // 人在两轮之间用 ! 发的命令正在跑：这期间不再收 ! 命令，也不开始新一轮（见 threadShellCommand）
 	changed    chan struct{}
 	file       *os.File
 	proc       *os.Process // 正在运行的 agent 进程；强制结束时向它的进程组发 SIGKILL
@@ -215,6 +216,8 @@ func (c *conn) threadStart(m protocol.Message) (any, *protocol.Error) {
 	if input.Query == "" {
 		return nil, bad(400, "普通问答需要query")
 	}
+	// 界面明确给的启动参数先记下来（下面会补默认值）：和项目的值不一样时，快照里用的不是项目的值，project_config 就不记那个键。
+	explicit := map[string]string{"provider": input.Provider, "model": input.Model, "effort": input.Effort, "permission": input.Permission}
 	if input.Provider == "" {
 		input.Provider = settings.Values["provider"]
 	}
@@ -255,7 +258,8 @@ func (c *conn) threadStart(m protocol.Message) (any, *protocol.Error) {
 		}
 	}
 	// 项目配置改了哪些设置也记进快照：第一轮之前页面据此告诉人。已登记的工作区就当人信任它，只告知、不拦。
-	snap.ProjectConfig = settings.Project
+	// 只记真正进了快照的键：被个人层或明确给的启动参数盖掉的不记（见 projectApplied）。
+	snap.ProjectConfig = projectApplied(settings, explicit)
 	if input.Permission != "" {
 		if valid("permission_mode", input.Permission, settingsFile{}) != nil {
 			return nil, bad(400, "permission 取 plan、ask、edit 或 full")
@@ -433,14 +437,29 @@ func (c *conn) gitIn(dir, stdin string, args ...string) (string, error) {
 
 // copyFile 拷一个文件，目录按需建：副本里要留住原目录还没提交的新文件（git 不管它们）。
 func copyFile(from, to string) error {
-	data, err := os.ReadFile(from)
+	info, err := os.Lstat(from)
 	if err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(to), 0o700); err != nil {
 		return err
 	}
-	return os.WriteFile(to, data, 0o644)
+	// 和 git clone 一样保留链接，不把工作区外的内容读进副本。
+	if info.Mode()&os.ModeSymlink != 0 {
+		target, err := os.Readlink(from)
+		if err != nil {
+			return err
+		}
+		return os.Symlink(target, to)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("副本不支持特殊文件：%s", from)
+	}
+	data, err := os.ReadFile(from)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(to, data, info.Mode().Perm())
 }
 
 // workspace/applyCopy：把副本里的改动应用回原目录（网页端的“应用到”）。
@@ -607,6 +626,11 @@ func (s *Server) startTurn(r *run, input turnInput, user string) (any, *protocol
 		r.mu.Unlock()
 		return nil, bad(409, "对话正在运行或尚未正常完成，暂不能续聊")
 	}
+	// ! 命令在跑时对话也是“停下”的：这时开始新一轮，命令的 shell 事件会插进这一轮中间（见 threadShellCommand）。
+	if r.shellBusy {
+		r.mu.Unlock()
+		return nil, bad(409, "正在跑 ! 命令，等它结束再发")
+	}
 	// 撤销到了第一轮之前：这一轮接着的是空的对话，不恢复续聊上下文（history 为空，agent 按新对话
 	// 处理：不带 -continue、不记续接关系），由下面 start 事件的快照像新对话一样起第一轮。
 	over := r.startsOver()
@@ -767,6 +791,11 @@ func (c *conn) threadShellCommand(m protocol.Message) (any, *protocol.Error) {
 		r.mu.Unlock()
 		return nil, bad(409, "这一轮在跑，等它结束再跑命令")
 	}
+	// 命令跑着的时候对话照旧是“停下”的，再收一条会两条一起跑、shell 事件插进新一轮中间：这里挡住。
+	if r.shellBusy {
+		r.mu.Unlock()
+		return nil, bad(409, "上一条命令还在跑")
+	}
 	// 沿用这条对话开始时的设置快照（工作区、权限模式）与最后一条通知里的沙箱目录。
 	var snap event
 	for _, e := range r.events {
@@ -775,10 +804,18 @@ func (c *conn) threadShellCommand(m protocol.Message) (any, *protocol.Error) {
 		}
 	}
 	dir, task := r.sandboxID(), r.rootTask
+	if dir != "" {
+		r.shellBusy = true // 和上面的检查同一把锁：两个页面同时发也只有一个能跑
+	}
 	r.mu.Unlock()
 	if dir == "" {
 		return nil, bad(409, "这条对话没有启用 Bash 沙箱，跑不了命令")
 	}
+	defer func() {
+		r.mu.Lock()
+		r.shellBusy = false
+		r.mu.Unlock()
+	}()
 	record := audit.Record{Actor: "user", User: userName(m), Event: "user_shell_command", Task: task, Conversation: r.ID, Target: command, Detail: c.clientName()}
 	record.Args(command)
 	if err := audit.Write(c.ctx, record); err != nil {
@@ -1549,8 +1586,9 @@ func (r *run) notes() []string {
 			if json.Unmarshal(e.Body, &p) != nil {
 				continue
 			}
-			out := strings.TrimSpace(p.Output)
-			if out == "" {
+			// 只去掉结尾的换行：开头的空格是输出的一部分（git status 的 " M a.txt" 与 "M  a.txt" 意思不同）。
+			out := strings.TrimRight(p.Output, "\n")
+			if strings.TrimSpace(out) == "" {
 				out = "（无输出）"
 			}
 			if chars := []rune(out); len(chars) > 2000 {
@@ -1758,6 +1796,17 @@ func (r *run) summary() map[string]any {
 	// 目标（有才带）：只带文字，标题下面一行常显；什么时候说给模型、有没有说过是 app-server 自己的事。
 	if r.goal != nil && r.goal.Text != "" {
 		summary["goal"] = r.goal.Text
+	}
+	// 两轮之间用 ! 跑过的命令（有才带）：只给条数。这条对话停下以后订阅已经收尾，shell 事件推不到页面，
+	// 页面拿它和自己收到的条数对一下，少了就重新加载这条对话，卡片才出得来。
+	shells := 0
+	for _, e := range r.events {
+		if e.Kind == "shell" {
+			shells++
+		}
+	}
+	if shells > 0 {
+		summary["shells"] = shells
 	}
 	// 时间给 Unix 毫秒时间戳，由界面按看的人所在的时区显示。
 	if len(r.events) > 0 {

@@ -27,8 +27,8 @@ var specs = map[string]Spec{
 	"search_docs":            {ReadOnly: true, Repeatable: true},
 	"load_skill":             {ReadOnly: true, Repeatable: true},
 	"read_output":            {ReadOnly: true, Repeatable: true},
-	"list_mcp_resources":     {ReadOnly: true, Repeatable: true}, // 列 server 提供的资源，不改任何状态
-	"read_mcp_resource":      {ReadOnly: true, Repeatable: true},
+	"list_mcp_resources":     {ReadOnly: true, Repeatable: true, Outbound: true}, // 列 server 提供的资源，不改任何状态；问的是外面的 server，算外发
+	"read_mcp_resource":      {ReadOnly: true, Repeatable: true, Outbound: true}, // uri 会发给外面的 server，同样算外发
 	"search_memory":          {ReadOnly: true, Repeatable: true, Private: "memory"},
 	"remember_memory":        {Permission: "Write"},
 	"forget_memory":          {Irreversible: true, Permission: "Write"},

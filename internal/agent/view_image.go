@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/xuzhao123/tern/internal/llm"
@@ -82,6 +83,15 @@ func imageLocation(p string) (dir, rel string, err error) {
 		}
 		if rest, ok := under(p, "/scratch"); ok && workspace.Dir != "" {
 			return sandbox.Dir, rest, nil
+		}
+		// macOS 上没有挂载命名空间，bash 里的路径就是真实路径：本对话的沙箱目录按它的绝对路径也能看，
+		// 和工作区的绝对路径一样（Linux 上只有 /scratch，见上）。
+		if runtime.GOOS == "darwin" {
+			if scratch, err := filepath.Abs(sandbox.Dir); err == nil {
+				if rest, ok := under(p, scratch); ok {
+					return scratch, rest, nil
+				}
+			}
 		}
 		if workspace.Dir == "" && !filepath.IsAbs(p) {
 			return sandbox.Dir, filepath.Clean(p), nil

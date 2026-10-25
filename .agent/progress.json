@@ -125,6 +125,10 @@
     {
       "at": "2026-10-24T23:09:23.609994763Z",
       "text": "spec/macos-sandbox.md 已实现（未提交，10 个文件改动）：internal/sandbox 拆成 sandbox.go（共用）+ launch_linux.go（bwrap/seccomp/systemd-run，行为不变）+ launch_darwin.go + seatbelt.sbpl（go:embed，-D 传路径，WRITE-WORKSPACE 标记按可写/只读拼两份策略）；network.go 在 macOS 上监听 127.0.0.1 随机端口并给 proxyEndpoint；main.go 的 BashMount 在 darwin 上是真实路径；appserver settings 的 unavailable(\"bash\") 认 darwin；sandbox/AGENTS.md 与 README 补 macOS。验收 5.1 全部通过（gofmt -l 无输出；go vet/go build；GOOS=darwin GOARCH=arm64 go build；GOOS=darwin go vet）。5.2 用 HEAD 版与改后版各自 dump bwrapArgs 对比，三种组合（无工作区、工作区可写、工作区只读+tty）输出一字不差；macOS 策略参数见本轮回答。沙箱里另跑了一次 -bash -shell，Linux 路径照旧（bwrap 在这个嵌套沙箱里仍报 ENOSPC）。剩下的 5.3–5.7（真实模型、Mac 上实测）留给 Claude Code 与用户。"
+    },
+    {
+      "at": "2026-10-25T01:25:54.752805334Z",
+      "text": "验收后补的 10 条（thread-goal 清空、copy-workspace 面板文案、shell 三条（summary.shells/loadRuns 重载、notes 只去尾换行、shellBusy 409）、project-config 的 2.3/2.5、mcp-resources 的 Outbound 与只有 resources 的 server、macos-sandbox 的 seatbelt 本机回环与工具说明、view_image 的 macOS 绝对路径）已改完，未提交。16 个改动文件（含 internal/appserver/AGENTS.md 两处说明），spec 未动。验收：gofmt -l 无输出，go vet/go build、GOOS=darwin GOARCH=arm64 go build、GOOS=darwin go vet 全过，diff.js/shell.js/composer.js/pages.js node --check 通过；第 8 条用临时 mcp-go 小程序（只声明 resources）跑 -mcp-list 得到“没有工具 / resources：2 个”、不报错，临时目录与二进制已删；另在临时 TERN_HOME 里用协议级测试验过 summary.shells=1、清除未说过的目标后 .meta.json 被删（不留空目标）、清除说过的目标后留下 text:\"\" 的待提醒项。shellBusy 的两条 409 与 notes 的前导空格只做了代码级确认（沙箱里 bwrap 起不来，无法让命令真正跑着）。下一步：真机按 10 条逐一复核，特别是 macOS 上本机服务连不上、只提供资源的 server 用真模型读 readme、以及新对话下拉跟着工作区变。"
     }
   ]
 }

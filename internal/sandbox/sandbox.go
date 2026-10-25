@@ -85,7 +85,7 @@ func Definitions() []map[string]any {
 	bash := bashIntro() + "每次调用是新的 shell（cd 和环境变量不保留），" + tmpNote + "不能写其他位置，默认不能联网。" +
 		"单条命令最多 " + Timeout.String() + "，到时整条命令被终止，返回终止前的输出。要跑得更久的（长时间构建、监视）设 background=true：立刻返回 job_id，用 bash_output 读输出，用 bash_kill 停掉。" +
 		"要回答提示的程序（交互式安装、python -i 一类）用 background=true（需要终端的加 tty=true），再用 bash_input 写输入；前台命令的标准输入是 /dev/null，读不到输入。" +
-		"每条命令（包括后台命令）都在自己的沙箱里" + processView + "：之后的命令看不到、也连不上后台命令和它起的服务。要测一个服务，在同一条命令里起服务再访问（如 server & sleep 1; curl …）；整个过程超过时限，就把这一整条放到后台。"
+		"每条命令（包括后台命令）都在自己的沙箱里" + processView + "：之后的命令看不到、也连不上后台命令和它起的服务。" + serviceNote
 	job := map[string]any{"type": "string", "description": "bash 带 background=true 时返回的 job_id"}
 	return []map[string]any{
 		{"name": "bash", "description": bash, "parameters": map[string]any{

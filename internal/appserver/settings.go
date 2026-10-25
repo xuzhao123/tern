@@ -306,6 +306,27 @@ func appendSetting(key, base, extra string) string {
 	return strings.Join(netDomains(base+" "+extra), "\n")
 }
 
+// projectApplied 是 start 事件里记的 project_config：只留真正进了快照的键，横幅才不会说这条对话用了没用的设置。
+// 被个人层盖掉的（合并后的来源不是 project）不记；被 thread/start 明确给的参数盖掉的（给了而且和项目的值不一样）也不记。
+// explicit 是界面明确给的启动参数（provider、model、effort、permission），参数名与设置键名不同。
+func projectApplied(settings effective, explicit map[string]string) map[string]string {
+	param := map[string]string{"provider": "provider", "model": "model", "reasoning_effort": "effort", "permission_mode": "permission"}
+	applied := map[string]string{}
+	for key, value := range settings.Project {
+		if settings.Source[key] != "project" {
+			continue
+		}
+		if name := param[key]; name != "" && explicit[name] != "" && explicit[name] != value {
+			continue
+		}
+		applied[key] = value
+	}
+	if len(applied) == 0 {
+		return nil
+	}
+	return applied
+}
+
 // projectSummary 是设置页工作区列表的悬停文字：项目配置里生效的键值，不生效的键、整份没读进来的原因也列上。
 // 空表示这个工作区没有 .agents/tern.json。
 func projectSummary(f settingsFile, dir string) string {

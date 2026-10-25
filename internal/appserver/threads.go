@@ -31,6 +31,7 @@ type runMeta struct {
 
 // threadGoal 是人给这条对话定的目标：界面上常显（summary 的 goal），设了、改了以后在下一轮开始时说给模型一次。
 // Text 为空表示清除：清除同样要说一次（见 notes），说完就把整项去掉；Sent 表示这个目标（或这次清除）已经说过了。
+// 清除一个模型还不知道的目标（没有目标，或者还没说出去）时不留下这一项，见 threadGoalSet。
 type threadGoal struct {
 	Text string    `json:"text"`
 	At   time.Time `json:"at"`
@@ -165,7 +166,14 @@ func (c *conn) threadGoalSet(m protocol.Message) (any, *protocol.Error) {
 		return nil, bad(500, "审计日志写入失败，没有改目标："+err.Error())
 	}
 	// 新一轮的 sent 一律记成 false：改过、清除过都要在下一轮说一次（清除时留下一项 Text 为空的，见 threadGoal）。
-	if ferr := c.s.setMeta(r, func(meta *runMeta) { meta.Goal = &threadGoal{Text: text, At: time.Now().UTC()} }); ferr != nil {
+	// 清除时例外：没有目标、或者这一份还没说给模型，就直接去掉那一项——模型不知道的目标，不用告诉它“清除了”。
+	if ferr := c.s.setMeta(r, func(meta *runMeta) {
+		if text == "" && (meta.Goal == nil || !meta.Goal.Sent) {
+			meta.Goal = nil
+			return
+		}
+		meta.Goal = &threadGoal{Text: text, At: time.Now().UTC()}
+	}); ferr != nil {
 		return nil, ferr
 	}
 	c.s.status(r.ID, r.liveStatus())
