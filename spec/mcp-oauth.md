@@ -68,7 +68,9 @@ tern 用的 mcp-go v1.1.1 自带 OAuth：`client.NewOAuthStreamableHttpClient`�
 3. 不受影响：内置计算器 MCP 照常在 MCP 中心测试连接成功，`auth` 是 `none`。
 4. 加一个会回 401 的远程地址（本机起一个只回 `401` 和 `WWW-Authenticate` 头的小服务）：测试连接显示“需要登录”；agent 连它时跳过并给出提示，这一轮照常跑。
 
-### 用户自己测（需要一个要求 OAuth 的远程 MCP）
+### OAuth 服务验收步骤（已补 Keycloak 实测）
+
+2026-10-25 已使用本地 Keycloak 的真实浏览器授权和自然过期令牌完成第 5–7 条链路，见 [收尾记录](closeout-20261025.md)。本次为预注册 public client；退出指客户端删除本地令牌，不代表退出授权服务器的 SSO 会话。
 
 5. 在 MCP 中心加这个 server，点“登录”，在新标签页里授权：回调页显示已登录；MCP 中心显示“已登录”；新对话里能用它的工具。
 6. 过了令牌有效期（或者手动把令牌改成过期）后再用：自动刷新，`.data/mcp-tokens.json` 里的令牌变了。

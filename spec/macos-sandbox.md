@@ -98,7 +98,9 @@ Codex 在 macOS 上用 Seatbelt（`sandbox-exec` 加一段策略），在 Linux 
 
 3. Linux 照旧：跑一条用 bash 的对话（`ls && go version`），结果正常；用包装过的 Chrome 加载页面没有联网审批。
 
-### 用户自己测（Mac 上）
+### Mac 真机验收步骤（已补验）
+
+2026-10-25 已在 Mac 真机执行文件读写、网络限制和真实模型验证，见 [收尾记录](closeout-20261025.md)。下面保留可重复执行的验收步骤。
 
 4. 在 Mac 上 `go install .`，`tern -bash -workspace <某个仓库> -question '运行 pwd && ls && cat /etc/hosts | head -3'`：能跑，`pwd` 是仓库的真实路径。
 5. `-question '运行 touch /Users/<你的用户名>/x.txt'`：失败（不能写真实的家目录；沙箱里的 `HOME` 是沙箱目录，所以 `touch ~/x.txt` 写进的是沙箱目录、会成功，这和 Linux 一样）；`touch <仓库>/x.txt` 在 `edit` 模式下成功、`plan` 模式下失败；`touch <仓库>/.git/x` 失败。

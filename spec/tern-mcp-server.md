@@ -62,6 +62,8 @@
 4. `tern_start {prompt: "1+1 等于几", provider: "deepseek"}`：返回 `thread_id` 和回答 2；网页端列表里多了这条对话。
 5. `tern_reply` 在这条对话上问“再加 1 呢”：回答 3。
 6. 调用 `tern_start` 跑 `sleep 30` 的任务，中途发 cancel：这条对话被停下。
-### 用户自己测
+### 可选：接入个人客户端
+
+stdio 的实际客户端、真实模型调用、进度和取消已验收，见 [收尾记录](closeout-20261025.md)。下面是个人环境的配置步骤，尚未替用户配置，不作为实现未完成项。
 
 7. 在自己的 Claude Code 或 Codex 里配上（例如 `claude mcp add tern -- tern mcp-server`），让它“用 tern 算一下 2+3”：能调通，网页端里看得到这条对话。

@@ -2,12 +2,14 @@
 
 新功能先在这里写设计，确认后交给 tern 实现（分工见 [AGENTS.md](../AGENTS.md)，交给 tern 的步骤见 [.claude/skills/tern-implement](../.claude/skills/tern-implement/SKILL.md)）。一份设计一个 Markdown 文件，结构参照已有的几份：为什么要改、改什么、按文件的改动（含不要改的）、这一期不做什么、验收。只有用户要求时才另配 HTML 页面，两者内容一致，有出入以 Markdown 为准。
 
-收尾状态与验证边界见 [2026-10-25 收尾记录](closeout-20261025.md)。下方早期问题记录保留发现时的背景，是否已修以对应 spec 和任务清单为准。
+状态核对日期：2026-10-25。本轮代码已合入本地 `main`（`f2e4296`）。[Codex 对齐清单](codex-parity-plan.md)第 1–7 节的 40 个编号项已完成，第 8 节的 11 项终端体验仍暂缓；app-server 第三期桌面端尚未开发。实现完成不等于覆盖所有部署环境，验收证据与范围见 [收尾记录](closeout-20261025.md)。
+
+下面的索引记录各份设计当前状态；文档正文中的问题背景、分期和验收步骤保留历史语境。未完成事项、已修复旧待办和现有限制分别列在索引之后。
 
 | 文档 | 内容 | 状态 |
 | --- | --- | --- |
 | [codex-parity-plan.md](codex-parity-plan.md) | **任务清单**：和 Codex 对齐的功能点，哪些没做、哪些做得不好，按优先级排；做某一条前先写它的 spec，填回这里 | 清单（2026-10-24），持续更新 |
-| [app-server-design.md](app-server-design.md) | 照 Codex 的 SSH 远程：常驻的 `tern app-server` 管对话，网页端、终端、以后的桌面端经 Unix socket 或 SSH 连它；`TERN_HOME` | 第一步（`TERN_HOME`、`-agent-server`）已实现（2026-10-23）；第一期（app-server、网页端与 chat 改成客户端、去掉租户账号、SSH 远程与重连）已实现（2026-10-24）。第二期另写在 app-server-phase2-design.md，已实现（2026-10-23） |
+| [app-server-design.md](app-server-design.md) | 照 Codex 的 SSH 远程：常驻的 `tern app-server` 管对话，网页端、终端、以后的桌面端经 Unix socket 或 SSH 连它；`TERN_HOME` | 第一步（`TERN_HOME`、`-agent-server`）已实现（2026-10-23）；第一期（app-server、网页端与 chat 改成客户端、去掉租户账号、SSH 远程与重连）已实现（2026-10-24）。第二期另写在 app-server-phase2-design.md，已实现（2026-10-23）；第三期桌面端未做 |
 | [app-server-phase2-design.md](app-server-phase2-design.md) | app-server 第二期：`thread/fork` 与 chat 的 `/fork`、网页端的“分叉”；`thread/rewind` 只退文件或只退对话，网页端的撤销可选三种；一个网页端同时连几台主机（读 `~/.ssh/config`，记住连过的，列表按主机分组） | 已实现（2026-10-23） |
 | [app-server-auto-replace.md](app-server-auto-replace.md) | 改了代码重新起界面就行：界面发现后台的 app-server 是另一个程序、又比自己先启动，就换成自己的程序；正在跑的对话由新的接管，有评测在跑时不换 | 已实现（2026-10-23，Claude Code 直接实现） |
 | [tern-home-default.md](tern-home-default.md) | 数据目录默认就是 `~/.tern`（同 Codex 的 `~/.codex`）：去掉“源码根目录里就用当前目录”的特例，`TERN_HOME` 只用来换目录；`-dev`、临时 clone 的验证显式设 `TERN_HOME`；沙箱的 Go 工具链改按工作区的 `go.mod` 选 | 已实现（2026-10-24） |
@@ -43,21 +45,40 @@
 | [tern-mcp-server.md](tern-mcp-server.md) | `tern mcp-server`：别的客户端把 tern 当 MCP 工具用（计划 6.5） | 已实现并收尾验证（2026-10-25），见收尾记录 |
 | [macos-sandbox.md](macos-sandbox.md) | macOS 上的 bash 沙箱（Seatbelt）（计划 6.1） | 已实现并收尾验证（2026-10-25），见收尾记录 |
 | [architecture.md](architecture.md) | 现状：进程、模块与数据链路（界面 → app-server → agent → 模型与工具），数据落在哪 | 说明（2026-10-23），不是设计 |
-| [remote-agent-design.md](remote-agent-design.md)（配图页面 [remote-agent.html](remote-agent.html)） | 远程 agent：网页上的对话交给用户本机的 tern 执行；tern 的几种界面与命名 | 搁置（2026-10-23），改按 app-server-design.md 做。前置改动“macOS 上能编译”已完成 |
+| [remote-agent-design.md](remote-agent-design.md)（配图页面 [remote-agent.html](remote-agent.html)） | 远程 agent：网页上的对话交给用户本机的 tern 执行；tern 的几种界面与命名 | 已被 app-server-design.md 替代，不再排期；保留历史方案。前置改动“macOS 上能编译”已完成 |
 | [remote-control-research.html](remote-control-research.html) | 调研：Claude Code 的 Remote Control、Codex 的远程连接与 app-server，和 tern 远程 agent 的两种方案对比，以及要先对齐的产品问题 | 调研（2026-10-23），不是设计 |
 | [bash-timeout-and-polling.md](bash-timeout-and-polling.md) | bash 单条命令时限 2 分钟；轮询后台任务不算重复动作 | 已实现（2026-10-23） |
 | [sandbox-memory-and-defaults.md](sandbox-memory-and-defaults.md) | 沙箱内存 2G 与 OOM 说明；命令行默认值和网页端一致；代理地址改用 `AGENT_PROXY_URL` | 已实现（2026-10-23） |
 
-## 还没写设计的待办
+## 未完成与暂缓
 
-- `edit_file` 匹配失败时给出文件里最接近的原文。2026-10-23 实现第一份 spec 时，tern 有 4 次编辑因为 gofmt 对齐过的空白没对上而失败，每次都要多花几轮去看原文。
-- 只读模块缓存引起的 `go: writing stat cache … read-only file system` 提示：不影响结果，但模型每次都要解释一遍。
-- tern 的沙箱里连不到模型接口，需要真实模型的验收只能在沙箱外由人或 Claude Code 跑。
-- 知识库资料 `retrieval/corpus.md` 讲的还是 learning-agent，里面仍写“观测台”。
-- 重复动作检测会误判“改测试 → 重编 → 再跑同一条命令”：命令文本相同，中间改过文件也算重复。2026-10-24 实现 app-server 第 3 块时，tern 在 149 步被拦下（6 步里同一条 bash 出现 3 次），工作已做完、只差最后的验证。
-- `.env` 里验证账号的变量名还叫 `OBSERVER_TEST_USER`、`OBSERVER_TEST_PASSWORD`；改名要同时改用户本机的 `.env`。
-- （已修，见 sandbox-quiet-chrome.md）tern 在沙箱里用无头 Chrome 测页面时，Chrome 自己的后台流量（update.googleapis.com、safebrowsing.googleapis.com 等十来个域名）每个都弹一次联网审批。2026-10-23 实现 app-server 第二期时两块都碰到，只能逐个拒绝。
-- 删除对话时子 agent 自己的检查点不在 `run.turnIDs()` 里，会留下来（只占磁盘，不出错）。2026-10-24 review conversation-manage.md 时发现。
-- 宿主机上 `go env GOMODCACHE` 指的目录不存在时（没下载过任何模块），bash 沙箱整个起不来：`bwrap: Can't find source path …/go/pkg/mod`。应该只是不挂模块缓存。2026-10-24 验收内置命令时，把 `HOME` 指到临时目录碰到的。
-- 沙箱把工作区里已有的 `.data/` 换成空的 tmpfs，tern 在沙箱里 `rm -rf .data` 删不到真的：2026-10-24 实现 tern-home-default.md 时，它报告“验收留下的 `.data/` 已经删掉”，其实还在，挡住了后面一条验收。
-- tern 的进度文件里写错的校验命令改不了：第二期第 2 块的一条校验命令有笔误（要求代码里出现一个不可能有的字面量），进度文件只能由工具改，tern 自己修不了，那一项一直是“未通过”。
+这张表只列尚未关闭的工作，不把已经完成的旧问题继续当待办。历史问题未重新复现的明确标为“待复测”，不推断它一定仍能触发。
+
+| 事项 | 状态 | 范围与下一步 |
+| --- | --- | --- |
+| 终端界面与 CLI 体验（11 项） | 暂缓 | 包括输入编辑、历史、多行、状态栏、终端斜杠命令、渲染、续聊选择、机器可读输出、配置和补全；完整清单见 [计划第 8 节](codex-parity-plan.md#8-暂缓命令行界面)。没有重新启动这批开发 |
+| app-server 第三期：桌面端 | 未开发 | 见 [app-server 分期](app-server-design.md#11-分期)；现有网页端、多主机与 SSH 已实现 |
+| `tern web` 从源码编译并自动替换占用端口的旧网页端 | 方案讨论，未排期 | 本轮会话提出，尚无独立 spec 或实现；现有 [app-server 自动替换](app-server-auto-replace.md)只处理后端，不监听源码，也不替换旧网页端进程 |
+| Go 只读模块缓存的 stat cache 警告 | 历史问题，待复测与处理 | `go: writing stat cache … read-only file system` 曾不影响结果但反复产生解释。当前模块缓存仍只读挂载；“缓存目录不存在导致启动失败”已另行修复，不代表这条警告也已解决 |
+| 知识库中的旧名称和过时说明 | 未整理 | `retrieval/corpus.md` 仍有“观测台”，检索提示词仍提 learning-agent；需一起核对资料与提示词，不只改标题 |
+| 验证账号变量改名 | 未迁移 | 约定仍使用 `OBSERVER_TEST_USER`、`OBSERVER_TEST_PASSWORD`；需要同步文档、使用方与用户本机配置。本次不读取或修改密钥 |
+| 删除对话后的子 agent 检查点清理 | 历史问题，待专项回归 | 原记录指出子 agent 的检查点可能不在 `run.turnIDs()` 的删除范围。当前删除仍按轮次列表清理；需验证子任务和分叉共享场景，尚无这项的关闭证据 |
+
+## 已修复的旧待办
+
+以下五项均已有对应实现和验收记录，移出待办；原始故障背景保留在各自 spec 中。
+
+| 原问题 | 当前状态 | 实现与验收依据 |
+| --- | --- | --- |
+| `edit_file` 匹配失败只报错，不提供接近原文 | 已修复 | [edit-file-lenient.md](edit-file-lenient.md)；`internal/workspace/lenient.go` 的分级空白匹配与 `closest`/`notFound` 提示 |
+| 改文件后重跑同一命令被当作死循环 | 已修复（文件工具） | [loop-and-progress-fixes.md](loop-and-progress-fixes.md)；成功的 `edit_file`/`write_file` 清空动作窗口。通过 bash 修改文件不在本期范围 |
+| Chrome 后台请求逐个弹联网审批 | 已修复 | [sandbox-quiet-chrome.md](sandbox-quiet-chrome.md)；Chrome 包装参数、PAC 和后台域名拒绝规则 |
+| Go 模块缓存目录不存在导致整个沙箱无法启动 | 已修复 | [sandbox-quiet-chrome.md](sandbox-quiet-chrome.md)；`internal/sandbox/launch_linux.go` 对模块缓存采用 `--ro-bind-try` |
+| 进度文件里写错的校验命令无法更正 | 已修复 | [loop-and-progress-fixes.md](loop-and-progress-fixes.md)；`progress(action=fix_check)` 可修改未通过项，要求原因并重新验证 |
+
+## 现有限制与验收边界
+
+- **沙箱内直接调用模型接口：** 未提供让沙箱中的验收程序自动获得真实模型凭据和网络访问的机制。需要真实模型的验收仍在隔离的沙箱外测试环境执行；后续如要内置这类能力，先设计凭据与网络边界。
+- **沙箱里的 `.data` 不等于真实目录：** 工作区已有的 `.data`/`.cache` 会被 tmpfs 遮蔽。这是现有隔离行为；在沙箱里执行 `rm -rf .data` 不能作为真实目录已清理的证据。验证流程应在沙箱外检查和清理自己的临时数据，不能通过取消隔离来“修复”。
+- **SSH、Mac、OAuth：** 已有真实 OpenSSH、Mac 真机和 Keycloak 授权验收，环境与覆盖范围见 [收尾记录](closeout-20261025.md)。不代表所有跳板机、异构远端或第三方 OAuth 服务均已验证。个人 Claude Code/Codex 的持久 MCP 配置未改动，不属于本轮代码缺口。
+- **旧方案：** [remote-agent-design.md](remote-agent-design.md) 已由 app-server＋SSH 方案替代，不再列入待开发任务；调研与架构说明也不计入功能完成数。

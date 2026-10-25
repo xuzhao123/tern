@@ -387,6 +387,8 @@ app-server 拿到文件锁后，先删掉旧的 `llm.sock` 再监听，同 `cont
 
 ## 12. 这一期不做
 
+以下是第一期制定时的范围，不是当前未完成清单。其中远端安装/更新、分叉、归档、删除、命名、目标和 shell 命令等已由后续 spec 实现；当前未完成事项见 [索引](README.md#未完成与暂缓)。第三期桌面端仍未做。
+
 - WebSocket、TLS、令牌鉴权：只走 Unix socket 和 SSH。
 - 在远端自动安装或升级 tern：Codex 桌面端也要求远端先装好。
 - Codex 的其余方法：item 事件格式、`thread/fork`、归档、删除、命名、目标、`thread/compact/start`、`thread/shellCommand`、`command/exec`、`fs/*`、配置文件读写。
