@@ -49,6 +49,10 @@ type Server struct {
 	hubMu sync.Mutex // 保护 .data/hub.json 与 .data/settings.json 的读改写
 	evals evals      // 评测记录（见 eval.go）
 
+	oauthMu       sync.Mutex // 保护下面两项：MCP 的 OAuth 状态只在内存里
+	oauth         map[string]oauthLogin
+	oauthRequired map[string]bool // 见过要求授权的 server 地址（见 hub.go 的 mcpViews）
+
 	fileMu    sync.Mutex                    // 保护 fileCache
 	fileCache map[string]workspaceFileEntry // 工作区目录 → 最近一次 git ls-files 的候选文件，@ 搜文件用（见 workspacefiles.go）
 
@@ -117,7 +121,7 @@ func open(dir string, dev bool) (*Server, error) {
 		return nil, fmt.Errorf("写 %s：%w", PIDFile, err)
 	}
 	s := &Server{lock: lock, dir: dir, dev: dev, started: time.Now(), conns: map[*conn]struct{}{}, done: make(chan struct{}),
-		evals: evals{jobs: map[string]*evalJob{}}}
+		evals: evals{jobs: map[string]*evalJob{}}, oauth: map[string]oauthLogin{}, oauthRequired: map[string]bool{}}
 	os.Remove(Socket)
 	if s.ln, err = net.Listen("unix", Socket); err != nil {
 		lock.Close()

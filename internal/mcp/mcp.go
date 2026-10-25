@@ -3,6 +3,7 @@ package mcp
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -47,10 +48,17 @@ func serverEnv() []string {
 // -mcp-server 启动的 MCP 连接，每个 server 一个；空表示未启用。
 var Conns []*Connection
 
+// 没报名字的 server 用连接的序号命名（server1、server2…）；按成功连接的先后数。
+var serverCount int
+
 type Connection struct {
-	client    *client.Client
-	tools     map[string]string // agent 侧工具名 → server 上的原名
-	transport string            // network.transport，stdio 为 pipe，Streamable HTTP 为 tcp
+	client *client.Client
+	// Name 是 server 自报的名字（serverInfo.name），没报时是本进程里连接的序号 server1、server2…；
+	// 模型用它在 list_mcp_resources、read_mcp_resource 里指定 server。
+	Name         string
+	hasResources bool              // server 声明了 resources capability
+	tools        map[string]string // agent 侧工具名 → server 上的原名
+	transport    string            // network.transport，stdio 为 pipe，Streamable HTTP 为 tcp
 	// server 明确声明 destructiveHint=true 的工具，执行前要用户确认。
 	// 注解是 server 自己说的，只用来收紧：声明了破坏性就确认；没声明或自称只读不因此免检（外发检查照常）。
 	destructive map[string]bool
@@ -105,11 +113,23 @@ func Connect(ctx context.Context, command string) (conn *Connection, listed []sd
 	if IsURL(command) {
 		protocol.Event("capability/event", "mcp_connect", "MCP connect: url="+command)
 		// 远程 server 不是本进程启动的，Close 只断开连接，不会结束对方。
-		if c, err = client.NewStreamableHttpClient(command); err == nil {
+		// 令牌文件里有这个地址的令牌就用 OAuth 客户端：过期的令牌由 mcp-go 用 refresh token 换新，写回同一个文件。
+		// 没有令牌仍是普通客户端，server 回 401 时在下面按“需要登录”处理。
+		if HasToken(command) {
+			config, configErr := oauthConfig(command, "")
+			if configErr == nil {
+				c, err = client.NewOAuthStreamableHttpClient(command, config)
+			} else {
+				err = configErr
+			}
+		} else {
+			c, err = client.NewStreamableHttpClient(command)
+		}
+		if err == nil {
 			err = c.Start(ctx)
 		}
 		if err != nil {
-			return nil, nil, fmt.Errorf("无法连接远程 MCP server：%w", err)
+			return nil, nil, remoteError(command, err)
 		}
 	} else {
 		fields := strings.Fields(command)
@@ -134,6 +154,9 @@ func Connect(ctx context.Context, command string) (conn *Connection, listed []sd
 	info, err := c.Initialize(ctx, request)
 	if err != nil {
 		c.Close()
+		if IsURL(command) {
+			return nil, nil, remoteError(command, err)
+		}
 		return nil, nil, fmt.Errorf("MCP 连接失败：%w", err)
 	}
 	// MCP 约定的 span 名是“方法 目标”；握手后才知道 server 名。
@@ -141,17 +164,36 @@ func Connect(ctx context.Context, command string) (conn *Connection, listed []sd
 	span.SetAttributes(attribute.String("mcp.protocol.version", c.ProtocolVersion()), attribute.String("mcp.server.name", info.ServerInfo.Name))
 	capabilities, _ := json.Marshal(info.Capabilities)
 	protocol.Event("capability/event", "mcp_initialize", fmt.Sprintf("MCP initialize: protocol=%s server=%s/%s capabilities=%s", c.ProtocolVersion(), info.ServerInfo.Name, info.ServerInfo.Version, capabilities))
-	if info.Capabilities.Tools == nil {
+	// 只提供资源的 server 是正常用法（文档、表结构这类只读内容）：两者都没声明才连不上。
+	if info.Capabilities.Tools == nil && info.Capabilities.Resources == nil {
 		c.Close()
-		return nil, nil, errors.New("MCP server 没有声明 tools capability")
+		return nil, nil, errors.New("MCP server 既没有声明 tools 也没有声明 resources")
 	}
-	result, err := c.ListTools(ctx, sdk.ListToolsRequest{})
-	if err != nil {
-		c.Close()
-		return nil, nil, fmt.Errorf("tools/list 失败：%w", err)
+	tools := []sdk.Tool{}
+	if info.Capabilities.Tools != nil {
+		result, err := c.ListTools(ctx, sdk.ListToolsRequest{})
+		if err != nil {
+			c.Close()
+			return nil, nil, fmt.Errorf("tools/list 失败：%w", err)
+		}
+		tools = result.Tools
+		protocol.Event("capability/event", "mcp_tools_list", fmt.Sprintf("MCP tools/list: count=%d", len(result.Tools)), "count", len(result.Tools))
 	}
-	protocol.Event("capability/event", "mcp_tools_list", fmt.Sprintf("MCP tools/list: count=%d", len(result.Tools)), "count", len(result.Tools))
-	return &Connection{client: c, tools: map[string]string{}, transport: transportName, destructive: map[string]bool{}, hints: map[string]Hints{}}, result.Tools, nil
+	serverCount++
+	name := info.ServerInfo.Name
+	if name == "" {
+		name = fmt.Sprintf("server%d", serverCount)
+	}
+	return &Connection{client: c, Name: name, hasResources: info.Capabilities.Resources != nil, tools: map[string]string{}, transport: transportName, destructive: map[string]bool{}, hints: map[string]Hints{}}, tools, nil
+}
+
+// remoteError 是连远程 server 失败时给人看的话：要求授权不是“连不上”，提示去 MCP 中心点“登录”，
+// 这个 server 和连不上的一样跳过（MCP 中心的“测试连接”也据这句话认出要登录）。
+func remoteError(command string, err error) error {
+	if client.IsAuthorizationRequiredError(err) {
+		return fmt.Errorf("%s：%s，到 MCP 中心点“登录”", AuthRequiredMessage, command)
+	}
+	return fmt.Errorf("无法连接远程 MCP server：%w", err)
 }
 
 var invalidToolChars = regexp.MustCompile(`[^A-Za-z0-9_-]`)
@@ -242,6 +284,149 @@ func (m *Connection) Call(ctx context.Context, name, arguments string) (output a
 // Owns 报告 agent 侧工具名是否属于这个 server。
 func (m *Connection) Owns(name string) bool { return m.tools[name] != "" }
 
+// 两个资源工具的定义：模型用它们看 server 提供的只读内容。性质（只读、可重做）声明在 agent 的 toolspec.go。
+var ResourceDefinitions = []map[string]any{
+	{"name": "list_mcp_resources", "description": "列出已连接的 MCP server 提供的 resources（只读的文档、表结构、文件等）。server 不给就列全部。每项含 server、uri、name、description、mimeType；读内容用 read_mcp_resource。", "parameters": map[string]any{
+		"type":       "object",
+		"properties": map[string]any{"server": map[string]string{"type": "string", "description": "可选：MCP server 的名字，如 server1；不给就列全部"}},
+	}},
+	{"name": "read_mcp_resource", "description": "读取 MCP server 的一个 resource。server 与 uri 取自 list_mcp_resources；文本内容原样返回，二进制只返回类型和大小。", "parameters": map[string]any{
+		"type": "object", "required": []string{"server", "uri"},
+		"properties": map[string]any{
+			"server": map[string]string{"type": "string", "description": "MCP server 的名字，取自 list_mcp_resources"},
+			"uri":    map[string]string{"type": "string", "description": "资源的 uri，取自 list_mcp_resources"},
+		},
+	}},
+}
+
+// HasResources 报告是否有一个已连接的 server 声明了 resources。有就把两个资源工具加进工具列表（只加一次，不按 server 加）。
+func HasResources() bool {
+	for _, conn := range Conns {
+		if conn.hasResources {
+			return true
+		}
+	}
+	return false
+}
+
+// 每个 server 最多列这么多：资源可能是成百上千个模板实例，全部列进上下文没有意义。
+const maxResources = 200
+
+// connNamed 按模型给的名字找连接。
+func connNamed(name string) (*Connection, error) {
+	for _, conn := range Conns {
+		if conn.Name == name {
+			return conn, nil
+		}
+	}
+	names := make([]string, 0, len(Conns))
+	for _, conn := range Conns {
+		names = append(names, conn.Name)
+	}
+	return nil, llm.Permanent(fmt.Errorf("没有名为 %q 的 MCP server；已连接的：%s", name, strings.Join(names, "、")))
+}
+
+// resources 翻完一个 server 的分页（cursor 由 mcp-go 传），最多留 maxResources 项；more 表示还有没列出来的。
+func (m *Connection) resources(ctx context.Context) (items []sdk.Resource, more bool, err error) {
+	request := sdk.ListResourcesRequest{}
+	for {
+		result, err := m.client.ListResourcesByPage(ctx, request)
+		if err != nil {
+			return nil, false, err
+		}
+		for _, resource := range result.Resources {
+			if len(items) == maxResources {
+				return items, true, nil
+			}
+			items = append(items, resource)
+		}
+		if result.NextCursor == "" {
+			return items, false, nil
+		}
+		request.Params.Cursor = result.NextCursor
+	}
+}
+
+// ListResources 实现 list_mcp_resources：server 为空就列全部已连接的 server。
+func ListResources(ctx context.Context, server string) (any, error) {
+	targets := Conns
+	if server = strings.TrimSpace(server); server != "" {
+		conn, err := connNamed(server)
+		if err != nil {
+			return nil, err
+		}
+		targets = []*Connection{conn}
+	}
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	resources := []map[string]any{}
+	notes := []string{}
+	for _, conn := range targets {
+		if !conn.hasResources {
+			if server != "" {
+				notes = append(notes, conn.Name+" 没有声明 resources")
+			}
+			continue
+		}
+		items, more, err := conn.resources(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("%s 的 resources/list 失败：%w", conn.Name, err)
+		}
+		for _, resource := range items {
+			resources = append(resources, map[string]any{"server": conn.Name, "uri": resource.URI, "name": resource.Name,
+				"description": resource.Description, "mimeType": resource.MIMEType})
+		}
+		if more {
+			notes = append(notes, fmt.Sprintf("%s 超过 %d 项，只列了前面的", conn.Name, maxResources))
+		}
+	}
+	value := map[string]any{"resources": resources}
+	if len(notes) > 0 {
+		value["note"] = strings.Join(notes, "；")
+	}
+	return value, nil
+}
+
+// ReadResource 实现 read_mcp_resource：文本原样给模型，二进制只报类型和大小（塞进上下文也读不懂，还占预算）。
+func ReadResource(ctx context.Context, server, uri string) (any, error) {
+	conn, err := connNamed(strings.TrimSpace(server))
+	if err != nil {
+		return nil, err
+	}
+	uri = strings.TrimSpace(uri)
+	if uri == "" {
+		return nil, llm.Permanent(errors.New("uri 不能为空，取自 list_mcp_resources"))
+	}
+	if !conn.hasResources {
+		return nil, llm.Permanent(fmt.Errorf("%s 没有声明 resources", conn.Name))
+	}
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	request := sdk.ReadResourceRequest{}
+	request.Params.URI = uri
+	result, err := conn.client.ReadResource(ctx, request)
+	if err != nil {
+		return nil, fmt.Errorf("MCP 协议错误：%w", err)
+	}
+	contents := []any{}
+	for _, content := range result.Contents {
+		switch content := content.(type) {
+		case sdk.TextResourceContents:
+			contents = append(contents, content.Text)
+		case sdk.BlobResourceContents:
+			// 解一遍拿到准确字节数；base64 不合法时退回按长度估算。
+			size := base64.StdEncoding.DecodedLen(len(content.Blob))
+			if data, err := base64.StdEncoding.DecodeString(content.Blob); err == nil {
+				size = len(data)
+			}
+			contents = append(contents, map[string]any{"mimeType": content.MIMEType, "bytes": size, "note": "二进制内容不放进上下文"})
+		default:
+			contents = append(contents, fmt.Sprintf("[未转给模型的内容 %T]", content))
+		}
+	}
+	return map[string]any{"server": conn.Name, "uri": uri, "contents": contents}, nil
+}
+
 func (m *Connection) Close() {
 	// stdio：Close 关闭子进程 stdin 并等待退出，正常关闭信号就是 EOF；HTTP：只取消进行中的请求。
 	if err := m.client.Close(); err != nil {
@@ -256,9 +441,24 @@ func Inspect(ctx context.Context, command, callName, callArgs string) error {
 		return err
 	}
 	defer conn.Close()
+	// 只提供资源的 server 没有工具：写一行“没有工具”，下面的 resources 数目照常列（见 Connect）。
+	if len(tools) == 0 {
+		fmt.Println("  没有工具")
+	}
 	for i, tool := range tools {
 		schema, _ := json.Marshal(tool.InputSchema)
 		fmt.Printf("  %d. %s — %s\n     inputSchema=%s\n", i+1, tool.Name, tool.Description, schema)
+	}
+	// 资源数目只在 server 声明了 resources 时列；网页端 MCP 中心的“测试连接”显示的就是这段输出。
+	if conn.hasResources {
+		items, more, err := conn.resources(ctx)
+		if err != nil {
+			fmt.Printf("  resources：列出失败：%v\n", err)
+		} else if more {
+			fmt.Printf("  resources：%d 个（还有更多）\n", len(items))
+		} else {
+			fmt.Printf("  resources：%d 个\n", len(items))
+		}
 	}
 	if callName == "" {
 		return nil

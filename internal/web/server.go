@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"embed"
@@ -8,6 +9,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"html"
 	"io"
 	"io/fs"
 	"maps"
@@ -18,9 +20,11 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/xuzhao123/tern/internal/appclient"
 	"github.com/xuzhao123/tern/internal/appserver"
+	"github.com/xuzhao123/tern/internal/llm"
 )
 
 // 页面在 page/：外壳 index.html、样式 app.css 和按功能拆开的原生 ES 模块（入口 main.js），不打包，打进同一个程序。
@@ -41,8 +45,30 @@ type server struct {
 	hosts      map[string]*host           // 已连上的主机：别名（本机是空串）→ 连接
 	order      []string                   // 连上的顺序：/connection 按它推，页面按它排组
 	remembered []string                   // 页面上连过的主机：写进 .data/web-hosts.json，下次启动在后台连
-	failed     map[string]string          // 记住了但这次没连上的：别名 → 那次的报错
+	failed     map[string]hostFailure     // 记住了但这次没连上的：别名 → 那次的原因
 	watch      map[chan struct{}]struct{} // 正在等 /connection 的连接
+
+	// oauthStates 是进行中的 MCP 登录：state → 哪台主机发起的、什么时候发的。授权页跳回来的
+	// /mcp-oauth/callback 不带主机前缀，按 state 才知道该把 code 转给哪一台（见 loginMCP）。
+	oauthStates map[string]oauthState
+}
+
+// oauthState 是一次进行中的 MCP 登录：哪台主机的 app-server 发起的、谁点的“登录”、什么时候发的
+// （10 分钟不用就作废）。用户名只给审计用：回调来自别的站点，会话 cookie 不会带上。
+type oauthState struct {
+	alias string
+	user  string
+	at    time.Time
+}
+
+// hostFailure 是一台记住了、这次没连上的主机：kind 是 appclient 的分类（auth、hostkey、
+// no-tern、protocol…），页面按它给按钮；hint 是给人看的下一步，detail 是 ssh 的原文，
+// err 是两段拼起来的一整段话（老页面、别的接口照旧只显示它）。
+type hostFailure struct {
+	err    string
+	kind   string
+	hint   string
+	detail string
 }
 
 // host 是一台主机的连接。state 在 server.mu 下读写；runs 用原子量，因为它从连接的读循环里加。
@@ -88,7 +114,7 @@ func Run(args []string, mcpHandler http.Handler) error {
 	if err != nil {
 		return err
 	}
-	s := &server{auth: authState, hosts: map[string]*host{}, failed: map[string]string{}, watch: map[chan struct{}]struct{}{}}
+	s := &server{auth: authState, hosts: map[string]*host{}, failed: map[string]hostFailure{}, watch: map[chan struct{}]struct{}{}, oauthStates: map[string]oauthState{}}
 	// 命令行定的主机先连上：不带 -remote 是本机，带了几台就只连这几台（远端的 app-server 由 proxy 自己 start）。
 	targets := []string{""}
 	if len(remotes) > 0 {
@@ -143,6 +169,12 @@ func Run(args []string, mcpHandler http.Handler) error {
 	mux.HandleFunc("GET /hosts", s.listHosts)
 	mux.HandleFunc("POST /hosts", s.connectHost)
 	mux.HandleFunc("DELETE /hosts/{alias}", s.disconnectHost)
+	// 远端专用的几条：装到远端、主机指纹、复制模型密钥。
+	mux.HandleFunc("POST /hosts/{alias}/install", s.installHost)
+	mux.HandleFunc("GET /hosts/{alias}/hostkey", s.getHostKeys)
+	mux.HandleFunc("POST /hosts/{alias}/hostkey", s.trustHostKeys)
+	mux.HandleFunc("GET /hosts/{alias}/keys", s.listLocalKeys)
+	mux.HandleFunc("POST /hosts/{alias}/keys", s.copyKeys)
 	mux.HandleFunc("GET /models", s.listModels)
 	mux.HandleFunc("POST /attachments", s.uploadAttachment)
 	mux.HandleFunc("GET /attachments/{name}", s.serveAttachment)
@@ -152,6 +184,7 @@ func Run(args []string, mcpHandler http.Handler) error {
 	mux.HandleFunc("POST /runs", s.startRun)
 	mux.HandleFunc("POST /runs/import", s.importRun)
 	mux.HandleFunc("PUT /runs/{id}/name", s.renameRun)
+	mux.HandleFunc("PUT /runs/{id}/goal", s.setRunGoal)
 	mux.HandleFunc("POST /runs/{id}/archive", s.archiveRun)
 	mux.HandleFunc("DELETE /runs/{id}/archive", s.unarchiveRun)
 	mux.HandleFunc("DELETE /runs/{id}", s.deleteRun)
@@ -162,12 +195,17 @@ func Run(args []string, mcpHandler http.Handler) error {
 	mux.HandleFunc("POST /runs/{id}/approval", s.decideTool)
 	mux.HandleFunc("POST /runs/{id}/answer", s.answerQuestion)
 	mux.HandleFunc("POST /runs/{id}/steer", s.steerRun)
+	mux.HandleFunc("POST /runs/{id}/shell", s.shellRun)
 	mux.HandleFunc("POST /runs/{id}/queue", s.queueRun)
 	mux.HandleFunc("DELETE /runs/{id}/queue/{qid}", s.unqueueRun)
 	mux.HandleFunc("POST /runs/{id}/rewind", s.rewindRun)
 	mux.HandleFunc("POST /runs/{id}/fork", s.forkRun)
 	mux.HandleFunc("GET /runs/{id}/files", s.listFiles)
 	mux.HandleFunc("GET /runs/{id}/diff", s.workspaceDiff)
+	// 后台命令：看最近输出、停掉（后台命令只活到这一轮结束，这一轮结束了就回 409）。
+	mux.HandleFunc("GET /runs/{id}/jobs/{jid}/output", s.jobOutput)
+	mux.HandleFunc("POST /runs/{id}/jobs/{jid}/kill", s.killJob)
+	mux.HandleFunc("POST /runs/{id}/apply-copy", s.applyCopy)
 	mux.HandleFunc("GET /runs/{id}/files/{path...}", s.downloadFile)
 	mux.HandleFunc("DELETE /runs/{id}/files/{path...}", s.deleteFile)
 	mux.HandleFunc("POST /runs/{id}/files", s.uploadFile)
@@ -202,6 +240,11 @@ func Run(args []string, mcpHandler http.Handler) error {
 	mux.HandleFunc("DELETE /hub/mcp/{name}", s.deleteMCP)
 	mux.HandleFunc("POST /hub/mcp/{name}/enabled", s.toggleMCP)
 	mux.HandleFunc("POST /hub/mcp/{name}/test", s.testMCP)
+	// OAuth 登录：登录/退出登录跟着当前主机走（带 /h/<别名>/ 前缀时转给那台）；
+	// 授权页跳回来的 /mcp-oauth/callback 不带主机前缀，按 state 找回发起登录的那台（见 loginMCP）。
+	mux.HandleFunc("POST /hub/mcp/{name}/login", s.loginMCP)
+	mux.HandleFunc("POST /hub/mcp/{name}/logout", s.logoutMCP)
+	mux.HandleFunc("GET /mcp-oauth/callback", s.oauthCallback)
 	// 内置远程 MCP：同一进程直接处理，不另开端口、不转发；同样只接受本机同源请求。
 	mux.Handle("/mcp", sameOrigin(mcpHandler))
 	fmt.Printf("网页端：http://%s\n远程 MCP：http://%s/mcp（内置 calculator，Streamable HTTP）\n", *addr, *addr)
@@ -343,14 +386,23 @@ const maxBody = 1 << 20
 // ---------- 主机表 ----------
 
 // hostInfo 是 /connection 里的一台主机（spec 第二期第 4 节）。state 除了 connected、reconnecting，
-// 还有 failed：记住了的主机这次没连上，error 是那次的报错。
+// 还有 failed：记住了的主机这次没连上，error 是那次的报错，kind、hint、detail 是它的分类
+// 给人看的说明与 ssh 的原文（页面按 kind 给按钮）。
+// 已连上的远端另带 providers（那边配好密钥的供应商，空就是没配）、home 与 stale
+// （那边的 build 和本机不同：菜单里给“用本机的 tern 更新远端”）。
 type hostInfo struct {
-	Alias  string `json:"alias"`  // ssh 别名；本机是空串
-	Host   string `json:"host"`   // 显示名：本机用 initialize 报的主机名，远端用别名；没连上的本机没有名字
-	Remote bool   `json:"remote"` // 是不是远端
-	State  string `json:"state"`
-	Runs   int64  `json:"runs"`
-	Error  string `json:"error,omitempty"`
+	Alias     string   `json:"alias"`  // ssh 别名；本机是空串
+	Host      string   `json:"host"`   // 显示名：本机用 initialize 报的主机名，远端用别名；没连上的本机没有名字
+	Remote    bool     `json:"remote"` // 是不是远端
+	State     string   `json:"state"`
+	Runs      int64    `json:"runs"`
+	Error     string   `json:"error,omitempty"`
+	Kind      string   `json:"kind,omitempty"`
+	Hint      string   `json:"hint,omitempty"`
+	Detail    string   `json:"detail,omitempty"`
+	Providers []string `json:"providers,omitempty"`
+	Home      string   `json:"home,omitempty"`
+	Stale     bool     `json:"stale,omitempty"`
 }
 
 type connections struct {
@@ -469,8 +521,8 @@ func (s *server) withHosts(next http.Handler) http.Handler {
 		h, failed := s.hosts[alias], s.failed[alias]
 		s.mu.Unlock()
 		if h == nil {
-			if failed != "" {
-				http.Error(w, failed, http.StatusBadGateway)
+			if failed.err != "" {
+				http.Error(w, failed.err, http.StatusBadGateway)
 			} else {
 				http.Error(w, "没有连上主机 "+alias, http.StatusNotFound)
 			}
@@ -536,12 +588,19 @@ func (s *server) connection() connections {
 	out := connections{Hosts: make([]hostInfo, 0, len(s.order)+len(s.failed))}
 	for _, alias := range s.order {
 		h := s.hosts[alias]
-		out.Hosts = append(out.Hosts, hostInfo{Alias: alias, Host: h.client.Host(), Remote: alias != "", State: string(h.state), Runs: h.runs.Load()})
+		info := hostInfo{Alias: alias, Host: h.client.Host(), Remote: alias != "", State: string(h.state), Runs: h.runs.Load()}
+		if alias != "" {
+			// 远端的供应商、数据目录与 build 都来自 initialize：菜单据此提示没配密钥、程序要不要更新。
+			srv := h.client.Info()
+			info.Providers, info.Home, info.Stale = srv.Providers, srv.Home, srv.Build != appserver.Build()
+		}
+		out.Hosts = append(out.Hosts, info)
 	}
 	for _, alias := range s.remembered {
-		if msg, ok := s.failed[alias]; ok {
+		if f, ok := s.failed[alias]; ok {
 			// 记住的本机也没连上时，别名是空串：它不是远端，页面照旧写“本机”。
-			out.Hosts = append(out.Hosts, hostInfo{Alias: alias, Host: alias, Remote: alias != "", State: failedState, Error: msg})
+			out.Hosts = append(out.Hosts, hostInfo{Alias: alias, Host: alias, Remote: alias != "", State: failedState,
+				Error: f.err, Kind: f.kind, Hint: f.hint, Detail: f.detail})
 		}
 	}
 	return out
@@ -584,7 +643,9 @@ func (s *server) listHosts(w http.ResponseWriter, req *http.Request) {
 }
 
 // connectHost 连一台上：空别名是本机（先保证 app-server 在运行），远端经 ssh。已经连上的直接回成功；
-// 连不上回 502，文字是 ssh 的报错。页面上连过的主机记进 .data/web-hosts.json，下次启动自动连。
+// 连不上回 502，响应体是 {error, kind, hint, detail}（error 是原来那段话，页面没升级也能看）。
+// 页面上连过的主机记进 .data/web-hosts.json，下次启动自动连；连不上的也记下来，
+// 菜单里才有那一项可以点“确认指纹”“装到远端”。
 func (s *server) connectHost(w http.ResponseWriter, req *http.Request) {
 	var input struct {
 		Alias string `json:"alias"`
@@ -608,7 +669,12 @@ func (s *server) connectHost(w http.ResponseWriter, req *http.Request) {
 	}
 	client, _, err := dialHost(alias)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		s.mu.Lock()
+		s.failed[alias] = hostFailureOf(err)
+		s.mu.Unlock()
+		s.rememberHost(alias)
+		s.notify()
+		failHost(w, err)
 		return
 	}
 	// 拨号这会儿后台可能已经把这台连上了：addHost 会关掉这条新的、回原来那条。
@@ -643,6 +709,237 @@ func (s *server) disconnectHost(w http.ResponseWriter, req *http.Request) {
 	}
 	s.dropHost(alias)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ---------- 远端：装到远端、主机指纹、复制模型密钥 ----------
+
+// remoteAlias 取这几条远端专用接口的别名：本机没有别名（路径里写 -），这些操作只对远端有意义。
+func remoteAlias(w http.ResponseWriter, req *http.Request) (string, bool) {
+	alias := req.PathValue("alias")
+	if alias == "" || alias == "-" {
+		http.Error(w, "这条接口只对远端主机", http.StatusBadRequest)
+		return "", false
+	}
+	return alias, true
+}
+
+// hostFailureOf 把连不上的错误摊成页面要的几项：appclient 分类过的错误带 kind、hint 与 ssh 原文，
+// 其余的只有整段话（kind 记成 other，页面给“再试一次”）。
+func hostFailureOf(err error) hostFailure {
+	f := hostFailure{err: err.Error(), kind: appclient.RemoteOther}
+	var remote *appclient.RemoteError
+	if errors.As(err, &remote) {
+		f.kind, f.hint, f.detail = remote.Kind, remote.Hint, remote.Detail
+	}
+	return f
+}
+
+// failHost 回 502 与 {error, kind, hint, detail}：页面按 kind 给按钮，别的客户端读 error 也看得懂。
+func failHost(w http.ResponseWriter, err error) {
+	f := hostFailureOf(err)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusBadGateway)
+	json.NewEncoder(w).Encode(map[string]string{"error": f.err, "kind": f.kind, "hint": f.hint, "detail": f.detail})
+}
+
+// installHost 把本机的程序拷到远端（同系统同架构才行），成功以后页面照常连一次：
+// 远端的 proxy 会把那边的 app-server 换成新装的。已经连着的那台先收掉再拨一次，proxy 才会跑起来。
+func (s *server) installHost(w http.ResponseWriter, req *http.Request) {
+	alias, ok := remoteAlias(w, req)
+	if !ok {
+		return
+	}
+	if err := appclient.InstallRemote(alias); err != nil {
+		failHost(w, err)
+		return
+	}
+	if s.connected(alias) != nil {
+		if err := s.redialHost(alias); err != nil {
+			failHost(w, err)
+			return
+		}
+	}
+	writeJSON(w, map[string]any{"installed": alias})
+}
+
+// redialHost 把一台已经连上的主机收掉再连一次：换了远端的程序以后，只有新的连接上
+// proxy 才会把那边的 app-server 换成新的。记住的主机名单不动。
+func (s *server) redialHost(alias string) error {
+	s.mu.Lock()
+	old := s.hosts[alias]
+	delete(s.hosts, alias)
+	s.order = slices.DeleteFunc(s.order, func(a string) bool { return a == alias })
+	s.mu.Unlock()
+	if old != nil {
+		old.client.Close()
+	}
+	client, _, err := dialHost(alias)
+	if err != nil {
+		s.mu.Lock()
+		s.failed[alias] = hostFailureOf(err)
+		s.mu.Unlock()
+		s.notify()
+		return err
+	}
+	s.addHost(alias, client)
+	s.mu.Lock()
+	delete(s.failed, alias)
+	s.mu.Unlock()
+	s.notify()
+	return nil
+}
+
+// getHostKeys 是这台机器现在的主机公钥与指纹，给页面的“确认指纹”列出来核对。
+func (s *server) getHostKeys(w http.ResponseWriter, req *http.Request) {
+	alias, ok := remoteAlias(w, req)
+	if !ok {
+		return
+	}
+	info, err := appclient.HostKeys(alias)
+	if err != nil {
+		failHost(w, err)
+		return
+	}
+	writeJSON(w, info)
+}
+
+// trustHostKeys 把页面刚看到的那几条公钥写进本机的 known_hosts。请求体要带上看到的指纹，
+// 写入前再扫一次核对，中途换了就不写。
+func (s *server) trustHostKeys(w http.ResponseWriter, req *http.Request) {
+	alias, ok := remoteAlias(w, req)
+	if !ok {
+		return
+	}
+	var input struct {
+		Keys []appclient.HostKey `json:"keys"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, req.Body, maxBody)).Decode(&input); err != nil {
+		http.Error(w, "请求必须是JSON", http.StatusBadRequest)
+		return
+	}
+	if len(input.Keys) == 0 {
+		http.Error(w, "没有要确认的主机公钥", http.StatusBadRequest)
+		return
+	}
+	want := make([]string, 0, len(input.Keys))
+	for _, key := range input.Keys {
+		want = append(want, key.Fingerprint)
+	}
+	if err := appclient.TrustHostKeys(alias, want); err != nil {
+		failHost(w, err)
+		return
+	}
+	writeJSON(w, map[string]any{"trusted": len(want)})
+}
+
+// listLocalKeys 是本机有值的密钥名（路由表里各家的 KeyVars，环境变量优先，其次 TERN_HOME/.env）：
+// 页面把它们列出来给人勾选，再经 POST 写进远端。只有用户点了才读。
+func (s *server) listLocalKeys(w http.ResponseWriter, req *http.Request) {
+	if _, ok := remoteAlias(w, req); !ok {
+		return
+	}
+	env := localEnv()
+	names := []string{}
+	seen := map[string]bool{}
+	for _, p := range llm.Providers {
+		for _, name := range p.KeyVars {
+			if seen[name] {
+				continue
+			}
+			seen[name] = true
+			if keyValue(env, name) != "" {
+				names = append(names, name)
+			}
+		}
+	}
+	writeJSON(w, map[string]any{"names": names})
+}
+
+// copyKeys 把这几个密钥写进远端的 ~/.tern/.env：网页端读本机的值，经 ssh 的标准输入传过去，
+// 远端合并、chmod 600。写完新起的对话就能用。
+func (s *server) copyKeys(w http.ResponseWriter, req *http.Request) {
+	alias, ok := remoteAlias(w, req)
+	if !ok {
+		return
+	}
+	var input struct {
+		Names []string `json:"names"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, req.Body, 4096)).Decode(&input); err != nil {
+		http.Error(w, "请求必须是JSON", http.StatusBadRequest)
+		return
+	}
+	values, err := localKeyValues(input.Names)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if len(values) == 0 {
+		http.Error(w, "本机没有这几个密钥的值", http.StatusBadRequest)
+		return
+	}
+	path, err := appclient.WriteRemoteKeys(alias, values)
+	if err != nil {
+		failHost(w, err)
+		return
+	}
+	writeJSON(w, map[string]any{"written": len(values), "path": path})
+}
+
+// localEnv 是 TERN_HOME/.env 里的 KEY=value：只给“从本机复制密钥”用，读法同 llm 读配置。
+func localEnv() map[string]string {
+	values := map[string]string{}
+	f, err := os.Open(".env")
+	if err != nil {
+		return values
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		text := strings.TrimSpace(scanner.Text())
+		if text == "" || strings.HasPrefix(text, "#") {
+			continue
+		}
+		name, value, ok := strings.Cut(text, "=")
+		if !ok {
+			continue
+		}
+		values[strings.TrimSpace(name)] = strings.Trim(strings.TrimSpace(value), "\"'")
+	}
+	return values
+}
+
+// keyValue 是一个密钥在本机的值：同名环境变量优先，其次 .env（和 llm 读配置的规则一致）。
+func keyValue(env map[string]string, name string) string {
+	if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+		return value
+	}
+	return env[name]
+}
+
+// localKeyValues 取这几个密钥在本机的值。名字只认 KEY 的样子，值里不能有换行：写进去的是一行一个 KEY=value。
+func localKeyValues(names []string) (map[string]string, error) {
+	env := localEnv()
+	values := map[string]string{}
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		for _, r := range name {
+			if !(r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_') {
+				return nil, fmt.Errorf("不是密钥的名字：%s", name)
+			}
+		}
+		value := keyValue(env, name)
+		if strings.ContainsAny(value, "\r\n") {
+			return nil, fmt.Errorf("%s 的值里有换行，写不进 .env", name)
+		}
+		if value != "" {
+			values[name] = value
+		}
+	}
+	return values, nil
 }
 
 // ---------- 记住的主机 ----------
@@ -711,7 +1008,7 @@ func (s *server) dialRemembered() {
 		client, _, err := dialHost(alias)
 		if err != nil {
 			s.mu.Lock()
-			s.failed[alias] = err.Error()
+			s.failed[alias] = hostFailureOf(err)
 			s.mu.Unlock()
 			s.notify()
 			continue
@@ -765,6 +1062,11 @@ func (s *server) renameRun(w http.ResponseWriter, req *http.Request) {
 	s.reply(w, req, "thread/name/set", map[string]any{"threadId": req.PathValue("id")})
 }
 
+// 目标：请求体是 {text}，空串就是清除；回来的摘要带 goal，标题下面那一行照它显示。
+func (s *server) setRunGoal(w http.ResponseWriter, req *http.Request) {
+	s.reply(w, req, "thread/goal/set", map[string]any{"threadId": req.PathValue("id")})
+}
+
 func (s *server) archiveRun(w http.ResponseWriter, req *http.Request) {
 	s.reply(w, req, "thread/archive", map[string]any{"threadId": req.PathValue("id")})
 }
@@ -789,9 +1091,25 @@ func (s *server) steerRun(w http.ResponseWriter, req *http.Request) {
 	s.replyNone(w, req, "turn/steer", map[string]any{"threadId": req.PathValue("id")})
 }
 
+// ! 命令：请求体是 {command}（去掉开头的 !），人自己的命令在这条对话的沙箱里跑一条（thread/shellCommand）。
+// 回来的结果与存档里的 shell 事件是同一份：退出码、输出、是否截断、用时。
+func (s *server) shellRun(w http.ResponseWriter, req *http.Request) {
+	s.reply(w, req, "thread/shellCommand", map[string]any{"threadId": req.PathValue("id")})
+}
+
 // 排队：这一轮结束后再发（请求体是 {text}，成功回排上的这一项）；删除按项ID，回 204。
 func (s *server) queueRun(w http.ResponseWriter, req *http.Request) {
 	s.reply(w, req, "thread/queue/add", map[string]any{"threadId": req.PathValue("id")})
+}
+
+// 后台命令：看模型起的某个后台命令最近的输出（只看不消费，模型下次 bash_output 照样读到）、
+// 由人停掉（写审计）。后台命令只活到这一轮结束，这一轮停了这里回 409。
+func (s *server) jobOutput(w http.ResponseWriter, req *http.Request) {
+	s.reply(w, req, "thread/job/output", map[string]any{"threadId": req.PathValue("id"), "jobId": req.PathValue("jid")})
+}
+
+func (s *server) killJob(w http.ResponseWriter, req *http.Request) {
+	s.replyNone(w, req, "thread/job/kill", map[string]any{"threadId": req.PathValue("id"), "jobId": req.PathValue("jid")})
 }
 
 func (s *server) unqueueRun(w http.ResponseWriter, req *http.Request) {
@@ -904,6 +1222,11 @@ func (s *server) workspaceDiff(w http.ResponseWriter, req *http.Request) {
 	s.reply(w, req, "workspace/diff", map[string]any{"threadId": req.PathValue("id")})
 }
 
+// 副本对话的“应用到”：把副本里的改动写回原工作区（不提交），回复改了哪些文件。
+func (s *server) applyCopy(w http.ResponseWriter, req *http.Request) {
+	s.reply(w, req, "workspace/applyCopy", map[string]any{"threadId": req.PathValue("id")})
+}
+
 // 下载沙箱文件：内容由模型写入，一律当附件下载并禁止嗅探，模型写的 HTML 不会在页面源里执行。
 func (s *server) downloadFile(w http.ResponseWriter, req *http.Request) {
 	path := req.PathValue("path")
@@ -970,7 +1293,8 @@ func (s *server) listAudit(w http.ResponseWriter, req *http.Request) {
 // ---------- 设置、工作区、命令 ----------
 
 func (s *server) getSettings(w http.ResponseWriter, req *http.Request) {
-	s.reply(w, req, "settings/read", nil)
+	// workspace：页面上新对话下拉里选中的工作区，给了就按它的 .agents/tern.json 加上项目层。
+	s.reply(w, req, "settings/read", map[string]any{"workspace": req.URL.Query().Get("workspace")})
 }
 
 func (s *server) putSettings(layer string) http.HandlerFunc {
@@ -1051,6 +1375,117 @@ func (s *server) toggleMCP(w http.ResponseWriter, req *http.Request) {
 
 func (s *server) testMCP(w http.ResponseWriter, req *http.Request) {
 	s.reply(w, req, "hub/mcp/test", map[string]any{"name": req.PathValue("name")})
+}
+
+// loginMCP 是 MCP 中心的“登录”：转给那台的 app-server 建授权地址（hub/mcp/login/start），
+// 再把地址里的 state 记下是哪台主机发起的——授权页跳回来时（/mcp-oauth/callback）才知道把 code 转给谁。
+func (s *server) loginMCP(w http.ResponseWriter, req *http.Request) {
+	p, ok := s.params(w, req, map[string]any{"name": req.PathValue("name")})
+	if !ok {
+		return
+	}
+	result, err := s.call(req, "hub/mcp/login/start", p)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	var started struct {
+		URL string `json:"url"`
+	}
+	if json.Unmarshal(result, &started) == nil {
+		if authURL, perr := url.Parse(started.URL); perr == nil {
+			if h, _ := hostIn(req); h != nil {
+				user := ""
+				if u := current(req); u != nil {
+					user = u.Name
+				}
+				s.rememberOAuthState(authURL.Query().Get("state"), h.alias, user)
+			}
+		}
+	}
+	writeJSON(w, result)
+}
+
+// logoutMCP 是 MCP 中心的“退出登录”：那台的 app-server 把这个 server 的令牌从 .data/mcp-tokens.json 里删掉。
+func (s *server) logoutMCP(w http.ResponseWriter, req *http.Request) {
+	s.replyText(w, req, "hub/mcp/logout", map[string]any{"name": req.PathValue("name")}, "ok")
+}
+
+// oauthCallback 是授权页跳回来的那一页：按 state 找到发起登录的主机，把 code 转给那台的
+// hub/mcp/login/finish，然后把结果写在页面上，并让原来那个标签页刷新 MCP 中心。
+// 这条路由不带主机前缀，而且不要求先登录：从授权页跳过来是别的站点的跳转，SameSite=Strict 的会话
+// cookie 不会带上；认领这次登录靠的是只在这台网页端内存里的 state（app-server 那边也按 state 认）。
+func (s *server) oauthCallback(w http.ResponseWriter, req *http.Request) {
+	query := req.URL.Query()
+	state, code := query.Get("state"), query.Get("code")
+	alias, user, ok := s.takeOAuthState(state)
+	if !ok {
+		s.mcpLoginPage(w, http.StatusBadRequest, "", "这次登录已经过期，或者不是从这里发起的：回 MCP 中心重新点“登录”。")
+		return
+	}
+	h := s.connected(alias)
+	if h == nil {
+		label := alias
+		if label == "" {
+			label = "本机"
+		}
+		s.mcpLoginPage(w, http.StatusBadGateway, "", "发起登录的主机（"+label+"）现在没连上：连上以后再点一次“登录”。")
+		return
+	}
+	params := map[string]any{"state": state, "code": code}
+	if user != "" {
+		params["user"] = user
+	}
+	var done struct {
+		Name string `json:"name"`
+	}
+	if err := h.client.Call(req.Context(), "hub/mcp/login/finish", params, &done); err != nil {
+		s.mcpLoginPage(w, statusOf(err), "", "登录没完成："+err.Error())
+		return
+	}
+	s.mcpLoginPage(w, http.StatusOK, done.Name, "")
+}
+
+// mcpLoginPage 是回调那一页：成功时只说已登录、并 postMessage 让原来那个标签页刷新 MCP 中心
+// （没有 opener 就算了）；失败时原样写出原因。
+func (s *server) mcpLoginPage(w http.ResponseWriter, status int, name, problem string) {
+	text := "已登录 " + name + "，可以关掉这个页面。"
+	notify := `try { if (window.opener) window.opener.postMessage("mcp-oauth", location.origin); } catch {}`
+	if problem != "" {
+		text, notify = problem, ""
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.WriteHeader(status)
+	fmt.Fprintf(w, "<!doctype html>\n<html lang=\"zh-CN\"><meta charset=\"utf-8\"><title>MCP 登录</title>\n<body style=\"font: 16px/1.6 system-ui, sans-serif; margin: 4rem auto; max-width: 40rem; padding: 0 1rem\">\n<p>%s</p>\n<script>%s</script>\n</body></html>\n", html.EscapeString(text), notify)
+}
+
+// rememberOAuthState 记下这次登录是哪台主机发起的、谁点的，顺手清掉过期的（app-server 那边也按 10 分钟过期）。
+func (s *server) rememberOAuthState(state, alias, user string) {
+	if state == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	for key, old := range s.oauthStates {
+		if now.Sub(old.at) > 10*time.Minute {
+			delete(s.oauthStates, key)
+		}
+	}
+	s.oauthStates[state] = oauthState{alias: alias, user: user, at: now}
+}
+
+// takeOAuthState 取回 state 是哪台主机、谁发起的并删掉：一次登录只认一次回调。
+func (s *server) takeOAuthState(state string) (string, string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, found := s.oauthStates[state]
+	delete(s.oauthStates, state)
+	if !found || time.Since(entry.at) > 10*time.Minute {
+		return "", "", false
+	}
+	return entry.alias, entry.user, true
 }
 
 // ---------- 评测 ----------

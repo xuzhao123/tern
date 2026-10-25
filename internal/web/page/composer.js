@@ -1,6 +1,6 @@
 import { show } from "./follow.js";
 import { openSettings } from "./pages.js";
-import { autosize, modelVision, syncComposer } from "./shell.js";
+import { autosize, loadRuns, loadWsSettings, modelVision, syncComposer } from "./shell.js";
 import { $, MAX_IMAGES, api, el, refURL, ui } from "./util.js";
 export async function start(url, body) {
   ui.sending = true; syncComposer();
@@ -83,6 +83,8 @@ dropZone.addEventListener("drop", (ev) => {
 $("composer").onsubmit = (ev) => {
   ev.preventDefault();
   const query = $("query").value.trim();
+  // 以 ! 开头是人在沙箱里跑一条命令（不进模型，见 runShell）：新对话要先开一个，运行中要等它结束。
+  if (query.startsWith("!")) { runShell(query.slice(1).trim()); return; }
   // 运行中按回车是插话：排进 agent 的下一次模型请求，不打断正在进行的请求或工具。
   if ($("send").classList.contains("stop")) { if (query) steer(query); return; }
   if ($("send").disabled || !query) return;
@@ -95,9 +97,35 @@ $("composer").onsubmit = (ev) => {
   }
   ui.chatFollow = true;
   const images = attached.map(({ ref, name }) => ({ ref, name }));
-  const body = ui.run ? { query, permission: $("perm").value, effort: $("effort").value } : { query, provider: $("provider").value, model: $("model").hidden ? "" : $("model").value, workspace: $("workspace").disabled ? "" : $("workspace").value, permission: $("perm").value, effort: $("effort").value };
+  const body = ui.run ? { query, permission: $("perm").value, effort: $("effort").value } : { query, provider: $("provider").value, model: $("model").hidden ? "" : $("model").value, workspace: $("workspace").disabled ? "" : $("workspace").value, copy: $("copy").checked && !!$("workspace").value, permission: $("perm").value, effort: $("effort").value };
   start(ui.run ? `/runs/${ui.run.id}/messages` : "/runs", images.length ? { ...body, images } : body);
 };
+// ! 命令：在这条对话的沙箱里跑一条（POST /runs/<id>/shell），和模型的 bash 同一个沙箱；卡片出现在对话里，
+// 下一轮的问题里也会带上命令与输出（app-server 的 notes）。这时没有 agent 在跑，联网只认这条对话白名单里的域名。
+// 运行中不跑（也不插话）：这一轮的 agent 还在跑，跑的命令会和它抢沙箱、也没人当场批准联网。
+async function runShell(command) {
+  const r = ui.run, box = $("query");
+  if (!r) { $("hint").textContent = "先发一句话开个对话，再用 ! 跑命令"; return; }
+  if (!r.exit) { $("hint").textContent = "这一轮在跑，等它结束再跑命令"; return; }
+  if (!command) { $("hint").textContent = "! 后面写要跑的命令"; return; }
+  if (ui.shellBusy) return; // 上一条还没跑完：不排队，连按两次也不跑两遍
+  const typed = box.value;
+  ui.shellBusy = true; ui.sending = true; ui.hint = "正在跑：" + command;
+  syncComposer();
+  try {
+    const res = await fetch(api(`/runs/${encodeURIComponent(r.id)}/shell`), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ command }) });
+    if (!res.ok) { ui.hint = "没跑成：" + (await res.text()).trim(); return; }
+    // 结果同时作为 shell 事件推给这条对话的订阅者（页面照它画卡片）；这里只清空输入框里还没改过的命令。
+    ui.hint = "";
+    if (box.value === typed) box.value = "";
+    // 这条对话停下以后订阅已经收尾，推不到这里：刷新一次列表，loadRuns 按 summary.shells 重新加载这条对话。
+    loadRuns();
+  } catch (err) {
+    ui.hint = "没跑成：" + err.message;
+  } finally {
+    ui.shellBusy = false; ui.sending = false; autosize(); syncComposer();
+  }
+}
 async function steer(text) {
   const r = ui.run, item = { id: crypto.randomUUID(), text };
   const q = (ui.steers[r.id] ??= { items: [], immediate: false });
@@ -253,7 +281,9 @@ $("send").onclick = async (ev) => {
 };
 $("provider").onchange = () => { ui.picked.provider = true; ui.picked.model = false; syncComposer(); };
 $("model").onchange = () => { ui.picked.model = true; syncComposer(); };
-$("workspace").onchange = () => { ui.picked.workspace = true; syncComposer(); };
+$("workspace").onchange = () => { ui.picked.workspace = true; syncComposer(); loadWsSettings($("workspace").value, true); };
+// 副本：勾了就在这个工作区的副本里开对话（thread/start 的 copy），开完对话后不能再改（见 syncComposer）。
+$("copy").onchange = () => { ui.picked.copy = $("copy").checked; syncComposer(); };
 $("perm").onchange = () => { ui.picked.permission = true; syncComposer(); };
 $("effort").onchange = () => { ui.picked.effort = true; syncComposer(); };
 $("settings").onclick = () => openSettings();
@@ -382,6 +412,18 @@ function atKey(ev) {
   if (ev.key === "Escape") { atClose(); return true; }
   return false;
 }
+
+// Esc 打断（同 Codex）：这一轮正在跑、没有对话框和菜单挡着时，和点停止一样；
+// 待发送区里有插话时和“立即发送”一样——停下这一轮，插话作为下一条消息发出去。
+// 输入法组合中的 Esc 是选词；菜单或别的输入框自己处理过 Esc（已 preventDefault）的也不算。
+document.addEventListener("keydown", (ev) => {
+  if (ev.key !== "Escape" || ev.isComposing || ev.defaultPrevented) return;
+  if (ui.page !== "chat" || !$("send").classList.contains("stop")) return;
+  if (document.querySelector("dialog[open]") || !$("slash").hidden || atMatch) return;
+  ev.preventDefault();
+  const r = ui.run;
+  if (r && ui.steers[r.id]?.items.length) sendSteersNow(); else stopRun();
+});
 
 // 插入：把 @ 加后面敲的字换成路径，后面跟一个空格；路径里有空格时用反引号括起来。
 function insertAt(path) {

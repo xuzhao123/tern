@@ -1,6 +1,6 @@
 # macOS 上的 bash 沙箱（Seatbelt）
 
-状态：设计（2026-10-24），交给 tern 实现（codex-parity-plan.md 6.1）。本机是 Linux，macOS 上的实际效果由用户在 Mac 上测。
+状态：已实现并完成收尾验证（2026-10-25），范围与证据见 [本批收尾记录](closeout-20261025.md)。
 
 ## 1. 为什么要改
 
@@ -49,7 +49,7 @@ Codex 在 macOS 上用 Seatbelt（`sandbox-exec` 加一段策略），在 Linux 
 ### 2.3 联网
 
 - Linux 上沙箱有自己的网络命名空间，联网代理的端口由 `sandbox-init` 转进去；macOS 没有，命令直接连 agent 在宿主机上监听的代理。
-- 代理监听 `127.0.0.1` 的随机端口，`HTTP_PROXY` 和策略里的 `PROXY` 用这个端口。
+- 代理监听 `127.0.0.1` 的随机端口，`HTTP_PROXY` 和策略里的 `PROXY` 用 `localhost:<端口>`（Seatbelt 不接受 `127.0.0.1:<端口>`），HTTP 代理地址仍用 `127.0.0.1:<端口>`。
 - 审批、白名单、内网检查照旧（都在代理里）。
 
 ### 2.4 没有的东西（写进说明和 README）

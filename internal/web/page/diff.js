@@ -2,6 +2,7 @@ import { renderChat } from "./chat.js";
 import { renderShell } from "./shell.js";
 import { $, api, el, ui } from "./util.js";
 // 改动面板：工作区相对 HEAD 的 diff，包括未跟踪的文件（app-server 的 workspace/diff 里跑 git）。
+// 副本对话（summary 的 copy）比的是副本基线（copy_base），原目录没提交的改动已经在基线里，所以只算这条对话的改动。
 // 包括所有轮次和人自己的改动，不只某一轮；diff 是 git 与模型写的内容，只用 textContent 显示、按行着色。
 async function loadDiff() {
   const r = ui.run, d = ui.diff;
@@ -18,7 +19,7 @@ async function loadDiff() {
 // 打开面板并展开这几个文件（每轮末尾“看改动”来的）；和沙箱文件、子 agent、浏览器面板互斥。
 export function openDiff(r, files = []) {
   ui.diffOpen = true;
-  ui.filesOpen = false; ui.subOpen = null; ui.webOpen = null;
+  ui.filesOpen = false; ui.subOpen = null; ui.webOpen = null; ui.jobsOpen = false;
   // 换了对话就丢掉上一条的数据；展开的就是这次要看的文件，面板第一次渲染时别把它清掉（见 renderDiffPanel）。
   if (ui.diff.run !== r.id) { ui.diff.data = null; ui.diff.err = ""; }
   ui.diff.open = new Set(files);
@@ -50,11 +51,11 @@ export function renderDiffPanel() {
   close.type = "button"; close.title = "关闭"; close.setAttribute("aria-label", "关闭改动面板");
   close.onclick = () => { ui.diffOpen = false; renderChat(); renderShell(); };
   const files = d.data?.files || [];
-  head.append(el("strong", "", `工作区相对 HEAD 的改动${d.data?.head ? ` · ${d.data.head}` : ""}`), close);
+  head.append(el("strong", "", `${r.copy ? "副本相对基线的改动" : "工作区相对 HEAD 的改动"}${d.data?.head ? ` · ${d.data.head}` : ""}`), close);
   const note = el("div", "fp-tools"), refresh = el("button", "ghost", "刷新");
   refresh.type = "button";
   refresh.onclick = () => loadDiff();
-  note.append(el("span", "", "包括所有轮次和人自己的改动，不只这一轮"), refresh);
+  note.append(el("span", "", r.copy ? "只算这条对话在副本里的改动，原目录里没提交的改动已经在基线里" : "包括所有轮次和人自己的改动，不只这一轮"), refresh);
   const body = el("div", "sp-body");
   if (d.err) body.append(el("div", "meta err", d.err));
   else if (!d.data) body.append(el("div", "meta", "读取中…"));

@@ -36,7 +36,7 @@ go run . web -remote devbox -remote devbox2   # 一次连几台；启动后也�
 
 这一版只有平台空间：登录后看到的就是 `.data/` 下的数据。早期 `users.json` 里带 `tenant` 的账号登录时会被拒绝，提示“租户账号暂不支持”。
 
-网页端支持新对话、续聊、停止，以及每个模型 Step 的完整输入输出。运行中输入的话先显示在输入框上方，送到模型时进对话，没赶上这一轮的接着作为下一条消息发；“立即发送”会停下当前这一步，点停止则把它放回输入框。运行时按 Tab（或点“排队”）是排到这一轮结束之后再发，队列存在 app-server 里，所有打开这条对话的页面都看得到；排着的时候待发送区列出“这一轮结束后发（N）”，停下以后给“发第一条”。输入框旁边的下拉还能选推理强度（高、中、低、最低），每轮都可以换，默认值在设置页里。对话可以改名、归档、删除（左侧列表每行右边的“⋯”）：已归档的默认收在列表最后的“已归档（N）”里；删除会删掉这条对话的存档、各轮的检查点与快照、浏览器画面，以及按第一轮存的沙箱目录、工具输出与会话记录，不能撤销。左侧列表标出在等你审批、等你回答的对话（标题前的小标签）和上次看过以后又有新结果的对话（行尾的小圆点；“看过”只记在这个浏览器里），有在等的对话时标签页标题前面加条数；设置页的“通知”能打开浏览器通知，页面不在前台时对话跑完、停在等你审批或回答就提醒。列表上面的搜索框能搜对话的名字、问题和回答（不区分大小写，已归档的也搜，结果按最近活动排，片段里命中的字加粗），点一条打开那条对话，清空搜索框或按 Esc 回到原来的列表；搜索框旁边的工作区筛选只显示某个工作区（或“无工作区”）的对话，选择记在这个浏览器里。顶栏的“改动”面板看工作区相对 HEAD 的 diff（包括所有轮次和人自己改的、未跟踪的文件），每轮末尾列出这一轮改过的文件，点“看改动”直接展开。输入框里敲 `@` 搜工作区的文件（`git ls-files` 的结果，按路径子序列匹配），选中插入路径。网页端是 app-server 的客户端：它自己启动时先做一次 `app-server start`，之后所有对话、设置、文件都在 app-server 里，网页端退出不影响正在跑的对话。网页端没有 `-dev` 了，要从源码跑 agent 就 `TERN_HOME=$PWD go run . app-server -dev` 或 `TERN_HOME=$PWD go run . app-server start -dev`（要求 `TERN_HOME` 就是 tern 源码根目录，否则报错退出）。
+网页端支持新对话、续聊、停止，以及每个模型 Step 的完整输入输出。运行中输入的话先显示在输入框上方，送到模型时进对话，没赶上这一轮的接着作为下一条消息发；“立即发送”会停下当前这一步，点停止则把它放回输入框。运行时按 Tab（或点“排队”）是排到这一轮结束之后再发，队列存在 app-server 里，所有打开这条对话的页面都看得到；排着的时候待发送区列出“这一轮结束后发（N）”，停下以后给“发第一条”。输入框旁边的下拉还能选推理强度（高、中、低、最低），每轮都可以换，默认值在设置页里。对话可以改名、归档、删除（左侧列表每行右边的“⋯”）：已归档的默认收在列表最后的“已归档（N）”里；删除会删掉这条对话的存档、各轮的检查点与快照、浏览器画面，以及按第一轮存的沙箱目录、工具输出与会话记录，不能撤销。对话还可以定一个目标：标题下面一行常显，没有目标时是“＋ 定个目标”，点一下改，留空就是清除；改了以后下一轮开始时告诉模型一次，正在跑的这一轮不打断。左侧列表标出在等你审批、等你回答的对话（标题前的小标签）和上次看过以后又有新结果的对话（行尾的小圆点；“看过”只记在这个浏览器里），有在等的对话时标签页标题前面加条数；设置页的“通知”能打开浏览器通知，页面不在前台时对话跑完、停在等你审批或回答就提醒。列表上面的搜索框能搜对话的名字、问题和回答（不区分大小写，已归档的也搜，结果按最近活动排，片段里命中的字加粗），点一条打开那条对话，清空搜索框或按 Esc 回到原来的列表；搜索框旁边的工作区筛选只显示某个工作区（或“无工作区”）的对话，选择记在这个浏览器里。顶栏的“改动”面板看工作区相对 HEAD 的 diff（包括所有轮次和人自己改的、未跟踪的文件），每轮末尾列出这一轮改过的文件，点“看改动”直接展开。顶栏的“后台命令（N）”看模型这一轮用后台方式跑的命令（`bash` 带 `background=true`）：列表里有命令、状态（在跑 / 已结束，退出码 N / 已停止：原因）和跑了多久，在跑的可以“看输出”（每 2 秒刷新，只看不消费，模型自己 `bash_output` 照样读到）和“停止”（先确认，写审计 `user_job_kill`）；这一轮结束后列表还在，没有按钮。输入框里敲 `@` 搜工作区的文件（`git ls-files` 的结果，按路径子序列匹配），选中插入路径。对话停下时，输入框里 `!命令` 在这条对话的沙箱里跑一条命令（和模型的 bash 同一个沙箱，工作区按这条对话的权限模式可写或只读），输出作为一张卡片留在对话里，下一轮模型也看得到；运行中发 `!` 会提示等这一轮结束。运行中按 Esc 和点停止一样（待发送区里有话时是“立即发送”：停下这一轮，这些话作为下一条消息发出去）。每轮回答下面的“复制”把这一轮的 Markdown 原文写进剪贴板；顶栏的“导出”把整条对话存成一个 Markdown 文件（每轮的问题、插话、用到的工具次数与回答，不含工具的参数与结果），在页面里拼，不经服务端。顶栏的“旁支提问”（对话停下时才有）从最后一轮临时分出去问一句，问答不进原对话；旁支在已归档里，前面标“旁支”，打开时最上面一条横幅可以返回原对话。网页端是 app-server 的客户端：它自己启动时先做一次 `app-server start`，之后所有对话、设置、文件都在 app-server 里，网页端退出不影响正在跑的对话。网页端没有 `-dev` 了，要从源码跑 agent 就 `TERN_HOME=$PWD go run . app-server -dev` 或 `TERN_HOME=$PWD go run . app-server start -dev`（要求 `TERN_HOME` 就是 tern 源码根目录，否则报错退出）。
 起 agent 用哪个程序：app-server 起 agent 用 `/proc/self/exe`（没有 `/proc` 时用 `os.Executable()`），也就是正在跑的那个程序本身。**改了代码以后重新起界面就行**：界面（网页端、chat、`app-server start`）启动时发现后台的 app-server 是另一个程序（build 不同），并且比自己先启动，就把它换成自己的程序。正在跑的对话不打断：agent 是独立进程，由新的 app-server 接管，这一轮仍用旧程序跑完，下一轮用新的。换了会打一行“后台的 app-server 换成了这次启动的程序（build … → build …）”。
 
 - build 是可执行文件内容的 sha256 前 12 位：同一份源码编两次结果相同，不会白换。
@@ -57,9 +57,17 @@ go run . web -remote devbox -remote devbox2   # 一次连几台；启动后也�
 
 ### 远程（SSH）
 
-`go run . web -remote devbox`、`go run . chat -remote devbox`：界面在本机，对话、agent、代码、模型密钥都在远端。本机用系统的 ssh 连远端，跑的是 `ssh -T -o BatchMode=yes devbox 'exec "$SHELL" -lc "tern app-server proxy"'`，用它的标准输入输出说协议：不开端口、不需要公网，鉴权就是 SSH，也不需要在本机放模型密钥。
+`go run . web -remote devbox`、`go run . chat -remote devbox`：界面在本机，对话、agent、代码、模型密钥都在远端。本机用系统的 ssh 连远端，`ssh -T -o BatchMode=yes devbox <命令>`，<命令> 是 `exec "$SHELL" -lc 'bin="$HOME/.tern/bin/tern"; [ -x "$bin" ] || bin=tern; exec "$bin" app-server proxy'`，用它的标准输入输出说协议：不开端口、不需要公网，鉴权就是 SSH，也不需要在本机放模型密钥。登录 shell 里优先用 `~/.tern/bin/tern`（网页里“装到远端”装的就是那里），没有才用 PATH 上的 `tern`。
 
-远端的准备：装好 tern（协议版本和本机一致，对不上时 `initialize` 会报出两边的版本；远端重新安装以后，下一次连接时远端的 `proxy` 会把那边的 app-server 换成新装的，规则同上），tern 在登录 shell 的 PATH 上（proxy 走登录 shell，`~/.profile` 里设的 PATH 和 `TERN_HOME` 才生效），`TERN_HOME` 里有 `.env`（模型密钥），工作区在远端的设置页里登记（网页端的设置页改的就是远端的设置）。第一次连某台机器要先在终端里手动 `ssh devbox` 一次：确认主机指纹、登录，之后的连接带 `BatchMode=yes`，不会在后台卡在输密码或确认指纹那一步。
+远端的准备：装好 tern（协议版本和本机一致，对不上时 `initialize` 会报出两边的版本；远端重新安装以后，下一次连接时远端的 `proxy` 会把那边的 app-server 换成新装的，规则同上），tern 在登录 shell 的 PATH 上或者 `~/.tern/bin/tern` 里（proxy 走登录 shell，`~/.profile` 里设的 PATH 和 `TERN_HOME` 才生效），`TERN_HOME` 里有 `.env`（模型密钥），工作区在远端的设置页里登记（网页端的设置页改的就是远端的设置）。
+
+第一次连某台机器要在终端里手动 `ssh devbox` 一次（确认主机指纹、登录），之后的连接带 `BatchMode=yes`，不会在后台卡在输密码或确认指纹那一步。下面这几样也可以在网页的主机菜单里补（只在网页端，chat 没有）：
+
+- 远端没装 tern（菜单写“远端找不到 tern”），或者已连上的那台程序不是本机的：菜单里有“装到远端”“用本机的 tern 更新远端”，把本机正在跑的程序拷到远端的 `~/.tern/bin/tern`。只拷同系统同架构的，不同会提示在远端安装（在源码目录里 `go install .`）；装完自动重连，远端的 proxy 会把那边的 app-server 换成新的，正在跑的对话不会被打断。
+- 第一次连这台机器（菜单写“还没确认过这台机器的主机指纹”）：点“确认指纹”，列出 `ssh-keyscan` 取到的公钥类型与指纹，和你在那台机器上看到的一致再确认，就写进本机的 `~/.ssh/known_hosts`（写入前再扫一次核对，中途换了就不写）。
+- 远端没有配模型密钥（菜单写“远端没有配模型密钥”）：点“从本机复制密钥”，勾上本机 `.env` 里有值的几个（`ARK_API_KEY`、`DEEPSEEK_API_KEY`…），确认后经 ssh 的标准输入写进远端 `TERN_HOME` 的 `.env`（已有同名的行替换、没有的追加，权限 0600；那台机器上能读你文件的人都看得到），新起的对话就生效。
+- 连不上的原因会写明是哪一步：SSH 认证失败（`auth`）、还没确认主机指纹（`hostkey`）、解析不了或连不上（`unreachable`）、远端找不到 tern（`no-tern`）、两边的协议版本不一致（`protocol`），认不出的只给 ssh 的原文（`other`）。网页端 `POST /hosts` 连不上回 502 与 JSON `{error, kind, hint, detail}`。
+
 `-remote` 只认 `~/.ssh/config` 里具体的 Host 别名或 `user@host`：带通配符的 `Host` 会匹配到别的机器，以 `-` 开头的会被 ssh 当成选项，都拒绝。
 远程模式下网页端内置的计算器 MCP（`/mcp`）在本机的网页端进程里，远端的 agent 连不到，这一期不处理：要用就在远端另起一个网页端。
 
@@ -75,7 +83,7 @@ go run . web -remote devbox -remote devbox2   # 一次连几台；启动后也�
 - 地址：本机的页面与接口不变（`/`、`/runs`、`/?run=…`，旧链接照样能开）；远端主机的页面与数据接口带 `/h/<别名>` 前缀，如 `/h/devbox/runs`、`/h/devbox/?run=…`。没连上的主机回 404“没有连上主机 devbox”，记住了但这次没连上的回 502（文字是那次的报错）；只带了 `-remote` 时本机没连，`GET /` 跳到第一台。
 - 左侧对话列表按主机分组：当前主机在最上面，每组标题写“主机 · 状态”；点别的主机的对话整页跳到那台的地址。观测页的“加入对比”只在当前主机这一组。
 - 断开当前主机时，正在看的事件流随之结束，页面跳到剩下的第一台。
-- 工作区：设置页的“浏览…”和新对话工作区下拉的最后一项“＋ 添加工作区…”都逐层浏览目录，把选中的目录登记成工作区；远端主机的页面浏览的是远端的目录，登记进远端的设置。对话框打开时在目录列表上面列出“可能要找的仓库”（已登记工作区的上一级和家目录下的 `workspace`、`code`、`src`、`projects`、`repos`、`dev` 里还没登记的 git 仓库，按目录修改时间排，最多 20 个），点一下跳到那个目录；设置页在“浏览…”下面列前 5 个，每个后面一个“登记”。工作区可以改名（设置页每个工作区后面的“改名”）：只改登记的名字，平台层与个人层里的“默认工作区”跟着改，已有对话照旧显示原来的名字、续聊用的还是那个目录。不是 git 仓库的目录也能登记（对话框里“git init 后登记”，或者确认后“不用 git，直接登记”）：代价是撤销只能退回 `edit_file`、`write_file` 改过的文件，bash 改的退不回来，改动面板也看不了；设置页把这样的工作区标成“不是 git 仓库”。
+- 工作区：设置页的“浏览…”和新对话工作区下拉的最后一项“＋ 添加工作区…”都逐层浏览目录，把选中的目录登记成工作区；远端主机的页面浏览的是远端的目录，登记进远端的设置。对话框打开时在目录列表上面列出“可能要找的仓库”（已登记工作区的上一级和家目录下的 `workspace`、`code`、`src`、`projects`、`repos`、`dev` 里还没登记的 git 仓库，按目录修改时间排，最多 20 个），点一下跳到那个目录；设置页在“浏览…”下面列前 5 个，每个后面一个“登记”。工作区可以改名（设置页每个工作区后面的“改名”）：只改登记的名字，平台层与个人层里的“默认工作区”跟着改，已有对话照旧显示原来的名字、续聊用的还是那个目录。不是 git 仓库的目录也能登记（对话框里“git init 后登记”，或者确认后“不用 git，直接登记”）：代价是撤销只能退回 `edit_file`、`write_file` 改过的文件，bash 改的退不回来，改动面板也看不了；设置页把这样的工作区标成“不是 git 仓库”。新对话时还可以勾上工作区旁边的“副本”：在 `.data/copies/<工作区名>-<对话ID 前 8 位>` 里开对话（原目录的提交与没提交的改动都带过去，先提交成基线），原目录一点不碰；列表里副本对话前面标“副本”，停下以后顶栏给“应用到 <工作区名>”，点了把副本里的改动写进原目录的工作区（不提交；对不上时回冲突，把 git 的报错显示出来），改动面板看的是副本相对基线的改动。删除副本对话时副本目录一起删掉。
 
 装到 PATH 上：
 
@@ -100,7 +108,7 @@ tern -question '计算 1231+23123'
 | 本地向量模型 | 不需要 embedding API 密钥；首次使用会下载模型 | `-embedding local`；聊天请求仍使用选定的线上模型 |
 | 浏览器 | 本机安装 Chrome/Chromium；`CHROME_PATH` 可指定可执行文件 | `-browser`；仅环境变量读取浏览器配置 |
 | DeepSeek 搜索 | 与 DeepSeek 聊天模型共用 `DEEPSEEK_API_KEY`；Search/Fetch 按成功请求计费 | `-ds-search`；与选用哪家聊天模型无关 |
-| Bash 沙箱 | Linux、bubblewrap；cgroup 资源限制依赖 systemd 用户会话 | `-bash` |
+| Bash 沙箱 | Linux 用 bubblewrap（cgroup 资源限制依赖 systemd 用户会话），macOS 用 `sandbox-exec`（Seatbelt，不限制内存与 CPU）；后台命令可以用 `bash_input` 写输入，`tty=true` 开伪终端（需要 `script`） | `-bash` |
 | 网页端登录 | 账号在 `.data/users.json`，用 `go run . web -add-user` 添加 | 没有账号时网页端拒绝启动 |
 | 调用链追踪 | 无需配置，span 写入 `.data/traces/`；`OTEL_EXPORTER_OTLP_ENDPOINT` 另发给 Jaeger 等 OTLP 平台；`OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true` 采集提示词与工具内容 | 默认只记元数据 |
 
@@ -111,6 +119,15 @@ tern -question '计算 1231+23123'
 默认使用原生 Tool Calling：工具定义在请求的 `tools` 字段，模型返回 `tool_calls`，回答不限制文本格式。默认没有常驻工具；检索、记忆、MCP、Skills、子 agent、浏览器、DeepSeek 搜索、Bash、编码工具按需开启，日期（Asia/Shanghai）在环境信息里。`-disallowed-tools` 去掉其中单个工具（逗号分隔，只有浏览器的 web_search、open_page；名字与 Claude Code 的 `--disallowed-tools` 一致，但只认工具名，按调用拦截用 `-deny` 规则）；网页端在设置里逐个开关，默认关 web_search，搜索用 ds_search，打开网页用 open_page。
 
 推理强度默认 `high`。API 输出上限默认省略，显式设置 `-max-output-tokens` 才发送；本地上下文规划仍保留输出空间，省略 API 参数不代表无限输出。向量检索直接在 agent 进程内执行。
+
+设置分四层：内置默认 › 平台 › 项目 › 个人，后面的覆盖前面的。项目层是工作区根目录的 `.agents/tern.json`，一个扁平的 JSON 对象，键和设置页一样、值都是字符串，例如：
+
+```json
+{"provider": "deepseek", "reasoning_effort": "medium", "web_search": "off",
+ "permission_rules": "deny Bash(git push *)", "net_allow": "proxy.golang.org", "max_steps": "200"}
+```
+
+能放 `provider`、`model`、`reasoning_effort`、`permission_mode`、`permission_rules`、`net_allow`、`max_steps`、`context_window`、`tool_output` 和工具开关（`rag`、`memory`、`skills`、`mcp`、`subagents`、`ask_user`、`bash`、`web_search`、`open_page`、`ds_search`、`coding`）。`permission_rules`、`net_allow` 是追加不是覆盖：项目的规则接在平台规则后面，白名单取并集。`hooks` 会在宿主机上跑命令，只能在平台设置里配；`workspace`、`embedding`、`memory_ttl` 也不收。不生效的键、值不合规的那一项、不是合法 JSON 的整份文件都不生效，设置页的“来源”里会说明；工作区列表里给这些工作区标“有项目配置”，悬停列出生效的键。项目配置只在对话选了这个工作区时生效：新对话开始时读一次、拍进快照，续聊照快照不重读；已登记的工作区就当作信任，第一轮之前页面顶部一条横幅说明它改了哪些设置，不拦。chat 与命令行 agent 不读项目配置。
 
 ## 代码结构
 
@@ -181,7 +198,7 @@ tern -question '计算 1231+23123'
 | `-memory-mode` | rerank | memory-search 的方式：keyword（旧关键词）、vector、bm25、hybrid（RRF）、rerank（完整流程） |
 | `-memory-context-calls` | 4 | 本次运行最多几次背景生成；0 表示全部按原文检索 |
 | `-memory-tokens` | 800 | 注入或返回的记忆估算 token 预算，另有最多5条的上限 |
-| `-mcp-server` | 空 | MCP server：`http(s)://…` 地址连远程 server（Streamable HTTP），否则当作子进程命令（stdio，按空格切分，不经过shell）；可重复给多个；配合 `-question` 时把它们的工具注册为 `mcp_*`，连不上的 server 打印 `MCP error` 后跳过；`-mcp-list`/`-mcp-raw` 只接受一个 |
+| `-mcp-server` | 空 | MCP server：`http(s)://…` 地址连远程 server（Streamable HTTP），否则当作子进程命令（stdio，按空格切分，不经过shell）；可重复给多个；配合 `-question` 时把它们的工具注册为 `mcp_*`，连不上的 server 打印 `MCP error` 后跳过；要求 OAuth 的远程 MCP 先在网页端的 MCP 中心点“登录”（令牌存在 `.data/mcp-tokens.json`），没登录时这个 server 跳过并提示去登录；server 提供 resources 时另加两个工具 `list_mcp_resources`、`read_mcp_resource`；`-mcp-list`/`-mcp-raw` 只接受一个 |
 | `-mcp-list` | false | 只用 SDK 连接 `-mcp-server`，打印协议版本、capabilities 与工具列表，不请求模型 |
 | `-mcp-raw` | 空 | 不用 SDK，手写 JSON-RPC：`legacy`（initialize 握手）或 `modern`（server/discover + 每请求 `_meta`），逐行打印收发 |
 | `-mcp-call` / `-mcp-args` | 空 / `{}` | 配合 `-mcp-list` 或 `-mcp-raw` 再调用一次指定工具 |
@@ -201,7 +218,7 @@ tern -question '计算 1231+23123'
 | `-subagent-steps` | 6 | 每个子 agent 的模型请求预算，1到20 |
 | `-provider` | ark | 模型路由：`ark`（豆包，方舟 Coding Plan）、`deepseek`、`deepseekanthropic`（DeepSeek 的 Anthropic 接口）或 `coconut`（本机 Responses 服务）；子 agent 继承，续跑沿用 |
 | `-model` | 空 | 这家供应商下的具体模型，优先于 `LLM_MODEL` / `DEEPSEEK_MODEL`；写进检查点的启动参数，子 agent 继承，续跑与回放沿用 |
-| `-bash` | false | 增加 bash 与 request_network_access，命令在 bubblewrap 沙箱里执行（仅 Linux）；工作目录按对话保留，续聊各轮共用，网页端可上传、下载 |
+| `-bash` | false | 增加 bash 与 request_network_access，命令在沙箱里执行（Linux 用 bubblewrap，macOS 用 sandbox-exec）；工作目录按对话保留，续聊各轮共用，网页端可上传、下载 |
 | `-workspace` | 空 | 增加 read_file、glob、grep、edit_file、write_file，只在这个仓库目录里读写；子 agent 继承。配合 `-bash` 时 bash 的 `/workspace` 就是这个仓库（`.git` 只读，`.env`、`.data` 看不到），本对话目录改挂 `/scratch` |
 | `-personal-instructions` | true | 读 `TERN_HOME` 下的 `AGENTS.md`（默认 `~/.tern/AGENTS.md`）作为个人指令放进系统提示词，排在项目指令前面，没选工作区也带上；`TERN_HOME` 就是工作区根目录时这个文件已作为项目指令读了，不再读一遍。评测传 `false`，结果才可比；子 agent 继承 |
 | `-permission-mode` | edit | plan（只读计划）、ask（改动都问）、edit（工作区内编辑与沙箱 bash 直接执行）、full（不问，含高风险确认，由程序放行并写审计；deny、ask 规则照常） |
@@ -213,6 +230,7 @@ tern -question '计算 1231+23123'
 | `-ds-search` | false | 增加 ds_search 与 ds_fetch，调用 DeepSeek 的 Search/Fetch API（服务端执行，没有画面）；子 agent 继承。 |
 | `-tool-format` / `-coding-prompt` / `-todo` / `-clear-old-results` | json / default / false / false | 消融开关，默认值就是现在的做法：工具结果发给模型时用纯文本、编码提示词的 minimal 或 extended 写法、上下文内的 todo 清单、续聊时清理之前各轮的工具结果 |
 | `-check` | 空 | 不请求模型，只在工作区只读挂载的沙箱里跑这条命令，最后一行输出 JSON 的退出码与输出（编码评测的校验命令用它），须配合 `-workspace` 与 `-bash` |
+| `-shell` | 空 | 不请求模型，只在沙箱里跑这一条命令，最后一行输出 JSON 的退出码与输出：工作区按 `-permission-mode` 决定能不能写，沙箱目录由环境变量 `AGENT_SHELL_DIR` 指定（网页端的 `!命令` 用它，app-server 填这条对话的沙箱目录），须配合 `-bash` |
 | `-ask-user` | false | 增加 ask_user，模型可以在运行中向人提问（经协议的 `user/requestInput`）；只在界面上有人能当场回答时打开，终端客户端与网页端自动加上，子 agent 不继承 |
 
 </details>
@@ -223,7 +241,7 @@ tern -question '计算 1231+23123'
 
 | 名字 | 类型 | 做什么 |
 | --- | --- | --- |
-| `/review` | 命令 | 评审工作区里还没提交的改动，按严重程度列出问题，不改文件 |
+| `/review` | 命令 | 评审改动：默认是还没提交的改动，`/review main` 对比 main 分支，`/review <提交>` 评审那个提交；按严重程度列出问题，不改文件 |
 | `/init` | 命令 | 看一遍工作区，生成或更新根目录的 `AGENTS.md`（项目是什么、构建与测试命令、约定） |
 | `code-review` | skill | 按“先构建、再看逻辑”的固定顺序评审 Go 代码；模型判断任务相关时用 load_skill 加载 |
 
@@ -247,8 +265,26 @@ tern -question '计算 1231+23123'
 | `go run . app-server start [-dev]` | 幂等启动：控制 socket 能答 `initialize`、是同一个程序（或者比这个进程晚启动）就直接返回；是另一个程序、又比这个进程先启动，就让它退出，换成这个程序（见上面“改了代码以后重新起界面就行”，有评测在跑时不换）；没在运行就以新会话（setsid）在后台起一个，把 `-dev` 传给它，输出写 `.data/app-server/app-server.log`，等它能握手再返回（最多 30 秒）；子进程提前退出就不再等，报错并带上日志的最后几行。同一个 `TERN_HOME` 里同时启动的排队（`.data/app-server/start.lock`）。输出一行 JSON：socket、pid、version、build，换了或者没换的原因在 `notice` |
 | `go run . app-server stop` | 发 `server/shutdown`，按 pid 文件等进程真的不在才返回（socket 与 pid 文件都已删掉）；没有在运行的 app-server 时提示“没有在运行的 app-server”，正常退出 |
 | `go run . app-server proxy` | 经 SSH 时由界面调用：先做一次 start，再把标准输入输出与控制 socket 原样转发，任何一边断开就退出；stdout 只走协议 |
+| `go run . mcp-server [-remote 别名]` | 把 tern 当 MCP server（stdio）：名字 `tern`，版本是程序的版本。别的 agent 客户端（Claude Code、Codex）把一件事交给 tern 做，tern 经 app-server 开对话（和网页端、chat 一样，所以对话进列表、审批在网页端答），等这一轮结束再返回 `{thread_id, outcome, answer}`。三个工具：`tern_start`（`prompt`，可选 `workspace`、`provider`、`model`、`permission`）、`tern_reply`（`thread_id`、`prompt`，可选 `permission`）、`tern_threads`（`limit`，默认 20）。等的时候每 10 秒发一次进度通知（第几次模型请求；在等审批时写“去网页端答复”），调用方取消这次调用就发 `turn/interrupt` 停这一轮。`-remote` 经 ssh 连远端的 app-server（同 `tern web -remote`）。怎么配进客户端见下面“把 tern 当 MCP server” |
 | `go run . queue` | 任务队列：按 `queue/tasks.jsonl` 逐个执行，每个任务一个 agent 子进程，同一个 id 只执行一次；用仓库里的 `queue/tasks.jsonl` 要 `TERN_HOME=$PWD` |
 | `go run . metrics [-since 168h] [-prefix ID前缀] [-tenant 租户] [-json]` | 统计完成率、耗时、成本等核心指标，只读 `.data/` |
 | `go run . eval` / `go run . eval -cases eval/coding-cases.jsonl` | 评测：通用评测集（每题 k 次、DeepSeek 评审，需要 `DEEPSEEK_API_KEY`）或编码任务评测（每个试次一份新的仓库拷贝，校验命令在沙箱里只读运行）；`eval triage`、`eval replay` 做失败归因与回放；网页端左侧“评测与归因”是同一功能的页面；用仓库里的 `eval/*.jsonl` 要 `TERN_HOME=$PWD` |
 | `go run . audit [-tenant 租户] [-task ID] [-verify]` | 列出并校验审计日志（只追加、哈希链）；网页端左侧“审计日志”是只读页面 |
 | `go run . rewind [-tenant 租户] [-dry-run] [-mode both\|files\|chat] <轮次ID>` | 撤销这一轮及之后各轮用编码工具改过的文件，对话退回上一轮；`-mode files` 只退文件、`chat` 只退对话；网页端每轮问题下的“撤销”对话框（三种选法）和 chat 的 `/rewind <轮> [both\|files\|chat]` 是同一功能 |
+
+## 把 tern 当 MCP server
+
+`tern mcp-server` 是 stdio 上的 MCP server，让别的 agent 客户端把一件事交给 tern 做：开一条对话、等这一轮结束、把最终回答交回去。它连的是本机的 app-server（带 `-remote 别名` 时经 ssh 连远端），所以用之前网页端（或 `app-server start`）那边不用特意准备，`tern mcp-server` 自己会先做一次 start；工作区要先在网页端登记，用的时候只填名字。一轮可能跑很多分钟：客户端要支持长时间的工具调用，中途收到的是进度通知；遇到联网或工具审批时，去网页端答复（MCP 这一侧答不了审批）。
+
+- Claude Code：`claude mcp add tern -- tern mcp-server`（远端：`claude mcp add tern -- tern mcp-server -remote devbox`）。
+- Codex：`~/.codex/config.toml` 里
+
+  ```toml
+  [mcp_servers.tern]
+  command = "tern"
+  args = ["mcp-server"]
+  ```
+
+- 其他客户端：MCP 配置里 command 写 `tern`，args 写 `["mcp-server"]`。
+
+这和另外两样 MCP 不是一回事：`-mcp-serve` 是 tern 作为 MCP 客户端时顺带提供的计算器 server（`internal/mcp`），网页端的 `/mcp` 是给远端 agent 用的内置 server；`tern mcp-server` 反过来，把 tern 自己给别的客户端当工具用。

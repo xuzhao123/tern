@@ -1,6 +1,6 @@
 # 远程主机：装到远端、连不上时说清原因、在网页里确认指纹、复制模型密钥
 
-状态：设计（2026-10-24），交给 tern 实现（codex-parity-plan.md 2.1–2.4）。本机没有可以 SSH 上去的远端，远端部分由用户自己测。
+状态：已实现并完成收尾验证（2026-10-25），范围与证据见 [本批收尾记录](closeout-20261025.md)。
 
 ## 1. 为什么要改
 
@@ -57,8 +57,9 @@ Codex：`codex app-server daemon bootstrap` 在新机器上一条命令装好程
 - `initialize` 的 `ServerInfo` 加 `Providers []string json:"providers,omitempty"`：这台机器上配好了密钥的供应商（对路由表里的每家调 `llm.LoadConfig`，成功的列进来）。
 - 主机菜单里已连上的远端，`providers` 为空时显示“远端没有配模型密钥（<home>/.env）”和按钮“从本机复制密钥”。
 - 点了以后列出本机 `.env` 里有值的那几个密钥的**名字**（`ARK_API_KEY`、`DEEPSEEK_API_KEY`…，取路由表里各家的 `KeyVars`），勾选，`confirm()`：“这些密钥会写进 <别名> 上的 <home>/.env（权限 0600），那台机器上能读你文件的人都能看到。继续？”
-- `POST /hosts/{alias}/keys {names}`：网页端从本机 `TERN_HOME/.env` 读出这几个的值（同名环境变量优先，和 `llm` 读配置的规则一致），经 ssh 写进远端 `<home>/.env`：已有同名的那一行替换，没有的追加，写完 `chmod 600`；值经 ssh 的标准输入传，不出现在命令行上。写完提示“已写入，新对话生效”。
+- `POST /hosts/{alias}/keys {names}`：网页端从本机 `TERN_HOME/.env` 读出这几个的值（同名环境变量优先，和 `llm` 读配置的规则一致），经 ssh 写进远端 `<home>/.env`：已有同名的那一行替换，没有的追加，文件不存在时从空配置创建，已有文件读失败则报错且不覆盖；写完 `chmod 600`；值经 ssh 的标准输入传，不出现在命令行上。写完提示“已写入，新对话生效”。
 - **不做“密钥只放本机、远端请求绕回本机”**：那要让远端的 app-server 经界面的连接反过来请求本机，`internal/appserver/AGENTS.md` 定了不做 app-server 向界面发请求。写进 `codex-parity-plan.md` 2.4 的说明里。
+- 读写密钥与 proxy 使用同一个登录 shell 的 `TERN_HOME`；未设置才用 `~/.tern`，避免自定义数据目录时写到另一份配置。
 
 ## 3. 按文件的改动
 

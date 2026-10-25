@@ -1,0 +1,134 @@
+{
+  "goal": "照 spec/remote-setup.md 实现：远端安装 tern、连不上分类与提示、网页里确认主机指纹、复制模型密钥",
+  "features": [
+    {
+      "id": "F1",
+      "desc": "gofmt 干净，go vet ./... 与 go build ./... 通过（spec 5.1 的一部分）",
+      "check": "cd /workspace \u0026\u0026 test -z \"$(gofmt -l .)\" \u0026\u0026 go vet ./... \u0026\u0026 go build ./...",
+      "passing": true,
+      "verified": {
+        "at": "2026-10-24T20:33:38.395717696Z",
+        "verifier": "ark/doubao-seed-2.1-pro",
+        "exit_code": 0,
+        "verdict": "pass",
+        "reason": "校验命令退出码为 0，说明 gofmt 无待格式化文件，且 go vet ./... 与 go build ./... 均通过。"
+      }
+    },
+    {
+      "id": "F2",
+      "desc": "appclient/ssh.go：proxy 命令优先 $HOME/.tern/bin/tern；RemoteError 六种 kind；InstallRemote 只拷同系统同架构；HostKeys/TrustHostKeys/WriteRemoteKeys 存在",
+      "check": "cd /workspace \u0026\u0026 go build ./internal/appclient \u0026\u0026 grep -q 'bin=\"$HOME/.tern/bin/tern\"' internal/appclient/ssh.go \u0026\u0026 for k in auth hostkey unreachable no-tern protocol other; do grep -q \"Remote.*= \\\"$k\\\"\" internal/appclient/ssh.go || exit 1; done \u0026\u0026 grep -q 'func InstallRemote' internal/appclient/ssh.go \u0026\u0026 grep -q 'func HostKeys' internal/appclient/ssh.go \u0026\u0026 grep -q 'func TrustHostKeys' internal/appclient/ssh.go \u0026\u0026 grep -q 'func WriteRemoteKeys' internal/appclient/ssh.go",
+      "passing": true,
+      "verified": {
+        "at": "2026-10-24T20:33:49.317837118Z",
+        "verifier": "ark/doubao-seed-2.1-pro",
+        "exit_code": 0,
+        "verdict": "pass",
+        "reason": "校验命令退出码为 0，go build 成功，且 ssh.go 中存在指定 proxy 路径、六种 RemoteError kind 以及 InstallRemote、HostKeys、TrustHostKeys、WriteRemoteKeys 函数。"
+      }
+    },
+    {
+      "id": "F3",
+      "desc": "手机关（DialRemote 失败）返回 *RemoteError，握手时识别协议版本不一致",
+      "check": "cd /workspace \u0026\u0026 grep -q 'func dialError' internal/appclient/ssh.go \u0026\u0026 grep -q 'dialError(' internal/appclient/rpc.go \u0026\u0026 grep -q '协议版本不一致' internal/appclient/ssh.go \u0026\u0026 go build ./...",
+      "passing": true,
+      "verified": {
+        "at": "2026-10-24T20:33:56.555645954Z",
+        "verifier": "ark/doubao-seed-2.1-pro",
+        "exit_code": 0,
+        "verdict": "pass",
+        "reason": "校验命令退出码为 0，且相关代码包含 dialError、调用点及“协议版本不一致”提示，go build 成功。"
+      }
+    },
+    {
+      "id": "F4",
+      "desc": "appserver 的 ServerInfo 加 Providers，对路由表每家调 llm.LoadConfig 列出配好密钥的",
+      "check": "cd /workspace \u0026\u0026 grep -q 'Providers \\[\\]string' internal/appserver/handle.go \u0026\u0026 grep -q 'llm.LoadConfig' internal/appserver/handle.go \u0026\u0026 go build ./internal/appserver",
+      "passing": true,
+      "verified": {
+        "at": "2026-10-24T20:34:01.617999582Z",
+        "verifier": "ark/doubao-seed-2.1-pro",
+        "exit_code": 0,
+        "verdict": "pass",
+        "reason": "校验命令退出码为 0，证明 handle.go 中包含 Providers 字段和 llm.LoadConfig 调用，且 appserver 构建成功。"
+      }
+    },
+    {
+      "id": "F5",
+      "desc": "网页端：/hosts 失败回 JSON {error,kind,hint,detail}；/connection 带 kind、hint；新路由 install、hostkey(GET/POST)、keys(GET/POST)",
+      "check": "cd /workspace \u0026\u0026 for r in 'POST /hosts/{alias}/install' 'GET /hosts/{alias}/hostkey' 'POST /hosts/{alias}/hostkey' 'GET /hosts/{alias}/keys' 'POST /hosts/{alias}/keys'; do grep -qF \"$r\" internal/web/server.go || exit 1; done \u0026\u0026 grep -q 'Kind ' internal/web/server.go \u0026\u0026 grep -q 'hostFailure' internal/web/server.go \u0026\u0026 go build ./internal/web",
+      "passing": true,
+      "verified": {
+        "at": "2026-10-24T20:34:09.278395627Z",
+        "verifier": "ark/doubao-seed-2.1-pro",
+        "exit_code": 0,
+        "verdict": "pass",
+        "reason": "校验命令退出码为 0，指定的 install、hostkey、keys 路由及相关标识均存在，且 internal/web 构建成功。"
+      }
+    },
+    {
+      "id": "F6",
+      "desc": "connection.js 按 kind 显示 hint/detail 与按钮（再试一次、确认指纹、装到远端/更新远端、复制密钥），语法通过 node --check",
+      "check": "cd /workspace \u0026\u0026 node --check internal/web/page/connection.js \u0026\u0026 grep -q 'hostkey' internal/web/page/connection.js \u0026\u0026 grep -q '确认指纹' internal/web/page/connection.js \u0026\u0026 grep -q '从本机复制密钥' internal/web/page/connection.js \u0026\u0026 grep -q 'hm-hint' internal/web/page/app.css",
+      "passing": true,
+      "verified": {
+        "at": "2026-10-24T20:34:15.369175922Z",
+        "verifier": "ark/doubao-seed-2.1-pro",
+        "exit_code": 0,
+        "verdict": "pass",
+        "reason": "node --check 语法校验通过，且 connection.js 与 app.css 中均包含要求的关键字和样式标识。"
+      }
+    },
+    {
+      "id": "F7",
+      "desc": "README 远程一节与 internal/web/AGENTS.md 补上：装到远端、连不上说原因、确认指纹、复制密钥",
+      "check": "cd /workspace \u0026\u0026 grep -q '装到远端' README.md \u0026\u0026 grep -q '确认指纹' README.md \u0026\u0026 grep -q '复制' README.md \u0026\u0026 grep -q '复制密钥' internal/web/AGENTS.md",
+      "passing": true,
+      "verified": {
+        "at": "2026-10-24T20:34:21.298073674Z",
+        "verifier": "ark/doubao-seed-2.1-pro",
+        "exit_code": 0,
+        "verdict": "pass",
+        "reason": "校验命令退出码为 0，且 README.md 与 internal/web/AGENTS.md 均包含要求的关键内容。"
+      }
+    }
+  ],
+  "notes": [
+    {
+      "at": "2026-10-24T20:34:34.801733473Z",
+      "text": "spec/remote-setup.md 已实现，F1–F7 全部通过验证；gofmt/vet/build/node --check 通过，工作区只有 8 个改动的文件（未提交）。沙箱里另做了三组自测：假 ssh 测 12 种失败分类、假远端测 InstallRemote/WriteRemoteKeys、headless Chrome 测主机菜单（确认指纹、装到远端、复制密钥三种按钮）；起过临时 web 端测 /hosts 502 JSON 与 /connection 的 kind/hint，临时目录都已删。simulate 里没做的：spec 5.4–5.9（真实模型、真实远端）留给 Claude Code 与用户。下一步（要收尾的人）：照着 spec 5.4–5.9 在真机上跑一遍，特别看已连上远端的“更新远端”之后的事件流是否按预期重连。"
+    },
+    {
+      "at": "2026-10-24T20:43:13.152618845Z",
+      "text": "另一个任务（spec/side-question.md，与上面 remote-setup 的 F1–F7 无关）：旁支提问已实现，未提交。改动 7 个文件：internal/appserver/{server.go,threads.go,AGENTS.md}、internal/web/page/{index.html,shell.js,chat.js}、README.md。gofmt -l . 无输出，go vet ./...、go build ./...、node --check shell.js/chat.js 都通过；另在 /scratch 的临时 TERN_HOME 里用协议级测试验过：带 side 的 thread/fork 回 side:true + archived:true + name「旁支」，.meta.json 写 {\"name\":\"旁支\",\"archived\":true,\"side\":true}，重启后 thread/list 仍带 side，改名后 side 不丢；不带 side 的分叉行为不变。临时目录已删。剩余是 spec 5.3–5.5（真实模型、无头 Chrome：四步、横幅、返回原对话、运行中灰掉），留给 Claude Code 在沙箱外做。"
+    },
+    {
+      "at": "2026-10-24T21:03:11.098571249Z",
+      "text": "spec/copy-workspace.md 已实现（未提交，10 个文件改动）：appserver 的 thread/start copy（makeCopy/dropCopy/gitIn/copyFile、start 事件 copy_of/copy_base、summary copy）、workspace/applyCopy、删除时连副本目录一起删（workDirsOfOthers 保护分叉）、diff.go 用 copy_base、handle.go 方法表、web 的 POST /runs/{id}/apply-copy、页面（副本勾选框、列表标记、#apply-copy-btn、composer 带 copy、app.css）、appserver AGENTS.md 与 README。验收：gofmt/vet/build 与 node --check 通过；在 /scratch 的临时 TERN_HOME 里用协议级测试（python 直连 control.sock）跑通建副本（含未提交与未跟踪的改动、基线提交）、diff 只显示模型改动、applyCopy 后原目录无新提交、409 冲突、删除连副本目录、分叉共用目录时不删；失败路径（非 git 目录）回 500 且不留副本；用无头 Chrome + 打桩 fetch 验过勾选框可用性、列表“副本”、按钮文案/禁用、confirm 文案、成功与冲突提示、发送体里的 copy。临时文件都已删。剩下的 spec 5.3–5.6（真实模型、真网页端）留给 Claude Code 在沙箱外做。"
+    },
+    {
+      "at": "2026-10-24T21:10:48.871770676Z",
+      "text": "spec/shell-command.md 已实现（未提交，11 个文件改动）：main.go 的 -shell（flag+执行分支，要求 -bash、沙箱目录取 AGENT_SHELL_DIR）、sandbox.Shell（走 execute 的可写路径）、appserver 的 thread/shellCommand + shell 事件 + notes() 认它 + lastTurnEvent 跳过它、handle.go 方法表、web 的 POST /runs/{id}/shell、页面（composer.js 的 ! 分支与 runShell、shell.js 的提示行、runs.js 的 shells、chat.js 的 shellCard、app.css）、README（网页端一段 + -shell 参数行）。验收 5.1 全部通过（gofmt 无输出、go vet/go build、四个页面脚本 node --check）；5.2 见本轮回答里的行号。另在沙箱里做了两组自测：临时 TERN_HOME 里造存档 + python 直连 control.sock 跑 thread/shellCommand（400/409 各分支、shell 事件写进 .jsonl、审计 user_shell_command、加过 shell 事件后 can_continue 仍为 true），无头 Chrome 加载真实页面验卡片/折叠/截断/提示行/三条发送分支（临时目录已删）。沙箱里 bwrap 不能嵌套，所以命令本身只跑出 bwrap 的 ENOSPC 报错，真实命令、plan 只读、断网、真实模型留给 spec 5.3–5.7（Claude Code 在沙箱外做）。"
+    },
+    {
+      "at": "2026-10-24T21:22:57.828240774Z",
+      "text": "spec/bash-interactive.md 已实现（未提交，6 个文件改动：internal/sandbox/{jobs.go,sandbox.go,network.go}、internal/agent/{toolspec.go,dispatch.go}、README.md）。验收 5.1 通过：gofmt -l . 无输出，go vet ./...、go build ./... 通过；5.2 是读代码报告（见本轮回答：stdin 写端在命令结束/被停/close=true 时由 j.closeInput 关掉，tty 命令行是 sandbox-init script -q -f -e -c \u003c命令\u003e /dev/null）。沙箱里 bwrap 不能嵌套（--unshare-all 报 ENOSPC），所以没有实跑；另做了两项机制自测：宿主机上用真管道 + script 验过“写 y\\n 回答 read -p”“python3 -i -q 输入后 close 读到 EOF”“退出码”（临时目录已删），并在临时 clone 里用 package 内的假 job 跑通 bash_input 的写、close（命令读到 EOF）、已结束报错、空参数、超过 64KB、没有这个 job 五条分支。剩下的 spec 5.3–5.5（真实模型跑 read -p、python3 -i、已结束再写）留给 Claude Code 在沙箱外做。"
+    },
+    {
+      "at": "2026-10-24T21:42:47.367759799Z",
+      "text": "spec/mcp-oauth.md 已实现，未提交（10 个改动文件 + 新文件 internal/mcp/oauth.go）。验收 5.1 通过：gofmt -l . 无输出、go vet ./... 与 go build ./... 通过、node --check internal/web/page/pages.js 通过。沙箱里另做了四组自测（临时 TERN_HOME + python 写的假 MCP/OAuth server，文件都已删）：① 协议级：hub/mcp/test 回 auth=required 且输出“MCP 需要登录…”，hub/mcp/login/start 动态注册（cid-1）→ PKCE S256 + state，令牌文件 0600（.lock 也 0600）、hub.json 不变，login/finish 换到 tkn-1，hub/enabled 与 hub/list 的 auth=logged_in，带令牌 -mcp-list 成功（发 Bearer tkn-1），logout 删掉整项、auth 变回 required，state 复用与错 state 都回 400；② 过期令牌：手改成 expired + 有 refresh_token，-mcp-list 自动 refresh，文件里变成 tkn-2；③ 不支持动态注册的 server：回 400“这个 MCP server 不支持自动注册客户端…”，带 client_id/client_secret 再点就能走，凭据只进令牌文件；④ 真网页端 + 无头 Chrome：登录后 POST /hub/mcp/fake/login，回调 GET /mcp-oauth/callback（不带 cookie）回 200“已登录 fake”并带 postMessage，bogus state 回 400，审计有 user_mcp_login/user_mcp_logout（Target=fake，带登录名）；页面打桩验过三种卡片（需要登录+登录+两个可选输入 / 已登录+退出登录 / stdio 没有登录行）、测试连接后原地变成“需要登录”、登录时 POST 体带 redirect 与 client_id、postMessage 会刷新 MCP 中心。剩下的 spec 5.3–5.7（真实 OAuth MCP、真浏览器授权）留给用户自己测。实现时对 spec 的几处取舍写在回答里（agent 侧提示用 URL 而不是 hub 名字；auth=required 只在 app-server 内存里；回调路由免登录；logout 删整项；另外动了 spec 文件表没列的 internal/web/auth.go 与 app.css）。"
+    },
+    {
+      "at": "2026-10-24T21:53:52.5368562Z",
+      "text": "spec/tern-mcp-server.md 已实现，未提交：新包 internal/mcpserver（mcpserver.go、AGENTS.md），main.go 分派 mcp-server 子命令，README “其他入口”加一行 + 新增“## 把 tern 当 MCP server”一节（Claude Code/Codex 配置、与 -mcp-serve、/mcp 的区别）。验收 5.1 通过：gofmt -l . 无输出、go vet ./... 与 go build ./... 通过；5.2 的行号见本轮回答（订阅/exit/end 在 mcpserver.go:214-298，取消发 turn/interrupt 在 :292-295 与 :322-326）。沙箱里另用 tcp 上“只收不答”的假上游（LLM_API_URL）配合真 app-server/真 agent 做了四组自测：tools/list 三个工具、tern_start 返回 {thread_id,outcome:exit status 1,answer:\"\"}、10 秒进度通知“第 1 次模型请求”、cancel 让 turn/interrupt 停下这一轮（存档里 Interrupt: turn/interrupt / Termination: cancelled）、tern_reply 在同一线程续聊并返回本轮（不是上一轮）的结局、线程运行中 reply 回 isError“暂不能续聊”。临时文件已删。没在沙箱里做的：真实模型、网页端列表、answer 的真实取值（spec 5.3-5.6 留给 Claude Code）。"
+    },
+    {
+      "at": "2026-10-24T23:09:23.609994763Z",
+      "text": "spec/macos-sandbox.md 已实现（未提交，10 个文件改动）：internal/sandbox 拆成 sandbox.go（共用）+ launch_linux.go（bwrap/seccomp/systemd-run，行为不变）+ launch_darwin.go + seatbelt.sbpl（go:embed，-D 传路径，WRITE-WORKSPACE 标记按可写/只读拼两份策略）；network.go 在 macOS 上监听 127.0.0.1 随机端口并给 proxyEndpoint；main.go 的 BashMount 在 darwin 上是真实路径；appserver settings 的 unavailable(\"bash\") 认 darwin；sandbox/AGENTS.md 与 README 补 macOS。验收 5.1 全部通过（gofmt -l 无输出；go vet/go build；GOOS=darwin GOARCH=arm64 go build；GOOS=darwin go vet）。5.2 用 HEAD 版与改后版各自 dump bwrapArgs 对比，三种组合（无工作区、工作区可写、工作区只读+tty）输出一字不差；macOS 策略参数见本轮回答。沙箱里另跑了一次 -bash -shell，Linux 路径照旧（bwrap 在这个嵌套沙箱里仍报 ENOSPC）。剩下的 5.3–5.7（真实模型、Mac 上实测）留给 Claude Code 与用户。"
+    },
+    {
+      "at": "2026-10-25T01:25:54.752805334Z",
+      "text": "验收后补的 10 条（thread-goal 清空、copy-workspace 面板文案、shell 三条（summary.shells/loadRuns 重载、notes 只去尾换行、shellBusy 409）、project-config 的 2.3/2.5、mcp-resources 的 Outbound 与只有 resources 的 server、macos-sandbox 的 seatbelt 本机回环与工具说明、view_image 的 macOS 绝对路径）已改完，未提交。16 个改动文件（含 internal/appserver/AGENTS.md 两处说明），spec 未动。验收：gofmt -l 无输出，go vet/go build、GOOS=darwin GOARCH=arm64 go build、GOOS=darwin go vet 全过，diff.js/shell.js/composer.js/pages.js node --check 通过；第 8 条用临时 mcp-go 小程序（只声明 resources）跑 -mcp-list 得到“没有工具 / resources：2 个”、不报错，临时目录与二进制已删；另在临时 TERN_HOME 里用协议级测试验过 summary.shells=1、清除未说过的目标后 .meta.json 被删（不留空目标）、清除说过的目标后留下 text:\"\" 的待提醒项。shellBusy 的两条 409 与 notes 的前导空格只做了代码级确认（沙箱里 bwrap 起不来，无法让命令真正跑着）。下一步：真机按 10 条逐一复核，特别是 macOS 上本机服务连不上、只提供资源的 server 用真模型读 readme、以及新对话下拉跟着工作区变。"
+    }
+  ]
+}

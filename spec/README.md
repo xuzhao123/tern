@@ -2,6 +2,8 @@
 
 新功能先在这里写设计，确认后交给 tern 实现（分工见 [AGENTS.md](../AGENTS.md)，交给 tern 的步骤见 [.claude/skills/tern-implement](../.claude/skills/tern-implement/SKILL.md)）。一份设计一个 Markdown 文件，结构参照已有的几份：为什么要改、改什么、按文件的改动（含不要改的）、这一期不做什么、验收。只有用户要求时才另配 HTML 页面，两者内容一致，有出入以 Markdown 为准。
 
+收尾状态与验证边界见 [2026-10-25 收尾记录](closeout-20261025.md)。下方早期问题记录保留发现时的背景，是否已修以对应 spec 和任务清单为准。
+
 | 文档 | 内容 | 状态 |
 | --- | --- | --- |
 | [codex-parity-plan.md](codex-parity-plan.md) | **任务清单**：和 Codex 对齐的功能点，哪些没做、哪些做得不好，按优先级排；做某一条前先写它的 spec，填回这里 | 清单（2026-10-24），持续更新 |
@@ -26,20 +28,20 @@
 | [queued-followups.md](queued-followups.md) | 排队的后续消息：Tab 排到这一轮结束后，队列在服务端（计划 3.1） | 已实现（2026-10-24） |
 | [thread-search.md](thread-search.md) | 搜索对话的名字、问题和回答（计划 4.2） | 已实现（2026-10-24） |
 | [workspace-more.md](workspace-more.md) | 工作区候选目录、按工作区筛对话、工作区改名、登记不是 git 仓库的目录（计划 1.3–1.6） | 已实现（2026-10-24） |
-| [remote-setup.md](remote-setup.md) | 远程主机：把本机的 tern 装到远端、连不上时说清是哪一步、网页里确认指纹、把本机密钥复制到远端（计划 2.1–2.4） | 设计（2026-10-24），交给 tern 实现 |
-| [review-scope.md](review-scope.md) | `/review` 可以指定范围：未提交的改动、对比某个分支、某个提交（计划 3.13） | 设计（2026-10-24），交给 tern 实现 |
-| [web-esc-copy-export.md](web-esc-copy-export.md) | 网页端 Esc 打断、复制回答、导出对话为 Markdown（计划 3.8、3.9） | 设计（2026-10-24），交给 tern 实现 |
-| [side-question.md](side-question.md) | 旁支提问：临时分出去问一句，不进原对话（计划 3.10） | 设计（2026-10-24），交给 tern 实现 |
-| [thread-goal.md](thread-goal.md) | 对话的目标：常显在标题下面，改了下一轮告诉模型（计划 4.3） | 设计（2026-10-24），交给 tern 实现 |
-| [copy-workspace.md](copy-workspace.md) | 在工作区的副本里开对话，做完“应用到”原目录（计划 1.7） | 设计（2026-10-24），交给 tern 实现 |
-| [shell-command.md](shell-command.md) | 网页端 `!命令`：在这条对话的沙箱里跑一条命令，下一轮模型看得到（计划 3.11） | 设计（2026-10-24），交给 tern 实现 |
-| [background-jobs-panel.md](background-jobs-panel.md) | 网页端看、停模型起的后台命令（计划 3.12） | 设计（2026-10-24），交给 tern 实现 |
-| [bash-interactive.md](bash-interactive.md) | 后台命令能写输入（`bash_input`），可选伪终端（计划 6.2） | 设计（2026-10-24），交给 tern 实现 |
-| [project-config.md](project-config.md) | 项目级配置：工作区里的 `.agents/tern.json`（计划 5.2） | 设计（2026-10-24），交给 tern 实现 |
-| [mcp-resources.md](mcp-resources.md) | MCP 资源：`list_mcp_resources`、`read_mcp_resource`（计划 6.3） | 设计（2026-10-24），交给 tern 实现 |
-| [mcp-oauth.md](mcp-oauth.md) | MCP 的 OAuth 登录，令牌存 `.data/mcp-tokens.json`（计划 6.4） | 设计（2026-10-24），交给 tern 实现 |
-| [tern-mcp-server.md](tern-mcp-server.md) | `tern mcp-server`：别的客户端把 tern 当 MCP 工具用（计划 6.5） | 设计（2026-10-24），交给 tern 实现 |
-| [macos-sandbox.md](macos-sandbox.md) | macOS 上的 bash 沙箱（Seatbelt）（计划 6.1） | 设计（2026-10-24），交给 tern 实现 |
+| [remote-setup.md](remote-setup.md) | 远程主机：把本机的 tern 装到远端、连不上时说清是哪一步、网页里确认指纹、把本机密钥复制到远端（计划 2.1–2.4） | 已实现并收尾验证（2026-10-25），见收尾记录 |
+| [review-scope.md](review-scope.md) | `/review` 可以指定范围：未提交的改动、对比某个分支、某个提交（计划 3.13） | 已实现并收尾验证（2026-10-25），见收尾记录 |
+| [web-esc-copy-export.md](web-esc-copy-export.md) | 网页端 Esc 打断、复制回答、导出对话为 Markdown（计划 3.8、3.9） | 已实现并收尾验证（2026-10-25），见收尾记录 |
+| [side-question.md](side-question.md) | 旁支提问：临时分出去问一句，不进原对话（计划 3.10） | 已实现并收尾验证（2026-10-25），见收尾记录 |
+| [thread-goal.md](thread-goal.md) | 对话的目标：常显在标题下面，改了下一轮告诉模型（计划 4.3） | 已实现并收尾验证（2026-10-25），见收尾记录 |
+| [copy-workspace.md](copy-workspace.md) | 在工作区的副本里开对话，做完“应用到”原目录（计划 1.7） | 已实现并收尾验证（2026-10-25），见收尾记录 |
+| [shell-command.md](shell-command.md) | 网页端 `!命令`：在这条对话的沙箱里跑一条命令，下一轮模型看得到（计划 3.11） | 已实现并收尾验证（2026-10-25），见收尾记录 |
+| [background-jobs-panel.md](background-jobs-panel.md) | 网页端看、停模型起的后台命令（计划 3.12） | 已实现并收尾验证（2026-10-25），见收尾记录 |
+| [bash-interactive.md](bash-interactive.md) | 后台命令能写输入（`bash_input`），可选伪终端（计划 6.2） | 已实现并收尾验证（2026-10-25），见收尾记录 |
+| [project-config.md](project-config.md) | 项目级配置：工作区里的 `.agents/tern.json`（计划 5.2） | 已实现并收尾验证（2026-10-25），见收尾记录 |
+| [mcp-resources.md](mcp-resources.md) | MCP 资源：`list_mcp_resources`、`read_mcp_resource`（计划 6.3） | 已实现并收尾验证（2026-10-25），见收尾记录 |
+| [mcp-oauth.md](mcp-oauth.md) | MCP 的 OAuth 登录，令牌存 `.data/mcp-tokens.json`（计划 6.4） | 已实现并通过 Keycloak 真实授权验收（2026-10-25），见收尾记录 |
+| [tern-mcp-server.md](tern-mcp-server.md) | `tern mcp-server`：别的客户端把 tern 当 MCP 工具用（计划 6.5） | 已实现并收尾验证（2026-10-25），见收尾记录 |
+| [macos-sandbox.md](macos-sandbox.md) | macOS 上的 bash 沙箱（Seatbelt）（计划 6.1） | 已实现并收尾验证（2026-10-25），见收尾记录 |
 | [architecture.md](architecture.md) | 现状：进程、模块与数据链路（界面 → app-server → agent → 模型与工具），数据落在哪 | 说明（2026-10-23），不是设计 |
 | [remote-agent-design.md](remote-agent-design.md)（配图页面 [remote-agent.html](remote-agent.html)） | 远程 agent：网页上的对话交给用户本机的 tern 执行；tern 的几种界面与命名 | 搁置（2026-10-23），改按 app-server-design.md 做。前置改动“macOS 上能编译”已完成 |
 | [remote-control-research.html](remote-control-research.html) | 调研：Claude Code 的 Remote Control、Codex 的远程连接与 app-server，和 tern 远程 agent 的两种方案对比，以及要先对齐的产品问题 | 调研（2026-10-23），不是设计 |

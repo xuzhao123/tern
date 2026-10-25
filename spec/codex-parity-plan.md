@@ -1,5 +1,7 @@
 # 和 Codex 对齐的任务清单
 
+2026-10-25 更新：第 4–6 批代码与验收修正已完成；6.4 已通过本地 Keycloak 的真实浏览器授权、自然过期刷新和退出验收。表格的差距列保留制定清单时的背景，当前进度看“状态”；详细证据见 [收尾记录](closeout-20261025.md)。
+
 2026-10-24 用户说：接下来进一步和 Codex 的体验对齐，这份清单就是任务列表。同一天又定了三件事：
 - **命令行界面（chat 做成 TUI）先不做，重点做网页端的体验**；工作区的添加方式、SSH 的连接方式也要对齐。
 - 计划做好以后直接交给 tern 干，**tern 全部干完再统一 review**，不必每条先等用户确认。
@@ -27,9 +29,9 @@
 
 Codex 把工作目录当“项目”管：`project/list`、`create`、`import`、`read`、`update`、`move`、`delete`，对话属于某个项目（`thread/project/updated`）。界面靠 `fs/readDirectory`、`fs/getMetadata`、`fs/createDirectory` 浏览所连机器上的目录来选，远端也一样。
 
-tern 现在：设置页里一个输入框，手敲路径（`internal/web/page/pages.js:135`）；必须是 git 仓库；名字取目录名；新对话只能从已登记的里选，没登记的要先去设置页。
+制定清单时的 tern：设置页里一个输入框，手敲路径（`internal/web/page/pages.js:135`）；必须是 git 仓库；名字取目录名；新对话只能从已登记的里选，没登记的要先去设置页。
 
-| # | 功能 | Codex 怎么做 | tern 现在 | 优先级 | 状态 | spec |
+| # | 功能 | Codex 怎么做 | 制定清单时的差距 | 优先级 | 状态 | spec |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1.1 | 浏览目录来选 | `fs/readDirectory` 浏览所连机器（本机或远端）的目录，点选打开 | 只能手敲路径，敲错了只有一句报错 | P0 | 已完成 | [workspace-picker.md](workspace-picker.md) |
 | 1.2 | 在新对话里直接添加 | 打开文件夹就是一个项目，不用先去设置 | 新对话的工作区下拉里只有已登记的；要先去设置页登记，再回来选 | P0 | 已完成 | [workspace-picker.md](workspace-picker.md) |
@@ -37,25 +39,25 @@ tern 现在：设置页里一个输入框，手敲路径（`internal/web/page/pa
 | 1.4 | 对话按项目分组、筛选 | 对话挂在项目下，还能分组（`threadSection/*`） | 左侧列表按主机分组，不按工作区分 | P1 | 已完成 | [workspace-more.md](workspace-more.md) |
 | 1.5 | 工作区改名 | `project/update` | 名字取目录名，重名加 `-2`，不能改；能移除 | P2 | 已完成 | [workspace-more.md](workspace-more.md) |
 | 1.6 | 不是 git 仓库的目录 | 可以用（`codex exec` 要加 `--skip-git-repo-check`，TUI 先问要不要信任） | 直接拒绝（“改坏了要能用 git 回退”）；可以考虑给个“git init”按钮 | P2 | 已完成 | [workspace-more.md](workspace-more.md) |
-| 1.7 | 在 worktree 里开对话 | `/worktree`：新开一个 git worktree 跑这条对话，不碰当前目录 | 没有；tern-implement 是手动 clone | P2 | 设计中 | [copy-workspace.md](copy-workspace.md) |
+| 1.7 | 在 worktree 里开对话 | `/worktree`：新开一个 git worktree 跑这条对话，不碰当前目录 | 没有；tern-implement 是手动 clone | P2 | 已完成 | [copy-workspace.md](copy-workspace.md) |
 
 ## 2. SSH 远程
 
 Codex：远端跑一个常驻的 daemon。`codex app-server daemon bootstrap` 在新机器上一条命令装好程序包、写好设置、起后台服务（`app-server-daemon/README.md`），还能自动更新。客户端经 SSH 连这个 daemon，TUI 也认 SSH 转发过来的 socket（`tui/src/startup_orchestration.rs:109`）。另有不走 SSH 的 `remoteControl/*` 配对，靠 OpenAI 的服务中转，tern 不跟。
 
-tern 现在（README“远程”一节）：每个界面各自起 `ssh -T -o BatchMode=yes <别名> 'exec "$SHELL" -lc "tern app-server proxy"'`。远端要自己装好 tern、在登录 shell 的 PATH 上、`TERN_HOME` 里有 `.env`。第一次连某台机器要先在终端里手动 `ssh` 一次确认指纹。网页端的主机菜单列 `~/.ssh/config` 里的别名，连不上时显示 ssh 的报错原文。
+制定清单时的 tern（README“远程”一节）：每个界面各自起 `ssh -T -o BatchMode=yes <别名> 'exec "$SHELL" -lc "tern app-server proxy"'`。远端要自己装好 tern、在登录 shell 的 PATH 上、`TERN_HOME` 里有 `.env`。第一次连某台机器要先在终端里手动 `ssh` 一次确认指纹。网页端的主机菜单列 `~/.ssh/config` 里的别名，连不上时显示 ssh 的报错原文。
 
-| # | 功能 | Codex 怎么做 | tern 现在 | 优先级 | 状态 | spec |
+| # | 功能 | Codex 怎么做 | 制定清单时的差距 | 优先级 | 状态 | spec |
 | --- | --- | --- | --- | --- | --- | --- |
-| 2.1 | 远端一键装好、版本跟上 | `daemon bootstrap` 把程序装到远端、起服务；`daemon update` 更新 | 要登录远端手动装 tern、配 `~/.profile`；两边协议版本不一致时只能手动重装。可以考虑：远端没有或版本不对时，本机经 ssh 把自己的程序拷过去（同架构时），放进远端的 `~/.tern/bin`，proxy 直接用这个路径，不依赖 PATH | P1 | 设计中 | [remote-setup.md](remote-setup.md) |
-| 2.2 | 连不上时说清是哪一步、怎么办 | daemon 的命令都输出一行 JSON，客户端按字段判断 | 只显示 ssh 的报错原文；看不出是认证失败、指纹没确认、远端找不到 tern、版本不一致，还是远端没放密钥 | P1 | 设计中 | [remote-setup.md](remote-setup.md) |
-| 2.3 | 第一次连接在网页里确认指纹 | 桌面端自己处理 | 必须先去终端手动 `ssh` 一次，否则 `BatchMode` 直接失败 | P2 | 设计中 | [remote-setup.md](remote-setup.md) |
-| 2.4 | 远端的模型密钥 | 远端 daemon 用自己的登录状态 | 远端的 `TERN_HOME` 里必须有 `.env`。要不要让远端的模型请求绕回本机、密钥只放本机，需要先想清楚 | P2 | 设计中 | [remote-setup.md](remote-setup.md) |
-| 2.5 | 远端的工作区也能浏览着选 | 同 1.1，`fs/readDirectory` 走的是所连的机器 | 在远端主机的设置页里手敲远端路径 | P0（随 1.1） | 已完成（远端由用户测） | [workspace-picker.md](workspace-picker.md) |
+| 2.1 | 远端一键装好、版本跟上 | `daemon bootstrap` 把程序装到远端、起服务；`daemon update` 更新 | 要登录远端手动装 tern、配 `~/.profile`；两边协议版本不一致时只能手动重装。可以考虑：远端没有或版本不对时，本机经 ssh 把自己的程序拷过去（同架构时），放进远端的 `~/.tern/bin`，proxy 直接用这个路径，不依赖 PATH | P1 | 已完成 | [remote-setup.md](remote-setup.md) |
+| 2.2 | 连不上时说清是哪一步、怎么办 | daemon 的命令都输出一行 JSON，客户端按字段判断 | 只显示 ssh 的报错原文；看不出是认证失败、指纹没确认、远端找不到 tern、版本不一致，还是远端没放密钥 | P1 | 已完成 | [remote-setup.md](remote-setup.md) |
+| 2.3 | 第一次连接在网页里确认指纹 | 桌面端自己处理 | 必须先去终端手动 `ssh` 一次，否则 `BatchMode` 直接失败 | P2 | 已完成 | [remote-setup.md](remote-setup.md) |
+| 2.4 | 远端的模型密钥 | 远端 daemon 用自己的登录状态 | 远端的 `TERN_HOME` 里必须有 `.env`。要不要让远端的模型请求绕回本机、密钥只放本机，需要先想清楚 | P2 | 已完成 | [remote-setup.md](remote-setup.md) |
+| 2.5 | 远端的工作区也能浏览着选 | 同 1.1，`fs/readDirectory` 走的是所连的机器 | 在远端主机的设置页里手敲远端路径 | P0（随 1.1） | 已完成 | [workspace-picker.md](workspace-picker.md) |
 
 ## 3. 网页端交互
 
-| # | 功能 | Codex 怎么做 | tern 现在 | 优先级 | 状态 | spec |
+| # | 功能 | Codex 怎么做 | 制定清单时的差距 | 优先级 | 状态 | spec |
 | --- | --- | --- | --- | --- | --- | --- |
 | 3.1 | 排队的后续消息（和插话分开） | TUI 里 Enter 是插话，Tab 是排到这一轮结束后再发（`tui/src/bottom_pane/chat_composer.rs:835`）。队列在服务端（`thread/queue/add`、`update`、`delete`、`reorder`），换个客户端也看得到、能改顺序 | 运行中只有插话；没赶上的插话会接着发，但待发送区只在发出它的那个页面里 | P1 | 已完成 | [queued-followups.md](queued-followups.md) |
 | 3.2 | 改前面的问题重新发 | Esc Esc 回到上一条自己的消息，改了重发，后面的作废（`tui/src/app_backtrack.rs`）；协议里有 `thread/revert` | 有撤销（三种选法）和分叉，但没有“改这句重发”一步到位 | P1 | 已完成 | [edit-resend.md](edit-resend.md) |
@@ -64,37 +66,37 @@ tern 现在（README“远程”一节）：每个界面各自起 `ssh -T -o Bat
 | 3.5 | 推理强度 | 和模型一起选（`/model`） | 命令行有 `-reasoning-effort`，网页端没有入口 | P1 | 已完成 | [effort-picker.md](effort-picker.md) |
 | 3.6 | 跑完、要审批时通知 | TUI 失焦时发终端通知；`notify` 配一个程序，每轮结束调用（`core/src/config/mod.rs:798`） | 页面不在前台时什么都不提示，审批要人自己回来看 | P1 | 已完成 | [notify-unread.md](notify-unread.md) |
 | 3.7 | 未读标记 | `thread/readState/*`：哪些对话有没看过的新结果 | 没有 | P2 | 已完成 | [notify-unread.md](notify-unread.md) |
-| 3.8 | Esc 打断 | Esc | 只有停止按钮 | P2 | 设计中 | [web-esc-copy-export.md](web-esc-copy-export.md) |
-| 3.9 | 复制回答、导出对话 | `/copy` 复制最后的回答；`/export` 导出成 Markdown | 有复制按钮（`internal/web/page/util.js:141`，复制的是哪些内容待确认）；没有导出 | P2 | 设计中 | [web-esc-copy-export.md](web-esc-copy-export.md) |
-| 3.10 | 旁支对话 | `/side`：临时分叉出去问一句，不污染主对话 | 只有正式的分叉 | P2 | 设计中 | [side-question.md](side-question.md) |
-| 3.11 | 在界面里跑一条命令 | `!命令`（`thread/shellCommand`），输出进对话上下文；`command/exec` | 没有 | P2 | 设计中 | [shell-command.md](shell-command.md) |
-| 3.12 | 后台终端 | `thread/backgroundTerminals/list`、`terminate`：看、停后台命令 | 后台任务只有模型能管 | P2 | 设计中 | [background-jobs-panel.md](background-jobs-panel.md) |
-| 3.13 | 评审的几种范围 | `review/start`：未提交的改动、对比某个分支、某个提交、自定义说明 | 内置 `/review` 只看未提交的改动 | P2 | 设计中 | [review-scope.md](review-scope.md) |
+| 3.8 | Esc 打断 | Esc | 只有停止按钮 | P2 | 已完成 | [web-esc-copy-export.md](web-esc-copy-export.md) |
+| 3.9 | 复制回答、导出对话 | `/copy` 复制最后的回答；`/export` 导出成 Markdown | 有复制按钮（`internal/web/page/util.js:141`，复制的是哪些内容待确认）；没有导出 | P2 | 已完成 | [web-esc-copy-export.md](web-esc-copy-export.md) |
+| 3.10 | 旁支对话 | `/side`：临时分叉出去问一句，不污染主对话 | 只有正式的分叉 | P2 | 已完成 | [side-question.md](side-question.md) |
+| 3.11 | 在界面里跑一条命令 | `!命令`（`thread/shellCommand`），输出进对话上下文；`command/exec` | 没有 | P2 | 已完成 | [shell-command.md](shell-command.md) |
+| 3.12 | 后台终端 | `thread/backgroundTerminals/list`、`terminate`：看、停后台命令 | 后台任务只有模型能管 | P2 | 已完成 | [background-jobs-panel.md](background-jobs-panel.md) |
+| 3.13 | 评审的几种范围 | `review/start`：未提交的改动、对比某个分支、某个提交、自定义说明 | 内置 `/review` 只看未提交的改动 | P2 | 已完成 | [review-scope.md](review-scope.md) |
 
 ## 4. 会话管理
 
-| # | 功能 | Codex 怎么做 | tern 现在 | 优先级 | 状态 | spec |
+| # | 功能 | Codex 怎么做 | 制定清单时的差距 | 优先级 | 状态 | spec |
 | --- | --- | --- | --- | --- | --- | --- |
 | 4.1 | 改名、归档、删除 | `thread/name/set`、`thread/archive`、`unarchive`、`delete` | 都没有：网页端没有这些路由（`internal/web/server.go:150` 起），列表只增不减，标题就是第一句话 | P0 | 已完成 | [conversation-manage.md](conversation-manage.md) |
 | 4.2 | 搜索对话 | `thread/search`、`thread/searchOccurrences` | 没有 | P1 | 已完成 | [thread-search.md](thread-search.md) |
-| 4.3 | 长任务的目标 | `thread/goal/set`：给长任务定一个目标，跑偏了能看出来 | 有进度文件和 `verify_feature`，但界面上看不到“目标是什么、做到哪了” | P2 | 设计中 | [thread-goal.md](thread-goal.md) |
+| 4.3 | 长任务的目标 | `thread/goal/set`：给长任务定一个目标，跑偏了能看出来 | 有进度文件和 `verify_feature`，但界面上看不到“目标是什么、做到哪了” | P2 | 已完成 | [thread-goal.md](thread-goal.md) |
 
 ## 5. 指令与配置
 
-| # | 功能 | Codex 怎么做 | tern 现在 | 优先级 | 状态 | spec |
+| # | 功能 | Codex 怎么做 | 制定清单时的差距 | 优先级 | 状态 | spec |
 | --- | --- | --- | --- | --- | --- | --- |
 | 5.1 | 全局个人指令 | `~/.codex/AGENTS.md` 对所有项目生效，放在项目的 `AGENTS.md` 前面 | 只读工作区根目录和子目录的 `AGENTS.md`/`CLAUDE.md`（`internal/workspace/context.go:51`），`~/.tern/AGENTS.md` 不生效 | P0 | 已完成 | [personal-agents-md.md](personal-agents-md.md) |
-| 5.2 | 项目级配置 | 仓库里的 `.codex/config.toml`，信任这个项目以后生效 | 设置只有平台层和个人层；项目级只有 `.agents/commands/` | P2 | 设计中 | [project-config.md](project-config.md) |
+| 5.2 | 项目级配置 | 仓库里的 `.codex/config.toml`，信任这个项目以后生效 | 设置只有平台层和个人层；项目级只有 `.agents/commands/` | P2 | 已完成 | [project-config.md](project-config.md) |
 
 ## 6. 沙箱与工具
 
-| # | 功能 | Codex 怎么做 | tern 现在 | 优先级 | 状态 | spec |
+| # | 功能 | Codex 怎么做 | 制定清单时的差距 | 优先级 | 状态 | spec |
 | --- | --- | --- | --- | --- | --- | --- |
-| 6.1 | macOS 上的沙箱 | macOS 用 Seatbelt | 只有 Linux 的 bwrap；在 Mac 上直接跑 tern 没有 bash（现在靠 Lima 虚拟机） | P2 | 设计中 | [macos-sandbox.md](macos-sandbox.md) |
-| 6.2 | 交互式命令 | `exec_command` 起 PTY 会话，`write_stdin` 往里写（`core/src/tools/handlers/unified_exec.rs`） | `bash` 一次一条，`bash_output`、`bash_kill` 管后台任务，不能往进程里写输入 | P2 | 设计中 | [bash-interactive.md](bash-interactive.md) |
-| 6.3 | MCP 资源 | `list_mcp_resources`、`read_mcp_resource`（`core/src/tools/handlers/mcp_resource.rs`） | 只接 MCP 的 tools，不接 resources（`internal/mcp/mcp.go`） | P2 | 设计中 | [mcp-resources.md](mcp-resources.md) |
-| 6.4 | MCP 登录 | `/mcp login <名字>`，远程 MCP 的 OAuth（`rmcp-client/src/oauth_http_client.rs`） | 没有 OAuth，只能用不需要登录的 server | P2 | 设计中 | [mcp-oauth.md](mcp-oauth.md) |
-| 6.5 | 把 tern 当 MCP server | `codex mcp-server`：别的客户端把 Codex 当一个工具调用 | `-mcp-serve` 只暴露计算器 | P2 | 设计中 | [tern-mcp-server.md](tern-mcp-server.md) |
+| 6.1 | macOS 上的沙箱 | macOS 用 Seatbelt | 只有 Linux 的 bwrap；在 Mac 上直接跑 tern 没有 bash（现在靠 Lima 虚拟机） | P2 | 已完成 | [macos-sandbox.md](macos-sandbox.md) |
+| 6.2 | 交互式命令 | `exec_command` 起 PTY 会话，`write_stdin` 往里写（`core/src/tools/handlers/unified_exec.rs`） | `bash` 一次一条，`bash_output`、`bash_kill` 管后台任务，不能往进程里写输入 | P2 | 已完成 | [bash-interactive.md](bash-interactive.md) |
+| 6.3 | MCP 资源 | `list_mcp_resources`、`read_mcp_resource`（`core/src/tools/handlers/mcp_resource.rs`） | 只接 MCP 的 tools，不接 resources（`internal/mcp/mcp.go`） | P2 | 已完成 | [mcp-resources.md](mcp-resources.md) |
+| 6.4 | MCP 登录 | `/mcp login <名字>`，远程 MCP 的 OAuth（`rmcp-client/src/oauth_http_client.rs`） | 没有 OAuth，只能用不需要登录的 server | P2 | 已完成 | [mcp-oauth.md](mcp-oauth.md) |
+| 6.5 | 把 tern 当 MCP server | `codex mcp-server`：别的客户端把 Codex 当一个工具调用 | `-mcp-serve` 只暴露计算器 | P2 | 已完成 | [tern-mcp-server.md](tern-mcp-server.md) |
 
 ## 7. tern 有、但做得不如 Codex 的
 
@@ -112,7 +114,7 @@ tern 现在（README“远程”一节）：每个界面各自起 `ssh -T -o Bat
 
 2026-10-24 用户定：命令行界面先不做，重点做网页端。下面这些等网页端做完再看。到时还要先定一件事：chat 做成全屏 TUI（像 Codex 默认那样占满终端），还是内联模式（底部固定输入框和状态行，上面照常滚动，像 Codex 的 `--no-alt-screen`、Claude Code）。
 
-| # | 功能 | Codex 怎么做 | tern 现在 | 状态 |
+| # | 功能 | Codex 怎么做 | 制定清单时的差距 | 状态 |
 | --- | --- | --- | --- | --- |
 | 8.1 | 输入框：行编辑、历史、多行、粘贴 | `tui/src/bottom_pane/chat_composer.rs` | chat 用 `bufio` 读一行，不能改字、没有历史，粘贴多行会拆成好几句 | 暂缓 |
 | 8.2 | 状态行、Esc 打断、待发送区 | `Working (12s • esc to interrupt)` | 只有流式输出，Ctrl+C 停止 | 暂缓 |

@@ -115,7 +115,7 @@ func runTool(ctx context.Context, call llm.ToolCall) (result any, err error) {
 			out["workspace_note"] = fmt.Sprintf("这条 bash 改了工作区里 %d 个文件。bash 的改动没有快照，撤销这一轮时不会还原，之后再用编码工具改它们，撤销会因冲突被拒；也没经过编辑工具的 hook。改源码请用 edit_file、write_file，bash 用来构建、测试和查看。", len(changed))
 		}
 		return result, err
-	case "request_network_access", "bash_output", "bash_kill":
+	case "request_network_access", "bash_output", "bash_kill", "bash_input":
 		return sandbox.Run(ctx, call.ID, call.Function.Name, call.Function.Arguments)
 	case "read_file", "glob", "grep", "edit_file", "write_file":
 		return workspace.Run(ctx, call.Function.Name, call.Function.Arguments)
@@ -125,6 +125,18 @@ func runTool(ctx context.Context, call llm.ToolCall) (result any, err error) {
 		return websearch.Run(ctx, call.Function.Name, call.Function.Arguments)
 	case "read_output":
 		return readOutput(call.Function.Arguments)
+	case "list_mcp_resources", "read_mcp_resource":
+		var args struct {
+			Server string `json:"server"`
+			URI    string `json:"uri"`
+		}
+		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
+			return nil, llm.Permanent(errors.New("server、uri 需要是字符串"))
+		}
+		if call.Function.Name == "list_mcp_resources" {
+			return mcp.ListResources(ctx, args.Server)
+		}
+		return mcp.ReadResource(ctx, args.Server, args.URI)
 	case "view_image":
 		return viewImage(call.Function.Arguments)
 	case "progress":

@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/xuzhao123/tern/internal/llm"
 	"github.com/xuzhao123/tern/internal/protocol"
 )
 
@@ -28,6 +29,9 @@ type ServerInfo struct {
 	Started  time.Time `json:"started,omitzero"`
 	Dev      bool      `json:"dev,omitempty"`
 	Evals    int       `json:"evals,omitempty"` // 正在跑的评测：试次不能接管，有它们在时界面不换
+	// Providers 是这台机器上配好了的供应商（对路由表里的每家算一次配置）：网页端据此提示
+	// “远端没有配模型密钥”，并给“从本机复制密钥”的按钮。
+	Providers []string `json:"providers,omitempty"`
 }
 
 // 一个连接一份状态：第一条必须是 initialize，之后的方法才认。
@@ -104,9 +108,11 @@ var methods = map[string]func(*conn, protocol.Message) (any, *protocol.Error){
 	"thread/unsubscribe":   (*conn).threadUnsubscribe,
 	"thread/rewind":        (*conn).threadRewind,
 	"thread/fork":          (*conn).threadFork,
+	"thread/shellCommand":  (*conn).threadShellCommand,
 	"thread/import":        (*conn).threadImport,
 	"thread/attribute":     (*conn).threadAttribute,
 	"thread/name/set":      (*conn).threadNameSet,
+	"thread/goal/set":      (*conn).threadGoalSet,
 	"thread/archive":       (*conn).threadArchive,
 	"thread/unarchive":     (*conn).threadUnarchive,
 	"thread/delete":        (*conn).threadDelete,
@@ -115,6 +121,8 @@ var methods = map[string]func(*conn, protocol.Message) (any, *protocol.Error){
 	"turn/start":           (*conn).turnStart,
 	"turn/steer":           (*conn).turnSteer,
 	"turn/interrupt":       (*conn).turnInterrupt,
+	"thread/job/output":    (*conn).threadJobOutput,
+	"thread/job/kill":      (*conn).threadJobKill,
 	"approval/respond":     (*conn).approvalRespond,
 	"settings/read":        (*conn).settingsRead,
 	"settings/write":       (*conn).settingsWrite,
@@ -122,6 +130,7 @@ var methods = map[string]func(*conn, protocol.Message) (any, *protocol.Error){
 	"workspace/browse":     (*conn).workspaceBrowse,
 	"workspace/candidates": (*conn).workspaceCandidates,
 	"workspace/diff":       (*conn).workspaceDiff,
+	"workspace/applyCopy":  (*conn).workspaceApplyCopy,
 	"workspace/files":      (*conn).workspaceFiles,
 	"workspace/remove":     (*conn).workspaceRemove,
 	"workspace/rename":     (*conn).workspaceRename,
@@ -148,6 +157,9 @@ var methods = map[string]func(*conn, protocol.Message) (any, *protocol.Error){
 	"hub/mcp/delete":       (*conn).mcpDelete,
 	"hub/mcp/toggle":       (*conn).mcpToggle,
 	"hub/mcp/test":         (*conn).mcpTest,
+	"hub/mcp/login/start":  (*conn).mcpLoginStart,
+	"hub/mcp/login/finish": (*conn).mcpLoginFinish,
+	"hub/mcp/logout":       (*conn).mcpLogout,
 	"eval/list":            (*conn).evalList,
 	"eval/cases":           (*conn).evalCases,
 	"eval/get":             (*conn).evalGet,
@@ -225,7 +237,19 @@ func userName(m protocol.Message) string {
 func (s *Server) info() ServerInfo {
 	host, _ := os.Hostname()
 	return ServerInfo{Version: Version(), Protocol: Protocol, Host: host, Home: home(),
-		Build: Build(), Started: s.started, Dev: s.dev, Evals: s.runningEvals()}
+		Build: Build(), Started: s.started, Dev: s.dev, Evals: s.runningEvals(), Providers: providers()}
+}
+
+// providers 是这台机器上能用的供应商：路由表里的每家算一次配置（读 .env 与环境变量），
+// 算得出来（地址和密钥都有着落）的列进来。工作目录在 main 里已经换到 TERN_HOME，读的就是那里的 .env。
+func providers() []string {
+	var names []string
+	for _, p := range llm.Providers {
+		if _, err := llm.LoadConfig(p.Name); err == nil {
+			names = append(names, p.Name)
+		}
+	}
+	return names
 }
 
 // home 是 TERN_HOME 的绝对路径：main 已经 chdir 过去，环境变量也写回了。

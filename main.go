@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -30,6 +31,7 @@ import (
 	"github.com/xuzhao123/tern/internal/hooks"
 	"github.com/xuzhao123/tern/internal/llm"
 	"github.com/xuzhao123/tern/internal/mcp"
+	"github.com/xuzhao123/tern/internal/mcpserver"
 	"github.com/xuzhao123/tern/internal/memory"
 	"github.com/xuzhao123/tern/internal/metrics"
 	"github.com/xuzhao123/tern/internal/permission"
@@ -78,6 +80,10 @@ func main() {
 	// 常驻的 app-server：一个 TERN_HOME 一个，界面经控制 socket 连它；start、stop、proxy 是客户端那一侧（internal/appclient）。
 	if len(os.Args) > 1 && os.Args[1] == "app-server" {
 		run, service = func() error { return appServer(os.Args[2:]) }, "app-server"
+	}
+	// 把 tern 当 MCP server（stdio）：别的 agent 客户端把一件事交给 tern 做，对话开在 app-server 里。
+	if len(os.Args) > 1 && os.Args[1] == "mcp-server" {
+		run, service = func() error { return mcpserver.Run(os.Args[2:]) }, "mcp-server"
 	}
 	// 评测集与回归；归因卡片与回放验证。
 	if len(os.Args) > 1 && os.Args[1] == "eval" {
@@ -245,6 +251,7 @@ func run() error {
 	retries := flag.Int("retries", 2, "工具失败后额外重试次数，0 到 5")
 	provider := flag.String("provider", "ark", "模型路由：ark（豆包，方舟）、deepseek、deepseekanthropic（DeepSeek 的 Anthropic 接口）或 coconut（本机 Responses 服务）；地址、模型与密钥见 README")
 	check := flag.String("check", "", "不请求模型，只在沙箱里跑这条校验命令（工作区只读挂载，同 verify_feature），输出 JSON 的退出码与输出后退出；须配合 -workspace 与 -bash")
+	shell := flag.String("shell", "", "不请求模型，只在沙箱里跑这一条命令（工作区按 -permission-mode 决定能不能写，同网页端的 !命令），最后一行输出 JSON 的退出码与输出后退出；须配合 -bash，沙箱目录由 AGENT_SHELL_DIR 指定")
 	// 消融的开关：默认值就是现在的做法。
 	flag.StringVar(&llm.ToolFormat, "tool-format", "json", "消融：工具结果发给模型的格式，json（默认）或 text（只在发请求时换成纯文本，多行原样）")
 	flag.StringVar(&workspace.PromptVariant, "coding-prompt", "default", "消融：编码提示词，minimal（只说工作区）、default、extended（加并行读取、只用编辑工具改、该问就问、没验证不下结论）")
@@ -372,6 +379,23 @@ func run() error {
 			case "turn/interrupt":
 				interrupt()
 				protocol.Client.Reply(*m.ID, nil, nil)
+			// 网页端看、停模型起的后台命令：job 表在 agent 进程里，界面只能经这两个方法。
+			// job/output 只看不消费，模型下次 bash_output 照常从上次的位置读到。
+			case "job/output", "job/kill":
+				var p struct {
+					ID string `json:"id"`
+				}
+				json.Unmarshal(m.Params, &p)
+				call := sandbox.JobOutput
+				if m.Method == "job/kill" {
+					call = sandbox.JobStop
+				}
+				result, err := call(strings.TrimSpace(p.ID))
+				if err != nil {
+					protocol.Client.Reply(*m.ID, nil, &protocol.Error{Code: -32602, Message: err.Error()})
+					return
+				}
+				protocol.Client.Reply(*m.ID, result, nil)
 			case "turn/steer": // 运行中插话，排进下一次模型请求；这一轮已经结束时如实拒绝，界面改作下一轮的问题
 				var p struct {
 					Text     string `json:"text"`
@@ -688,10 +712,14 @@ func run() error {
 		llm.Tools = append(llm.Tools, workspace.Definitions...)
 		fmt.Printf("Workspace: dir=%s（编码工具只在这里读写）\n", workspace.Dir)
 		if sandbox.Enabled {
-			// bash 看到的 /workspace 就是这个仓库；plan 模式挂成只读。
+			// bash 看到的就是这个仓库；plan 模式挂成只读。macOS 上没有挂载，路径就是它的真实路径。
 			sandbox.Project, sandbox.ProjectWrite, sandbox.GoCache = workspace.Dir, permission.Mode != "plan", tenant.Here("gocache")
-			// 环境信息里写清 bash 里的工作区路径：编码工具用的是宿主机路径，bash 里是 /workspace。
+			// 环境信息里写清 bash 里的工作区路径：编码工具用的是宿主机路径，Linux 的沙箱里是 /workspace，
+			// macOS 的沙箱里仍是真实路径（不用改）。
 			workspace.BashMount = "/workspace"
+			if runtime.GOOS == "darwin" {
+				workspace.BashMount = workspace.Dir
+			}
 		}
 	}
 	// 个人指令和项目指令一样写进系统提示词；和工作区无关，所以放在 workspace.Open 之后（要看 TERN_HOME 是不是工作区根目录），
@@ -704,6 +732,24 @@ func run() error {
 	sandbox.Timeout = *bashTimeout
 	if sandbox.Enabled {
 		llm.Tools = append(llm.Tools, sandbox.Definitions()...)
+	}
+	// 人在网页端用 ! 发的命令（-shell）：和模型的 bash 同一个沙箱、同一套执行函数，只是工作区按权限模式决定
+	// 能不能写（-check 一律只读），沙箱目录用那条对话的（app-server 经 AGENT_SHELL_DIR 给出），不另建。
+	// 路径参数的校验已经做完，这里直接跑，最后一行是 JSON。
+	if *shell != "" {
+		if !sandbox.Enabled || *check != "" {
+			return errors.New("shell 须配合 -bash，不能与 check 同时用")
+		}
+		if sandbox.Dir = strings.TrimSpace(os.Getenv("AGENT_SHELL_DIR")); sandbox.Dir == "" {
+			return errors.New("shell 需要 AGENT_SHELL_DIR 指定沙箱目录")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), *bashTimeout+time.Minute)
+		defer cancel()
+		result, err := sandbox.Shell(ctx, "shell", *shell)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(os.Stdout).Encode(result)
 	}
 	// 评测的校验命令。和 verify_feature 一样在工作区只读的沙箱里跑：被测的代码是模型改过的，不在宿主机上直接执行。
 	// 沙箱目录（/scratch）默认每次新建；评测用 AGENT_CHECK_DIR 指定，先把这道题的检查脚本放进去，用完删掉。
@@ -793,6 +839,10 @@ func run() error {
 		defer conn.Close()
 		llm.Tools = append(llm.Tools, conn.Definitions(listed)...)
 		mcp.Conns = append(mcp.Conns, conn)
+	}
+	// 有 server 提供 resources 时加两个资源工具（只加一次，不按 server 加）；资源是 server 给的只读内容。
+	if mcp.HasResources() {
+		llm.Tools = append(llm.Tools, mcp.ResourceDefinitions...)
 	}
 	if *subagents {
 		// 子 agent 继承工具开关和运行参数；不继承长期记忆（子 agent 的“用户”是父 agent，不是真人）、

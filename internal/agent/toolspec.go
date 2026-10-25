@@ -27,6 +27,8 @@ var specs = map[string]Spec{
 	"search_docs":            {ReadOnly: true, Repeatable: true},
 	"load_skill":             {ReadOnly: true, Repeatable: true},
 	"read_output":            {ReadOnly: true, Repeatable: true},
+	"list_mcp_resources":     {ReadOnly: true, Repeatable: true, Outbound: true}, // 列 server 提供的资源，不改任何状态；问的是外面的 server，算外发
+	"read_mcp_resource":      {ReadOnly: true, Repeatable: true, Outbound: true}, // uri 会发给外面的 server，同样算外发
 	"search_memory":          {ReadOnly: true, Repeatable: true, Private: "memory"},
 	"remember_memory":        {Permission: "Write"},
 	"forget_memory":          {Irreversible: true, Permission: "Write"},
@@ -43,6 +45,7 @@ var specs = map[string]Spec{
 	"ds_fetch":               {ReadOnly: true, Repeatable: true, Outbound: true, Permission: "WebFetch"},
 	"bash_output":            {ReadOnly: true, Repeatable: true, Poll: true, Private: "bash"},                  // 读后台命令的输出，和 bash 同样算私有
 	"bash_kill":              {Repeatable: true},                                                               // 停掉已经停掉的命令什么也不做
+	"bash_input":             {Serial: true, Poll: true, Permission: "Bash"},                                   // 连着回答几次同一个 y 是正常的，不算重复动作；权限规则按 Bash(...) 一类处理
 	"progress":               {Serial: true, Private: "workspace"},                                             // 进度文件只由 harness 写
 	"verify_feature":         {Serial: true, Repeatable: true, Private: "workspace", Timeout: 6 * time.Minute}, // 跑校验命令再请验证者判定
 	"spawn_agent":            {Repeatable: true, Private: "subagent"},                                          // 子任务ID是幂等键；只在子 agent 读过私有数据时才算，见 trackPrivate

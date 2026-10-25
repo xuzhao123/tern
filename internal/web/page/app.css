@@ -98,10 +98,18 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
 #main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 #topbar { display: flex; align-items: center; gap: 12px; height: 52px; padding: 0 16px 0 20px; border-bottom: 1px solid var(--line); flex: none; }
 #menu { display: none; border: 0; background: none; padding: 4px; color: var(--muted); }
-#heading { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 10px; }
+#heading { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; align-content: center; gap: 0 10px; }
 #title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 #run-id { flex: none; padding: 1px 6px; border: 0; border-radius: 5px; background: none; color: var(--faint); font: 11.5px/1.6 var(--mono); white-space: nowrap; }
 #run-id:hover { background: var(--hover); color: var(--muted); }
+/* 标题下面一行是这条对话的目标（thread/goal/set）：整行可以点，点了用 prompt 改；没有目标时是淡色的“＋ 定个目标”。 */
+#goal { flex-basis: 100%; min-width: 0; display: flex; align-items: baseline; gap: 6px; padding: 0; border: 0; background: none; color: var(--muted); font-size: 12px; line-height: 1.5; text-align: left; }
+#goal:hover { color: var(--text); }
+#goal.empty #goal-text { color: var(--faint); }
+#goal:hover.empty #goal-text { color: var(--muted); }
+#goal-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#goal-edit { flex: none; padding: 0 4px; border-radius: 4px; color: var(--accent); }
+#goal:hover #goal-edit { background: var(--hover); }
 /* 对话 ID 只在悬停标题时出现，点一下复制；触屏没有悬停，一直显示。 */
 #run-id { opacity: 0; transition: opacity .15s; }
 #heading:hover #run-id, #run-id:focus-visible { opacity: 1; }
@@ -135,6 +143,15 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
 .hm-off:hover { background: var(--hover); color: var(--text); }
 .hm-cand { width: 100%; padding: 6px 10px; border: 0; border-radius: 8px; background: none; text-align: left; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hm-cand:hover { background: var(--hover); }
+/* 连不上的那台写清是哪一步、该做什么；连着的远端可以更新程序、复制密钥。 */
+.hm-more { padding: 0 10px 6px; }
+.hm-hint { color: var(--text); font-size: 12px; line-height: 1.5; }
+.hm-detail { margin-top: 2px; color: var(--faint); font-size: 11.5px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
+.hm-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.hm-btn { padding: 3px 9px; border: 1px solid var(--line); border-radius: 7px; background: none; color: var(--text); font-size: 12px; }
+.hm-btn:hover { background: var(--hover); }
+.hm-keys { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
+.hm-key { display: flex; align-items: center; gap: 6px; font-size: 12px; font-family: var(--mono); }
 #hm-form { display: flex; gap: 6px; padding: 6px 2px 2px; }
 #hm-form input { flex: 1; min-width: 0; padding: 5px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
 #hm-form button { flex: none; padding: 5px 10px; border: 0; border-radius: 8px; background: var(--text); color: var(--bg); font-size: 12.5px; }
@@ -247,6 +264,9 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
 .hub-card .meta, .hub-card .cmd { font-size: 11px; }
 .hub-card .cmd { font-family: var(--mono); color: var(--muted); }
 .hub-card pre { max-height: 320px; overflow: auto; font-size: 11px; }
+/* MCP 中心的登录状态：远程 server 才有；已登录时只留“退出登录”，没登录时给“登录”与可选的客户端身份（见 pages.js）。 */
+.mcp-auth { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; }
+.mcp-auth input { padding: 4px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); font: 11px/1.5 var(--mono); }
 .switch { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); cursor: pointer; }
 .hub-form { display: grid; gap: 8px; margin: 0 0 14px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--side); }
 .hub-form input, .hub-form textarea { width: 100%; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
@@ -311,6 +331,9 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
 select.pick { appearance: none; -webkit-appearance: none; padding-right: 22px; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M2 3.5l3 3 3-3' fill='none' stroke='%23999' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 7px center; }
 select.pick:hover:not(:disabled) { background-color: var(--hover); }
 select.pick:disabled { background-image: none; padding-right: 8px; }
+/* “副本”勾选框：跟工作区下拉排在一起，勾了就在这个工作区的副本里开对话（见 shell.js 的 syncComposer）。 */
+#copy-pick { display: flex; align-items: center; gap: 3px; user-select: none; }
+#copy-pick:has(input:disabled) { color: var(--faint); cursor: default; }
 .set-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 12px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--line); }
 .set-row:first-child { border-top: 0; }
 .set-row .sub { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 4px; }
@@ -437,6 +460,13 @@ select.pick:disabled { background-image: none; padding-right: 8px; }
 .diff-file .q { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .diff-file .sz { color: var(--muted); font: 12px var(--mono); white-space: nowrap; }
 .diff-body { margin: 2px 2px 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--term); color: var(--term-text); font: 12px/1.55 var(--mono); max-height: 360px; overflow: auto; }
+/* 后台命令侧栏：一条命令一块，状态、用时与按钮在下面一行，输出按终端的样子显示。 */
+.job-row { display: grid; gap: 4px; padding: 6px 8px 8px; border-radius: 8px; }
+.job-row.on { background: var(--sel); }
+.job-row .cmd { font: 12.5px/1.5 var(--mono); overflow-wrap: anywhere; }
+.job-row .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.job-row .age { color: var(--muted); font-size: 12px; margin-right: auto; }
+.job-out { margin: 2px 0 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--term); color: var(--term-text); font: 12px/1.55 var(--mono); max-height: 360px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .diff-line { display: block; white-space: pre-wrap; word-break: break-word; }
 .diff-line.add { color: var(--ok); }
 .diff-line.del { color: var(--err); }
@@ -448,6 +478,13 @@ select.pick:disabled { background-image: none; padding-right: 8px; }
 .term .cmd { color: var(--term-cmd); }
 .exit-chip { padding: 0 5px; border-radius: 4px; font: 500 10px/1.7 var(--mono); background: var(--soft); color: var(--muted); }
 .exit-chip.bad { background: color-mix(in srgb, var(--err) 12%, transparent); color: var(--err); }
+/* 两轮之间人自己用 ! 跑的命令（见 chat.js 的 shellCard）：命令一行，下面是输出 */
+.shellcard { margin: 10px 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.shellcard > .head { display: flex; align-items: center; gap: 10px; }
+.shellcard > .head .cmd { flex: 1; font: 500 12px/1.6 var(--mono); white-space: pre-wrap; word-break: break-word; }
+.shellcard pre.term { max-height: 360px; }
+.shellcard details > summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+.shellcard > .meta { margin-top: 6px; color: var(--faint); font-size: 12px; }
 .net-card { margin: 8px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); box-shadow: var(--shadow); }
 .net-card b { font: 600 13px var(--mono); }
 .net-card .why { margin: 4px 0 8px; color: var(--muted); font-size: 13px; white-space: pre-wrap; }

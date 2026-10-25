@@ -2,6 +2,7 @@ import { SOURCE_LABEL, endLabel } from "./analysis.js";
 import { renderChat } from "./chat.js";
 import { backToInput, renderSteers, start } from "./composer.js";
 import { openEvals } from "./eval.js";
+import { exportRun } from "./export.js";
 import { show, startReplay, stopReplay, syncRunURL } from "./follow.js";
 import { openCompare, select } from "./observe.js";
 import { pickWorkspace } from "./pages.js";
@@ -27,12 +28,34 @@ export function renderShell() {
   $("title").textContent = ui.tab === "compare" && !chat ? `对比 ${ui.checked.size} 条运行` : r ? r.query || r.id : "新对话";
   $("files-btn").hidden = !chat || !r?.sandbox;
   $("files-btn").classList.toggle("on", !!ui.filesOpen);
+  $("export-btn").hidden = !chat || !r;
+  // 旁支提问：对话停下时才能问，运行中灰掉（见 sideQuestion）；导入的对话与评测的试次不能分叉，不显示。
+  const sideBusy = !!r && (!r.exit || ui.loading || !!ui.replay);
+  $("side-btn").hidden = !chat || !r || !!r.source || !!r.eval;
+  $("side-btn").disabled = sideBusy;
+  $("side-btn").title = sideBusy ? "这一轮跑完才能问旁支问题" : "从这里临时分出去问一句，问答不进这条对话";
   $("diff-btn").hidden = !chat || !r?.workspace;
   $("diff-btn").classList.toggle("on", !!ui.diffOpen);
+  // 后台命令：这一轮跑过才有；N 是还在跑的条数（见 jobs.js）。
+  const runningJobs = r ? r.jobs.filter((j) => j.state === "running" && !r.exit).length : 0;
+  $("jobs-btn").hidden = !chat || !r?.jobs.length;
+  $("jobs-btn").textContent = `后台命令（${runningJobs}）`;
+  $("jobs-btn").classList.toggle("on", !!ui.jobsOpen);
+  // 副本对话：停下以后可以把副本里的改动应用回原目录（见 workspace/applyCopy）；跑着的时候灰着。
+  $("apply-copy-btn").hidden = !chat || !r?.copy;
+  $("apply-copy-btn").disabled = !r?.exit || !!ui.loading || !!ui.replay;
+  $("apply-copy-btn").textContent = r?.copy ? `应用到 ${r.workspace || "原目录"}` : "";
+  $("apply-copy-btn").title = r?.exit ? "把副本里的改动写进原目录的工作区，不提交" : "这一轮跑完才能应用";
   const runID = $("run-id");
   runID.hidden = !r;
   runID.textContent = r ? r.id.slice(0, 8) : "";
   runID.title = r ? `对话 ID：${r.id}，点击复制` : "";
+  // 标题下面一行是这条对话的目标（summary.goal）：导入的对话与评测的试次不显示，点了改见 editGoal。
+  const goal = $("goal"), goalText = r?.goal || "";
+  goal.hidden = !chat || !r || !!r.source || !!r.eval;
+  goal.classList.toggle("empty", !goalText);
+  $("goal-text").textContent = goalText ? "目标：" + goalText : "＋ 定个目标";
+  $("goal-edit").hidden = !goalText;
   document.title = (ui.waiting ? `(${ui.waiting}) ` : "") + (r ? `tern · ${r.id}` : "tern");
   const status = $("status");
   status.className = r && r.exit && r.exit !== "exit 0" ? "bad" : r && !r.exit ? "run" : "";
@@ -72,6 +95,19 @@ export function toolOn(key) {
 export async function loadSettings() {
   try { const res = await fetch(api("/settings")); if (res.ok) ui.settings = await res.json(); } catch {}
   syncComposer();
+}
+// 新对话选中的工作区取一次设置：项目配置（工作区里的 .agents/tern.json）只在这一层生效，见 spec 的 2.5。
+// 结果按工作区名字缓存在 ui.wsSettings；again 为真时重新取（人重新选了这个工作区，或者刚加进来）。
+// 取不到就记成 null 用平台的：发送时服务端自己按工作区合并，实际用的还是项目的值，只是下拉先显示平台的。
+export async function loadWsSettings(name, again = false) {
+  const cache = (ui.wsSettings ||= {}), loading = (ui.wsLoading ||= new Set());
+  if (!name || loading.has(name) || (!again && name in cache)) return;
+  loading.add(name);
+  try {
+    const res = await fetch(api(`/settings?workspace=${encodeURIComponent(name)}`));
+    cache[name] = res.ok ? (await res.json()).effective : cache[name] ?? null;
+  } catch { cache[name] = cache[name] ?? null; }
+  finally { loading.delete(name); syncComposer(); }
 }
 // 第二级模型下拉的清单：路由表只在 llm 包里，页面从 /models 读它，前端不抄一份。
 export async function loadModels() {
@@ -141,7 +177,9 @@ export function syncComposer() {
   // 全部撤销之后（rewoundAll）服务端仍可能允许在这条对话里重新开始（can_continue），那就不是“坏了”；
   // can_continue 由 loadRuns 从对话列表里取（见那里）。
   const r = ui.run, busy = r && (ui.loading || !r.exit), broken = r && ((r.exit && r.exit !== "exit 0" && !r.checkpoint) || (r.rewoundAll && !r.canContinue));
-  const s = ui.settings?.effective;
+  // 新对话的默认值跟着所选工作区（项目配置在这一层才生效，见 loadWsSettings）：按工作区取过就用它，
+  // 没选工作区、还没取到就用平台的；已有对话照它自己的快照。
+  const s = r ? ui.settings?.effective : (ui.wsSettings?.[$("workspace").value] || ui.settings?.effective);
   ui.picked ||= {};
   // 供应商同样来自 /models（显示名在路由表里）；本机没配好的（缺密钥或地址）灰掉，悬停看原因。
   const ps = $("provider"), plist = [...(ui.models?.values() || [])], psig = plist.map((p) => p.name + (p.error ? "!" : "")).join(",");
@@ -195,6 +233,8 @@ export function syncComposer() {
   ws.hidden = !r && !codingOK;
   // 记下当前选中的那一项：选了“＋ 添加工作区…”又取消时退回这里（见页尾的 change 监听）。
   if (ws.value !== ADD_WORKSPACE) ws.dataset.prev = ws.value;
+  // 新对话选了工作区：按它取一次设置（项目配置），换选、页面加载时默认选中的那个都算；取回来重画一次，默认值跟着变。
+  if (!r && ws.value && ws.value !== ADD_WORKSPACE) loadWsSettings(ws.value);
   ws.title = r ? "工作区：对话开始后固定" : !codingOK ? "编码工具没打开或不可用：" + (s?.blocked.coding || "在设置里打开") : "工作区：编码工具只在这个仓库里读写；对话开始后固定";
   // 权限模式每轮可以换：默认取这条对话上一轮的（新对话取设置）；用户改过就保持用户的选择，直到发送。
   if (!ui.picked.permission) $("perm").value = (r && r.permission) || s?.values.permission_mode || "edit";
@@ -223,14 +263,22 @@ export function syncComposer() {
   for (const id of ["provider", "perm", "effort"]) $(id).hidden = !!imported;
   // 模型与工作区上面已按清单和对话决定是否显示，这里只在导入的对话里再藏起来，不能把它们重新显示出来。
   if (imported) $("model").hidden = $("workspace").hidden = true;
+  // 副本（thread/start 的 copy）：选了工作区才能勾，开对话之前把副本建好，之后这条对话只碰副本。
+  // 已有对话按它实际的（summary 的 copy）显示，并且不能再改。
+  const cp = $("copy");
+  cp.disabled = !!r || !!imported || !codingOK || !ws.value || ws.value === ADD_WORKSPACE;
+  cp.checked = r ? !!r.copy : !!ui.picked.copy;
+  $("copy-pick").hidden = ws.hidden || !!imported;
   $("query").disabled = !!imported;
   $("send").disabled = running ? false : ui.sending || !!busy || !!broken || !!ui.replay || !!imported || !$("query").value.trim();
-  $("query").placeholder = imported ? "导入的对话只能查看" : running ? "补充或纠正，agent 做完这一步就会看到（Tab 排到这一轮之后）" : r ? "继续提问" : "给 agent 布置一个任务，/ 选命令";
+  $("query").placeholder = imported ? "导入的对话只能查看" : running ? "补充或纠正，agent 做完这一步就会看到（Tab 排到这一轮之后） · Esc 打断" : r ? "继续提问" : "给 agent 布置一个任务，/ 选命令";
   // 输入框只放这一轮要选的（同 Claude Code）：工具、请求预算在设置页里看，这里只给导入的对话标出来源。
   $("mode-chip").textContent = imported ? `${imported} · ${r.calls.find((c) => c.res?.model)?.res.model || ""}` : "";
   // 只在需要人注意时提示；常规操作说明不放在输入框下面。
   // 发送失败的原因（ui.hint）优先：它要跟着重画留下来，直到打开对话、新对话时清掉。
-  $("hint").textContent = ui.hint || (!r ? "" : imported ? `从 ${imported} 导入的记录，只能查看；系统提示词、工具定义与耗时以记录里有的为准` : ui.replay ? "回放中，结束后可继续提问" :
+  // 输入框以 ! 开头是人在沙箱里跑一条命令（composer.js 的 runShell）：提示行说清它做什么。
+  const shellInput = $("query").value.trimStart().startsWith("!");
+  $("hint").textContent = ui.hint || (shellInput ? (!r ? "先发一句话开个对话，再用 ! 跑命令" : !r.exit ? "这一轮在跑，等它结束再跑命令" : "! 在这条对话的沙箱里跑一条命令，输出下一轮模型也看得到") : !r ? "" : imported ? `从 ${imported} 导入的记录，只能查看；系统提示词、工具定义与耗时以记录里有的为准` : ui.replay ? "回放中，结束后可继续提问" :
     busy ? (r.stopRequested ? "正在停止：agent 回填结果、保存检查点后退出；再点一次强制结束" : "") : broken ? "上次运行未正常结束、也没有检查点，请新建对话" : "");
   updateCtxRing(r);
   // 待发送区跟着当前对话走：换了对话、重新订阅以后，显示的都是这条对话还没送出去的话。
@@ -258,13 +306,28 @@ export async function loadRuns() {
   if (current) {
     // 我们这边的订阅已经随 exit 收尾了，服务端却还在跑：队列接着发了，或者别的页面续聊了——重新订阅看这一轮。
     if (!current.done && ui.run.exit && !ui.loading) { show(ui.run.id, false); return; }
+    // 两轮之间用 ! 跑过的命令（summary.shells）：这条对话停下以后订阅已收尾，shell 事件推不到页面，
+    // 对一下条数，少了就重新加载这条对话（和上面那处同样的写法），卡片才出得来。
+    if (ui.run.exit && !ui.loading && (current.shells || 0) !== ui.run.shells.length) { show(ui.run.id, false); return; }
     ui.run.queue = current.queue || [];
+    ui.run.name = current.name || ""; // 列表里的名字（改过名才有）：导出时当标题
+    // 目标（summary.goal）：标题下面那一行，别的页面改的、换了对话都照列表里的显示。
+    if ((current.goal || "") !== (ui.run.goal || "")) { ui.run.goal = current.goal || ""; renderShell(); }
+    // 旁支（summary.side）：横幅写从哪条分出来，原对话的名字或第一句话从同一份列表里取。
+    const side = !!current.side, from = side && current.fork_of ? lists[0].find((x) => x.id === current.fork_of) : null;
+    const forkName = from ? from.name || from.query || "" : "";
+    if (side !== !!ui.run.side || (side && ui.run.forkName !== forkName)) {
+      Object.assign(ui.run, { side, forkOf: side ? current.fork_of || "" : "", forkName });
+      render(); // 横幅在对话最上面，重画一次；打开旁支时只变这一次
+    }
     // 服务端说这条对话还能不能接着聊：撤销到第一轮之前以后仍为真（可以在同一条对话里重新开始），
     // 输入框据此判断要不要当成坏了（见 syncComposer 的 broken）。
     if (ui.run.canContinue !== !!current.can_continue) {
       ui.run.canContinue = !!current.can_continue;
       syncComposer();
     }
+    // 副本对话（summary.copy）：顶栏给“应用到”，输入框的勾选框按这条对话显示；打开时只变这一次。
+    if (!!ui.run.copy !== !!current.copy) { ui.run.copy = !!current.copy; render(); }
     renderSteers();
   }
   // 各条的 updated_at 留着记“看过”（markCurrentSeen、runRow 都读它）：先把正在看的这条记成看过，
@@ -433,6 +496,22 @@ async function renameRun(r, h) {
   if (name === null) return;
   if (await threadCall(h, `/runs/${encodeURIComponent(r.id)}/name`, "PUT", { name })) loadRuns();
 }
+// 目标：点标题下面那一行改，默认值是现在的目标，留空就是清除（见 thread/goal/set）。
+// 改的是下一轮开始时告诉模型的，这一轮不打断，所以这里只更新那一行。
+async function editGoal() {
+  const r = ui.run;
+  if (!r) return;
+  const text = prompt("这条对话的目标（留空就是清除）：", r.goal || "");
+  if (text === null) return;
+  try {
+    const res = await fetch(api(`/runs/${encodeURIComponent(r.id)}/goal`), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+    if (!res.ok) { alert((await res.text()).trim() || `请求失败（${res.status}）`); return; }
+    const out = await res.json();
+    if (ui.run?.id !== r.id) return;
+    ui.run.goal = out.goal || "";
+    renderShell();
+  } catch (err) { alert("请求失败：" + err.message); }
+}
 async function archiveRun(r, h) {
   if (await threadCall(h, `/runs/${encodeURIComponent(r.id)}/archive`, r.archived ? "DELETE" : "POST")) loadRuns();
 }
@@ -463,7 +542,11 @@ function runRow(r, h, archived = false) {
   const b = el("button"), q = el("span", "q");
   if (!r.done) q.append(el("span", "live"));
   if (SOURCE_LABEL[r.source]) q.append(el("span", "src", SOURCE_LABEL[r.source]));
-  if (r.fork_of) q.append(el("span", "src", "分叉"));
+  // 旁支提问分出来的对话在已归档里，标“旁支”而不是“分叉”：两者都记在 fork_of 上。
+  if (r.side) q.append(el("span", "src", "旁支"));
+  else if (r.fork_of) q.append(el("span", "src", "分叉"));
+  // 副本对话：在工作区的副本里跑，改动要人点“应用到”才回原目录。
+  if (r.copy) q.append(el("span", "src", "副本"));
   // 这条对话在等人：醒目的小标签放标题前面，点进对话就能答复。
   if (r.waiting) q.append(el("span", "wait", r.waiting === "approval" ? "等你审批" : "等你回答"));
   // 有名字就显示名字；悬停里仍是第一句话和对话 ID，看得出这是哪条。
@@ -592,7 +675,28 @@ $("run-search").onkeydown = (ev) => {
 export function autosize() { const q = $("query"); q.style.height = "auto"; q.style.height = q.scrollHeight + "px"; }
 
 $("files-btn").onclick = () => { ui.filesOpen = !ui.filesOpen; if (ui.filesOpen) { ui.subOpen = ui.webOpen = null; ui.diffOpen = false; ui.files.run = null; } renderChat(); renderShell(); };
+// 导出：整条对话在页面里拼成 Markdown 再下载，不经服务端（见 export.js）。
+$("export-btn").onclick = () => exportRun(ui.run);
+// 旁支提问：按钮的显示见 renderShell，四步见 sideQuestion。
+$("side-btn").onclick = sideQuestion;
 $("diff-btn").onclick = () => { ui.diffOpen = !ui.diffOpen; if (ui.diffOpen) { ui.subOpen = ui.webOpen = null; ui.filesOpen = false; ui.diff.run = null; } renderChat(); renderShell(); };
+// 后台命令（看、停模型用 bash 带 background=true 起的命令）：面板的渲染在 jobs.js。
+$("jobs-btn").onclick = () => { ui.jobsOpen = !ui.jobsOpen; if (ui.jobsOpen) { ui.subOpen = ui.webOpen = null; ui.filesOpen = false; ui.diffOpen = false; } renderChat(); renderShell(); };
+// 副本对话的“应用到”：把副本里的改动写回原目录（只改文件，不提交，见 workspace/applyCopy）。
+// 原目录从 start 事件的 copy_of 取；成功后说改了哪些文件，冲突（409）时把 git apply 的报错原样显示出来。
+$("apply-copy-btn").onclick = async () => {
+  const r = ui.run;
+  if (!r?.copy) return;
+  const dir = ui.events.find((e) => e.kind === "start" && e.copy_of)?.copy_of || r.workspace;
+  if (!confirm(`把副本里的改动应用到 ${dir}？只改原目录的文件，不提交。`)) return;
+  try {
+    const res = await fetch(api(`/runs/${encodeURIComponent(r.id)}/apply-copy`), { method: "POST" });
+    const text = (await res.text()).trim();
+    if (!res.ok) return alert("应用失败：" + text);
+    const files = JSON.parse(text).files || [];
+    alert(`已应用 ${files.length} 个文件：` + files.join("、"));
+  } catch (err) { alert("应用失败：" + err.message); }
+};
 $("page-chat").onclick = () => { ui.page = "chat"; if (ui.tab === "compare") ui.tab = "trace"; render(); loadRuns(); };
 $("page-observe").onclick = () => { ui.page = "observe"; render(); loadRuns(); };
 $("run-id").onclick = async () => {
@@ -605,6 +709,7 @@ $("run-id").onclick = async () => {
   $("run-id").textContent = note;
   setTimeout(() => { if (ui.run?.id === id) renderShell(); }, 1800);
 };
+$("goal").onclick = editGoal;
 $("menu").onclick = () => document.body.classList.toggle("nav-open");
 $("tab-trace").onclick = () => { ui.tab = "trace"; render(); loadRuns(); };
 $("tab-maze").onclick = () => { ui.tab = "maze"; render(); loadRuns(); };
@@ -718,6 +823,35 @@ export async function forkTurn(r, t) {
   } catch (err) { return alert("分叉失败：" + err.message); }
   show(id);
 }
+// 旁支提问：从最后一轮临时分出去问一句，问答不进这条对话。分出来的对话已归档，名字用问题；四步里
+// 哪一步失败就停下，原因写在输入框下面，已经分出来的旁支留着（在已归档里），不回滚。
+async function sideQuestion() {
+  const r = ui.run;
+  // 和每条回答下的“分叉”一样，分叉带过来的轮次不能再分（它们的撤销会走进原对话）。
+  const turn = [...(r?.turns || [])].reverse().find((t) => t.checkpoint && !t.rewound && !t.inherited);
+  if (!turn) { ui.hint = "这条对话还没有可以分出去的轮次"; syncComposer(); return; }
+  const question = (prompt("旁支问题：临时分出去问一句，问答不会回到这条对话") || "").trim();
+  if (!question) return;
+  const fail = (text) => { ui.hint = text; syncComposer(); };
+  let id;
+  try {
+    const res = await fetch(api(`/runs/${encodeURIComponent(r.id)}/fork`), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ turn: turn.checkpoint, side: true }) });
+    if (!res.ok) throw new Error((await res.text()).trim());
+    id = (await res.json()).id;
+  } catch (err) { return fail("没分成旁支：" + err.message); }
+  // 名字：问题的前 20 个字（按字符数，不按字节）。
+  const name = "旁支：" + [...question].slice(0, 20).join("");
+  try {
+    const res = await fetch(api(`/runs/${encodeURIComponent(id)}/name`), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+    if (!res.ok) throw new Error((await res.text()).trim());
+  } catch (err) { return fail(`旁支已经分出来了（在已归档里），但没改成名字：${err.message}`); }
+  try {
+    // 权限模式、推理强度用输入框旁边当前的选择，和平时续聊一样。
+    const res = await fetch(api(`/runs/${encodeURIComponent(id)}/messages`), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: question, permission: $("perm").value, effort: $("effort").value }) });
+    if (!res.ok) throw new Error((await res.text()).trim());
+  } catch (err) { return fail(`旁支已经分出来了（在已归档里），但问题没发出去：${err.message}`); }
+  show(id);
+}
 export async function attribute(runID) {
   if (!confirm("自动归因这段对话的最后一轮：\n1. DeepSeek 读完整轨迹，判断成败、写出评分标准，指出决定性的那一步和原因；\n2. 失败时从那一步之前分叉回放：插入纠正跑 3 次、插入“继续。”作对照跑 3 次，按这段对话当时的模型真实调用。\n开始？")) return;
   try {
@@ -750,6 +884,7 @@ $("new-chat").onclick = () => newChat();
     await loadSettings();
     ws.value = name;
     ws.dataset.prev = name; // 下次再选“添加工作区…”又取消时退回这里（syncComposer 在设值之前已经跑完）
+    loadWsSettings(name, true); // 新工作区的项目配置：默认值跟着变（见 syncComposer）
   });
 }
 // 导入 Codex / Claude Code 的会话文件：服务端换成网页端的存档格式，导入后只读。

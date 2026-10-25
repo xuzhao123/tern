@@ -230,7 +230,7 @@ func (c *Client) attach() error {
 			}
 			err = fmt.Errorf("连 %s 超时：%d 秒内没有完成握手", name, int(handshakeTimeout.Seconds()))
 		}
-		return sshError(rwc, err)
+		return dialError(rwc, err)
 	}
 	c.mu.Lock()
 	old := c.conn

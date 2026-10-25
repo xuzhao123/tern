@@ -65,6 +65,8 @@ type event struct {
 	RAG        bool            `json:"rag,omitempty"`              // 设置快照：本对话启用知识库检索，续聊沿用
 	Workspace  string          `json:"workspace,omitempty"`        // 设置快照：本对话的工作区名字与开始时解析出的目录，续聊沿用
 	WorkDir    string          `json:"workspace_dir,omitempty"`    //
+	CopyOf     string          `json:"copy_of,omitempty"`          // 副本对话：原工作区目录（Workspace_dir 是 .data/copies/ 里的副本）
+	CopyBase   string          `json:"copy_base,omitempty"`        // 副本对话：副本里基线提交的提交号，改动面板与“应用到”都以它为基准
 	MaxSteps   int             `json:"max_steps,omitempty"`        // 设置快照：模型请求预算（-1 不限）、上下文窗口与工具输出上限；旧存档没有，按 agent 默认值
 	Window     int             `json:"context_window,omitempty"`   //
 	ToolOutput int             `json:"tool_output,omitempty"`      //
@@ -85,12 +87,16 @@ type event struct {
 	Protocol   bool            `json:"protocol,omitempty"`         // start/continue 上标记这一轮经协议运行；之前的存档没有，界面据此启用旧存档兼容
 	Eval       string          `json:"eval,omitempty"`             // 由评测发起的试次（评测ID · 用例 #序号），对话列表里不显示
 	Source     string          `json:"source,omitempty"`           // 导入的对话：codex 或 claude-code，记在 start 上；只读，不能续聊
+
+	// 项目配置：start 上记工作区 .agents/tern.json 里生效的键值，页面在第一轮之前告诉人（见 settings.go 的 projectConfig）。
+	ProjectConfig map[string]string `json:"project_config,omitempty"`
 }
 
 type run struct {
 	ID, Query string
 	Name      string // 人取的名字，存在 .data/runs/<ID>.meta.json；空表示列表显示第一句话
 	Archived  bool   // 已归档：列表默认不显示（见 threads.go）
+	Side      bool   // 旁支提问分出来的对话，同时是已归档，见 thread/fork 的 side
 	Eval      string // 评测发起的试次，见 event.Eval
 	Source    string // 从 Codex / Claude Code 导入的对话，见 event.Source
 	ForkOf    string // 分出来的对话是这个 ID 的原对话，见 fork 事件；其余为空
@@ -103,6 +109,8 @@ type run struct {
 	seq        int // 最后一个事件的序号：只增不减。delta 只在内存里也占序号，所以重启后要从存档里最大的序号接着编
 	events     []event
 	queue      []queueItem // 排队的后续消息，存在 .meta.json：这一轮结束后由 followUp 接着发
+	goal       *threadGoal // 人定的目标，存在 .meta.json：界面上常显，设了、改了以后下一轮说给模型一次（见 notes）
+	shellBusy  bool        // 人在两轮之间用 ! 发的命令正在跑：这期间不再收 ! 命令，也不开始新一轮（见 threadShellCommand）
 	changed    chan struct{}
 	file       *os.File
 	proc       *os.Process // 正在运行的 agent 进程；强制结束时向它的进程组发 SIGKILL
@@ -162,15 +170,41 @@ func (c *conn) threadStart(m protocol.Message) (any, *protocol.Error) {
 		Workspace  *string     `json:"workspace"`  // nil：用设置里的默认工作区；"": 本对话不用工作区
 		Permission string      `json:"permission"` // 空：用设置里的默认权限模式
 		Effort     string      `json:"effort"`     // 空：用设置里的默认推理强度
+		Goal       string      `json:"goal"`       // 目标：第一轮就带上那句提醒（见 notes）
 		Images     []attachRef `json:"images"`     // 附图：先经 attachment/upload 存好，这里只带引用
+		Copy       bool        `json:"copy"`       // 在工作区的副本里跑：不碰原目录，见 makeCopy
 	}
 	if ferr := decode(m, &input); ferr != nil {
 		return nil, ferr
 	}
 	input.Query = strings.TrimSpace(input.Query)
+	goal, ferr := goalText(input.Goal)
+	if ferr != nil {
+		return nil, ferr
+	}
 	name := userName(m)
-	settings, _, err := s.effectiveFor(name)
+	settings, _, err := s.effectiveFor(name, "")
 	if err != nil {
+		return nil, bad(500, "无法读取设置："+err.Error())
+	}
+	// 工作区只能从设置里登记的列表里挑；界面给的是名字，目录由服务端按登记解析。
+	// 项目配置（工作区里的 .agents/tern.json）只在选了工作区时生效，所以先定工作区，再带着它的目录合并一次设置，
+	// 后面的默认值与快照都用合并后的结果。
+	workspace := settings.Values["workspace"]
+	if input.Workspace != nil {
+		workspace = *input.Workspace
+	}
+	var workDir string
+	if workspace != "" {
+		i := slices.IndexFunc(settings.Workspaces, func(w workspaceDir) bool { return w.Name == workspace })
+		if i < 0 || !settings.on("coding") {
+			return nil, bad(400, "不能使用工作区 "+workspace+"：没有登记或编码工具没打开")
+		}
+		workDir = settings.Workspaces[i].Path
+	} else {
+		workspace = ""
+	}
+	if settings, _, err = s.effectiveFor(name, workDir); err != nil {
 		return nil, bad(500, "无法读取设置："+err.Error())
 	}
 	if input.Embedding == "" {
@@ -182,6 +216,8 @@ func (c *conn) threadStart(m protocol.Message) (any, *protocol.Error) {
 	if input.Query == "" {
 		return nil, bad(400, "普通问答需要query")
 	}
+	// 界面明确给的启动参数先记下来（下面会补默认值）：和项目的值不一样时，快照里用的不是项目的值，project_config 就不记那个键。
+	explicit := map[string]string{"provider": input.Provider, "model": input.Model, "effort": input.Effort, "permission": input.Permission}
 	if input.Provider == "" {
 		input.Provider = settings.Values["provider"]
 	}
@@ -212,21 +248,6 @@ func (c *conn) threadStart(m protocol.Message) (any, *protocol.Error) {
 			return nil, bad(400, "模型 "+model+" 不能看图，换一个能看图的模型再附图")
 		}
 	}
-	// 工作区只能从设置里登记的列表里挑；界面给的是名字，目录由服务端按登记解析。
-	workspace := settings.Values["workspace"]
-	if input.Workspace != nil {
-		workspace = *input.Workspace
-	}
-	var workDir string
-	if workspace != "" {
-		i := slices.IndexFunc(settings.Workspaces, func(w workspaceDir) bool { return w.Name == workspace })
-		if i < 0 || !settings.on("coding") {
-			return nil, bad(400, "不能使用工作区 "+workspace+"：没有登记或编码工具没打开")
-		}
-		workDir = settings.Workspaces[i].Path
-	} else {
-		workspace = ""
-	}
 	// 设置快照：这一刻打开的工具，写进 start 事件，续聊沿用。
 	snap := event{Kind: "start", RAG: settings.on("rag"), Memory: settings.on("memory"), MemoryTTL: settings.Values["memory_ttl"], Subagents: settings.on("subagents"), AskUser: settings.on("ask_user"),
 		Browser: settings.on("web_search") || settings.on("open_page"), DSSearch: settings.on("ds_search"), Provider: input.Provider, Model: input.Model, Bash: settings.on("bash"), Workspace: workspace, WorkDir: workDir,
@@ -236,6 +257,9 @@ func (c *conn) threadStart(m protocol.Message) (any, *protocol.Error) {
 			snap.Disallowed = append(snap.Disallowed, tool)
 		}
 	}
+	// 项目配置改了哪些设置也记进快照：第一轮之前页面据此告诉人。已登记的工作区就当人信任它，只告知、不拦。
+	// 只记真正进了快照的键：被个人层或明确给的启动参数盖掉的不记（见 projectApplied）。
+	snap.ProjectConfig = projectApplied(settings, explicit)
 	if input.Permission != "" {
 		if valid("permission_mode", input.Permission, settingsFile{}) != nil {
 			return nil, bad(400, "permission 取 plan、ask、edit 或 full")
@@ -274,25 +298,236 @@ func (c *conn) threadStart(m protocol.Message) (any, *protocol.Error) {
 		snap.NetAllow = netDomains(settings.Values["net_allow"])
 	}
 	snap.Embedding = input.Embedding
-	args := snapshotArgs(snap, snap.NetAllow)
 	// 对话 ID：随机 UUID（v4），不含时间，与 app-server 在哪个时区启动无关。
 	// 早期存档的 ID 是“20261006-213820.763”这样的本地时间，照常读回，不改名，旧链接仍能打开。
 	id := uuid.NewString()
+	// 副本：开对话之前先建好（见 makeCopy），之后这条对话读写的都是副本目录，原目录不再碰。
+	// 建不出来就不开对话（返回 500 与原因）。
+	if input.Copy {
+		if workDir == "" {
+			return nil, bad(400, "副本要同时选工作区")
+		}
+		dir, base, err := c.makeCopy(workDir, workspace, id)
+		if err != nil {
+			return nil, bad(500, "建副本失败："+err.Error())
+		}
+		snap.CopyOf, snap.CopyBase, snap.WorkDir = workDir, base, dir
+	}
+	args := snapshotArgs(snap, snap.NetAllow)
 	file, err := s.createRunFile(id)
 	if err != nil {
+		dropCopy(snap)
 		return nil, bad(500, err.Error())
 	}
 	r := &run{ID: id, Query: strings.TrimSpace(input.Query), changed: make(chan struct{}), file: file}
+	// 新对话带的目标：第一轮就告诉模型（见 notes），所以先记进 .meta.json，界面一打开就看得到。
+	if goal != "" {
+		if ferr := s.setMeta(r, func(meta *runMeta) { meta.Goal = &threadGoal{Text: goal, At: time.Now().UTC()} }); ferr != nil {
+			file.Close()
+			os.Remove(file.Name())
+			dropCopy(snap)
+			return nil, ferr
+		}
+	}
 	s.addRun(r)
 	ctx, span := r.beginTurn(input.Query)
 	snap.Text, snap.Trace, snap.Protocol = r.Query, span.SpanContext().TraceID().String(), true
 	r.add(snap)
+	r.mu.Lock()
+	notes, delivered := r.notes(), r.pendingGoal()
+	r.mu.Unlock()
 	turn := map[string]any{"question": input.Query}
+	if len(notes) > 0 {
+		turn["notes"] = notes
+	}
 	if len(input.Images) > 0 {
 		turn["images"] = input.Images
 	}
 	s.launch(ctx, r, args, turn, name)
+	s.goalSent(r, delivered)
 	return r.summary(), nil
+}
+
+// makeCopy 在工作区的副本里开对话（thread/start 的 copy）：副本在 .data/copies/<工作区名>-<对话ID 前 8 位>。
+// clone --local 带上已有的提交，再把原目录没提交的改动搬进来：已跟踪的照 diff | apply --index，
+// 未跟踪、没被忽略的按路径拷过去。然后在副本里提交成基线，改动面板与“应用到”都以这个提交为基准。
+// 中途任何一步失败都删掉副本：半份副本留在 .data/copies 里没有用，人还会以为它是对的。
+func (c *conn) makeCopy(orig, workspace, id string) (string, string, error) {
+	dir := c.s.abs(tenant.Path("", "copies", workspace+"-"+id[:8]))
+	fail := func(err error) (string, string, error) {
+		os.RemoveAll(dir)
+		return "", "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(dir), 0o700); err != nil {
+		return fail(err)
+	}
+	if _, err := c.git("", "clone", "--local", "--quiet", orig, dir); err != nil {
+		return fail(err)
+	}
+	// 原目录还没有提交（HEAD 不存在）时没有 diff 可取：未跟踪的文件就是全部内容。
+	if _, err := c.git(orig, "rev-parse", "--verify", "HEAD"); err == nil {
+		patch, err := c.git(orig, "diff", "HEAD", "--binary")
+		if err != nil {
+			return fail(err)
+		}
+		if patch != "" {
+			if _, err := c.gitIn(dir, patch, "apply", "--index"); err != nil {
+				return fail(err)
+			}
+		}
+	}
+	untracked, err := c.git(orig, "ls-files", "--others", "--exclude-standard", "-z")
+	if err != nil {
+		return fail(err)
+	}
+	for _, name := range strings.Split(untracked, "\x00") {
+		if name == "" {
+			continue
+		}
+		if err := copyFile(filepath.Join(orig, name), filepath.Join(dir, name)); err != nil {
+			return fail(err)
+		}
+	}
+	// 提交成基线：先 add -A 把拷过来的新文件也放进这次提交（commit -a 不管未跟踪的文件，
+	// 它们不在基线里的话，之后会被当成这条对话自己的改动）。没有改动就不提交，基线就是 clone 下来的那个提交。
+	if _, err := c.git(dir, "add", "-A"); err != nil {
+		return fail(err)
+	}
+	status, err := c.git(dir, "status", "--porcelain")
+	if err != nil {
+		return fail(err)
+	}
+	if strings.TrimSpace(status) != "" {
+		if _, err := c.git(dir, "-c", "user.name=tern", "-c", "user.email=tern@localhost", "commit", "-qam", "副本基线"); err != nil {
+			return fail(err)
+		}
+	}
+	base, err := c.git(dir, "rev-parse", "HEAD")
+	if err != nil {
+		return fail(err)
+	}
+	return dir, strings.TrimSpace(base), nil
+}
+
+// dropCopy 在副本建好、对话却没开成（写存档或记目标失败）时删掉副本，不留没人用的目录。
+func dropCopy(snap event) {
+	if snap.CopyOf != "" {
+		os.RemoveAll(snap.WorkDir)
+	}
+}
+
+// gitIn 在 dir 里跑一条 git 命令，stdin 是它的标准输入；stderr 一并收进错误信息（同 conn.git）。
+// 建副本、应用回去都要把 diff 从管道喂给 git，而 conn.git 只取命令的输出。
+func (c *conn) gitIn(dir, stdin string, args ...string) (string, error) {
+	cmd := exec.CommandContext(c.ctx, "git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
+	cmd.Stdin = strings.NewReader(stdin)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+			return "", errors.New(msg)
+		}
+		return "", err
+	}
+	return string(out), nil
+}
+
+// copyFile 拷一个文件，目录按需建：副本里要留住原目录还没提交的新文件（git 不管它们）。
+func copyFile(from, to string) error {
+	info, err := os.Lstat(from)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(to), 0o700); err != nil {
+		return err
+	}
+	// 和 git clone 一样保留链接，不把工作区外的内容读进副本。
+	if info.Mode()&os.ModeSymlink != 0 {
+		target, err := os.Readlink(from)
+		if err != nil {
+			return err
+		}
+		return os.Symlink(target, to)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("副本不支持特殊文件：%s", from)
+	}
+	data, err := os.ReadFile(from)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(to, data, info.Mode().Perm())
+}
+
+// workspace/applyCopy：把副本里的改动应用回原目录（网页端的“应用到”）。
+// 只改原目录的工作区，不提交，由人决定怎么提交：先在原目录 git apply --check，对不上就回 409 带上 git 的原话，
+// 原目录不动。副本里的改动相对基线取（git add -A 之后取暂存的补丁，新建、删除、改名都在里面）。
+func (c *conn) workspaceApplyCopy(m protocol.Message) (any, *protocol.Error) {
+	var input struct {
+		ThreadID string `json:"threadId"`
+	}
+	if ferr := decode(m, &input); ferr != nil {
+		return nil, ferr
+	}
+	r, ferr := c.s.threadOf(input.ThreadID)
+	if ferr != nil {
+		return nil, ferr
+	}
+	r.mu.Lock()
+	running, dir, orig, base, done := r.conn != nil || r.proc != nil, r.workDir(), r.copyOf(), r.copyBase(), r.Done
+	r.mu.Unlock()
+	if orig == "" || base == "" || dir == "" {
+		return nil, bad(400, "这条对话不是副本对话")
+	}
+	if running {
+		return nil, bad(409, "这一轮在跑，等它结束再应用")
+	}
+	if _, err := c.git(dir, "add", "-A"); err != nil {
+		return nil, bad(500, "git add 失败："+err.Error())
+	}
+	patch, err := c.git(dir, "diff", "--cached", "--binary", base)
+	if err != nil {
+		return nil, bad(500, "git diff 失败："+err.Error())
+	}
+	if strings.TrimSpace(patch) == "" {
+		return nil, bad(400, "副本里没有新的改动")
+	}
+	if _, err := c.gitIn(orig, patch, "apply", "--check"); err != nil {
+		return nil, bad(409, "原目录对不上："+err.Error())
+	}
+	if _, err := c.gitIn(orig, patch, "apply"); err != nil {
+		return nil, bad(500, "应用到原目录失败："+err.Error())
+	}
+	names, err := c.git(dir, "diff", "--cached", "--name-only", base)
+	if err != nil {
+		return nil, bad(500, "git diff 失败："+err.Error())
+	}
+	files := []string{}
+	for _, name := range strings.Split(names, "\n") {
+		if name != "" {
+			files = append(files, name)
+		}
+	}
+	// 这条对话已经结束、存档文件关了：临时以追加方式打开，写完再关（同 decideNetwork），事件才留得下来。
+	if done {
+		file, err := os.OpenFile(filepath.Join(c.s.runsDir(), r.ID+".jsonl"), os.O_WRONLY|os.O_APPEND, 0o600)
+		if err != nil {
+			return nil, bad(500, "无法写入对话记录")
+		}
+		r.mu.Lock()
+		r.file = file
+		r.mu.Unlock()
+		defer file.Close()
+	}
+	body, _ := json.Marshal(map[string]any{"files": files})
+	r.add(event{Kind: "copy_applied", Body: body})
+	if err := audit.Write(c.ctx, audit.Record{Actor: "user", User: userName(m), Event: "user_apply_copy", Task: r.rootTask, Conversation: r.ID, Target: orig, Detail: c.clientName()}); err != nil {
+		return nil, bad(500, "改动已经应用到原目录，但审计日志写入失败："+err.Error())
+	}
+	return map[string]any{"files": files}, nil
 }
 
 // model/list：输入框第二级下拉的候选项。路由表只存在 llm 包里，这里按它读出来给界面，不做第二份。
@@ -391,6 +626,11 @@ func (s *Server) startTurn(r *run, input turnInput, user string) (any, *protocol
 		r.mu.Unlock()
 		return nil, bad(409, "对话正在运行或尚未正常完成，暂不能续聊")
 	}
+	// ! 命令在跑时对话也是“停下”的：这时开始新一轮，命令的 shell 事件会插进这一轮中间（见 threadShellCommand）。
+	if r.shellBusy {
+		r.mu.Unlock()
+		return nil, bad(409, "正在跑 ! 命令，等它结束再发")
+	}
 	// 撤销到了第一轮之前：这一轮接着的是空的对话，不恢复续聊上下文（history 为空，agent 按新对话
 	// 处理：不带 -continue、不记续接关系），由下面 start 事件的快照像新对话一样起第一轮。
 	over := r.startsOver()
@@ -409,6 +649,7 @@ func (s *Server) startTurn(r *run, input turnInput, user string) (any, *protocol
 		return nil, bad(409, "接着的那一轮已经撤销，不能接着聊")
 	}
 	notes := r.notes()
+	delivered := r.pendingGoal() // 这一轮的提醒里说到了哪个目标（见 notes），发出以后记成说过了
 	file, err := os.OpenFile(filepath.Join(s.runsDir(), r.ID+".jsonl"), os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		r.mu.Unlock()
@@ -475,6 +716,7 @@ func (s *Server) startTurn(r *run, input turnInput, user string) (any, *protocol
 		turn["compact"] = true
 	}
 	s.launch(ctx, r, args, turn, user)
+	s.goalSent(r, delivered)
 	return r.summary(), nil
 }
 
@@ -519,6 +761,136 @@ func (s *Server) followUp(r *run) {
 	}
 	r.add(event{Kind: "stdout", Text: "排队的消息没有发出去" + reason + "，放回队首：" + item.Text})
 }
+
+// thread/shellCommand：人在网页端输入框里用 ! 发起的命令，在这条对话的沙箱里跑一条（和模型的 bash 同一个沙箱、
+// 同一套执行函数），不经过模型。起一个 -shell 的 agent 进程跑完，记一条 shell 事件：下一轮的问题里由 notes 带给模型，
+// 页面上是两轮之间的一张卡片。这时没有 agent 在跑，也就没有审批的通道，联网只认这条对话快照里的白名单。
+// 先写审计，写不进去就不跑（和上传、删除一样）。
+func (c *conn) threadShellCommand(m protocol.Message) (any, *protocol.Error) {
+	var input struct {
+		ThreadID string `json:"threadId"`
+		Command  string `json:"command"`
+	}
+	if ferr := decode(m, &input); ferr != nil {
+		return nil, ferr
+	}
+	command := strings.TrimSpace(input.Command)
+	if command == "" || len(command) > 4096 {
+		return nil, bad(400, "command 需要是 1 到 4096 字节的非空字符串")
+	}
+	r, ferr := c.s.threadOf(input.ThreadID)
+	if ferr != nil {
+		return nil, ferr
+	}
+	r.mu.Lock()
+	if r.Eval != "" || r.Source != "" {
+		r.mu.Unlock()
+		return nil, bad(409, "评测的试次、导入的对话不能跑命令")
+	}
+	if r.proc != nil || !r.Done {
+		r.mu.Unlock()
+		return nil, bad(409, "这一轮在跑，等它结束再跑命令")
+	}
+	// 命令跑着的时候对话照旧是“停下”的，再收一条会两条一起跑、shell 事件插进新一轮中间：这里挡住。
+	if r.shellBusy {
+		r.mu.Unlock()
+		return nil, bad(409, "上一条命令还在跑")
+	}
+	// 沿用这条对话开始时的设置快照（工作区、权限模式）与最后一条通知里的沙箱目录。
+	var snap event
+	for _, e := range r.events {
+		if e.Kind == "start" || e.Kind == "continue" {
+			snap = e
+		}
+	}
+	dir, task := r.sandboxID(), r.rootTask
+	if dir != "" {
+		r.shellBusy = true // 和上面的检查同一把锁：两个页面同时发也只有一个能跑
+	}
+	r.mu.Unlock()
+	if dir == "" {
+		return nil, bad(409, "这条对话没有启用 Bash 沙箱，跑不了命令")
+	}
+	defer func() {
+		r.mu.Lock()
+		r.shellBusy = false
+		r.mu.Unlock()
+	}()
+	record := audit.Record{Actor: "user", User: userName(m), Event: "user_shell_command", Task: task, Conversation: r.ID, Target: command, Detail: c.clientName()}
+	record.Args(command)
+	if err := audit.Write(c.ctx, record); err != nil {
+		return nil, bad(500, "审计日志写入失败，没有运行命令："+err.Error())
+	}
+	args := []string{"-shell", command, "-bash"}
+	if snap.WorkDir != "" {
+		args = append(args, "-workspace", snap.WorkDir)
+	}
+	if snap.Permission != "" {
+		args = append(args, "-permission-mode", snap.Permission)
+	}
+	for _, domain := range r.netAllow() {
+		args = append(args, "-net-allow", domain)
+	}
+	// 最多等 3 分钟：命令自己的时限由沙箱（-bash-timeout）管，这里只兜住整条。
+	ctx, cancel := context.WithTimeout(c.ctx, 3*time.Minute)
+	defer cancel()
+	cmd := c.s.agentCommand(ctx, args...)
+	cmd.Env = append(os.Environ(), "AGENT_SHELL_DIR="+filepath.Join(c.s.dir, tenant.Path("", "sandbox", dir)))
+	out := &capped{max: 2 << 20}
+	cmd.Stdout, cmd.Stderr = out, out
+	runErr := cmd.Run()
+	// -shell 最后一行是 JSON；之前可能有 “Workspace: …” 一类的日志。
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	var parsed struct {
+		ExitCode  int    `json:"exit_code"`
+		Output    string `json:"output"`
+		Truncated bool   `json:"truncated"`
+		Duration  int64  `json:"duration_ms"`
+	}
+	if json.Unmarshal([]byte(lines[len(lines)-1]), &parsed) != nil {
+		reason := "输出里没有结果"
+		if runErr != nil {
+			reason = runErr.Error()
+		}
+		return nil, bad(500, "命令没有跑起来（"+reason+"）："+strings.Join(lines[max(len(lines)-6, 0):], "\n"))
+	}
+	output, truncated := parsed.Output, parsed.Truncated
+	if len(output) > 16<<10 {
+		output, truncated = strings.ToValidUTF8(output[:16<<10], ""), true
+	}
+	body, _ := json.Marshal(map[string]any{"exit_code": parsed.ExitCode, "output": output, "truncated": truncated, "duration_ms": parsed.Duration})
+	// 对话已经结束，记录文件关了：和联网审批一样临时以追加方式打开，写完再关，重启后卡片还在。
+	r.mu.Lock()
+	if r.Done {
+		file, err := os.OpenFile(filepath.Join(c.s.runsDir(), r.ID+".jsonl"), os.O_WRONLY|os.O_APPEND, 0o600)
+		if err != nil {
+			r.mu.Unlock()
+			return nil, bad(500, "无法写入对话记录")
+		}
+		r.file = file
+		defer file.Close()
+	}
+	r.mu.Unlock()
+	r.add(event{Kind: "shell", Text: command, Body: body})
+	r.s.status(r.ID, r.liveStatus())
+	return map[string]any{"exit_code": parsed.ExitCode, "output": output, "truncated": truncated, "duration_ms": parsed.Duration}, nil
+}
+
+// capped 只留前 max 字节：-shell 的输出已经由沙箱截过，这里再接一层，命令直接打印很多时不占太多内存。
+// 多出来的丢掉，最后的 JSON 行仍在开头这段里。
+type capped struct {
+	max int
+	buf bytes.Buffer
+}
+
+func (w *capped) Write(p []byte) (int, error) {
+	if room := w.max - w.buf.Len(); room > 0 {
+		w.buf.Write(p[:min(len(p), room)])
+	}
+	return len(p), nil
+}
+
+func (w *capped) String() string { return w.buf.String() }
 
 // 每次交互（首问或续聊）一个 trace，根 span 是 app-server 的 interaction；agent 进程的 invoke_agent 挂在它下面。
 // 同一个对话的多个 trace 用 gen_ai.conversation.id（对话ID）归到一起。
@@ -800,10 +1172,12 @@ func (c *conn) threadRewind(m protocol.Message) (any, *protocol.Error) {
 
 // thread/fork：从第 n 轮之后另起一条对话。前面各轮的事件原样复制进新对话的存档（seq 不改），原对话不变、文件不动；
 // 分支和原对话共用工作区与 bash 沙箱，所以原对话之后各轮改过的文件要列出来，下一轮由 turn/start 提醒模型。
+// side 是旁支提问：分出来的对话不入列表主区域，记 side 并先归档；问题由界面随后发出时再改名。
 func (c *conn) threadFork(m protocol.Message) (any, *protocol.Error) {
 	var input struct {
 		ThreadID string `json:"threadId"`
 		Turn     string `json:"turn"`
+		Side     bool   `json:"side"`
 	}
 	if ferr := decode(m, &input); ferr != nil {
 		return nil, ferr
@@ -878,6 +1252,10 @@ func (c *conn) threadFork(m protocol.Message) (any, *protocol.Error) {
 		return nil, bad(500, err.Error())
 	}
 	nr := &run{ID: id, ForkOf: r.ID, Done: true, changed: make(chan struct{})}
+	if input.Side {
+		// 旁支：记下 side 并先归档，列表主区域看不到；问题这时还没发，名字等界面拿到问题后再改。
+		nr.Side, nr.Archived, nr.Name = true, true, "旁支"
+	}
 	var buf bytes.Buffer
 	for _, e := range copied {
 		line, err := json.Marshal(e)
@@ -907,6 +1285,13 @@ func (c *conn) threadFork(m protocol.Message) (any, *protocol.Error) {
 		return nil, bad(500, "分叉的对话记录写不进去："+err.Error())
 	}
 	file.Close()
+	// 旁支的 side 与归档写在 .meta.json 旁边：读回来时 summary()、列表与重启后的状态都从这里来。
+	if input.Side {
+		if err := s.writeMeta(id, runMeta{Name: nr.Name, Archived: true, Side: true}); err != nil {
+			os.Remove(filepath.Join(s.runsDir(), id+".jsonl"))
+			return nil, bad(500, "旁支的元数据写不进去："+err.Error())
+		}
+	}
 	s.addRun(nr)
 	return nr.summary(), nil
 }
@@ -1159,10 +1544,29 @@ func (r *run) lastCheckpoint() string {
 
 var legacyCheckpointLine = regexp.MustCompile(`^Checkpoint: id=([A-Za-z0-9._-]{1,128}) `)
 
-// notes 是上一个 start 或 continue 之后的分叉、撤销：下一轮要在问题后面告诉模型，
-// 它看到的记录和磁盘上的文件对不上。不另存，按事件算——事件是唯一的事实来源，重启后算出来的一样。
+// pendingGoal 是还没说给模型的目标：设了、改了或者清除过（见 notes）；说过的不再重复。调用方持有 r.mu。
+func (r *run) pendingGoal() *threadGoal {
+	if r.goal == nil || r.goal.Sent {
+		return nil
+	}
+	return r.goal
+}
+
+// notes 是上一个 start 或 continue 之后的提醒，跟着下一轮的问题交给模型：
+// 分叉、撤销以后它看到的记录和磁盘上的文件对不上；两轮之间人自己用 ! 跑的命令（shell 事件）也在这里交给它；
+// 人定的目标设了、改了（或者清除了）也是在这里说一次，
+// 说完由 startTurn / threadStart 调 goalSent 记成说过了，不是每轮重复。
+// 不另存，按事件算——事件是唯一的事实来源，重启后算出来的一样；目标是例外，它有自己的 .meta.json，见 threadGoal。
 // 第几轮按 turnIDs 里的位置算，文件清单用“、”连起来。调用方持有 r.mu。
 func (r *run) notes() []string {
+	var notes []string
+	if g := r.pendingGoal(); g != nil {
+		if g.Text == "" {
+			notes = append(notes, "用户清除了这条对话的目标。")
+		} else {
+			notes = append(notes, "用户给这条对话定了目标（之后各轮都朝这个做，做完了或者做不到要说明）："+g.Text)
+		}
+	}
 	turns := r.turnIDs()
 	from := 0
 	for i := len(r.events) - 1; i >= 0; i-- {
@@ -1171,9 +1575,26 @@ func (r *run) notes() []string {
 			break
 		}
 	}
-	var notes []string
 	for _, e := range r.events[from:] {
 		switch e.Kind {
+		case "shell":
+			// 人自己在两轮之间用 ! 跑的命令（见 threadShellCommand）：输出也给它看，最多 2000 字。
+			var p struct {
+				ExitCode int    `json:"exit_code"`
+				Output   string `json:"output"`
+			}
+			if json.Unmarshal(e.Body, &p) != nil {
+				continue
+			}
+			// 只去掉结尾的换行：开头的空格是输出的一部分（git status 的 " M a.txt" 与 "M  a.txt" 意思不同）。
+			out := strings.TrimRight(p.Output, "\n")
+			if strings.TrimSpace(out) == "" {
+				out = "（无输出）"
+			}
+			if chars := []rune(out); len(chars) > 2000 {
+				out = string(chars[:2000]) + "…"
+			}
+			notes = append(notes, fmt.Sprintf("用户在两轮之间自己在沙箱里跑了命令 `%s`（退出码 %d），输出：%s", e.Text, p.ExitCode, out))
 		case "fork":
 			var p struct {
 				Turn       string   `json:"turn"`
@@ -1260,11 +1681,11 @@ func (r *run) canContinue() bool {
 	return r.lastCheckpoint() != ""
 }
 
-// 人的网络审批（allow/deny）、撤销（rewind）与分叉（fork）可能追加在 exit 之后，不算对话进程的事件。
-// 返回最后一条对话进程事件的下标，以及它后面有没有撤销。调用方持有 r.mu。
+// 人的网络审批（allow/deny）、撤销（rewind）、分叉（fork）与两轮之间自己用 ! 跑的命令（shell）可能追加在 exit 之后，
+// 不算对话进程的事件。返回最后一条对话进程事件的下标，以及它后面有没有撤销。调用方持有 r.mu。
 func (r *run) lastTurnEvent() (int, bool) {
 	i, rewound := len(r.events)-1, false
-	for i >= 0 && (r.events[i].Kind == "allow" || r.events[i].Kind == "deny" || r.events[i].Kind == "rewind" || r.events[i].Kind == "fork") {
+	for i >= 0 && (r.events[i].Kind == "allow" || r.events[i].Kind == "deny" || r.events[i].Kind == "rewind" || r.events[i].Kind == "fork" || r.events[i].Kind == "shell") {
 		rewound = rewound || r.events[i].Kind == "rewind"
 		i--
 	}
@@ -1289,9 +1710,9 @@ func (s *Server) loadRuns() {
 			continue
 		}
 		r := &run{s: s, ID: strings.TrimSuffix(filepath.Base(path), ".jsonl"), Done: true, changed: make(chan struct{})}
-		// 名字、归档与排队的消息在旁边的 .meta.json 里；没有这个文件就是没改过名、没归档、没排队。
+		// 名字、归档、旁支、排队的消息与目标在旁边的 .meta.json 里；没有这个文件就是没改过名、没归档、没排队、没定目标。
 		if meta, err := readMeta(s.metaPath(r.ID)); err == nil {
-			r.Name, r.Archived, r.queue = meta.Name, meta.Archived, meta.Queue
+			r.Name, r.Archived, r.Side, r.queue, r.goal = meta.Name, meta.Archived, meta.Side, meta.Queue, meta.Goal
 		}
 		for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
 			var e event
@@ -1360,9 +1781,32 @@ func (r *run) summary() map[string]any {
 	if r.Archived {
 		summary["archived"] = true
 	}
+	// 旁支提问分出来的对话（有才带）：页面在已归档里标“旁支”，打开时顶上给一条返回原对话的横幅。
+	if r.Side {
+		summary["side"] = true
+	}
+	// 副本对话（有才带）：列表里标“副本”，停下以后顶栏给“应用到 <工作区名>”。
+	if r.copyOf() != "" {
+		summary["copy"] = true
+	}
 	// 排队的后续消息（有才带）：页面在待发送区里列出它们，所有打开这条对话的页面看到的一样。
 	if len(r.queue) > 0 {
 		summary["queue"] = r.queue
+	}
+	// 目标（有才带）：只带文字，标题下面一行常显；什么时候说给模型、有没有说过是 app-server 自己的事。
+	if r.goal != nil && r.goal.Text != "" {
+		summary["goal"] = r.goal.Text
+	}
+	// 两轮之间用 ! 跑过的命令（有才带）：只给条数。这条对话停下以后订阅已经收尾，shell 事件推不到页面，
+	// 页面拿它和自己收到的条数对一下，少了就重新加载这条对话，卡片才出得来。
+	shells := 0
+	for _, e := range r.events {
+		if e.Kind == "shell" {
+			shells++
+		}
+	}
+	if shells > 0 {
+		summary["shells"] = shells
 	}
 	// 时间给 Unix 毫秒时间戳，由界面按看的人所在的时区显示。
 	if len(r.events) > 0 {
@@ -1814,6 +2258,97 @@ func (c *conn) turnSteer(m protocol.Message) (any, *protocol.Error) {
 		return nil, bad(409, "这一轮刚结束，没插进去")
 	}
 	return nil, nil
+}
+
+// thread/job/output：看这一轮里一个后台命令最近的输出。只看不消费：不动模型给 bash_output 留的读取位置。
+// 后台命令只活到这一轮结束，agent 已经不在时没有地方可以问，回 409。
+func (c *conn) threadJobOutput(m protocol.Message) (any, *protocol.Error) {
+	var input struct {
+		ThreadID string `json:"threadId"`
+		JobID    string `json:"jobId"`
+	}
+	if ferr := decode(m, &input); ferr != nil {
+		return nil, ferr
+	}
+	r, ferr := c.s.threadOf(input.ThreadID)
+	if ferr != nil {
+		return nil, ferr
+	}
+	return c.jobForward(r, "job/output", input.JobID)
+}
+
+// thread/job/kill：人从网页上停掉模型的一个后台命令，stopped 写“用户在网页上停掉”。
+// 先写审计再转给 agent（同人在输入框里跑 ! 命令），Target 是命令原文，从这一轮的 job/updated 通知里取。
+func (c *conn) threadJobKill(m protocol.Message) (any, *protocol.Error) {
+	var input struct {
+		ThreadID string `json:"threadId"`
+		JobID    string `json:"jobId"`
+		User     string `json:"user"`
+	}
+	if ferr := decode(m, &input); ferr != nil {
+		return nil, ferr
+	}
+	r, ferr := c.s.threadOf(input.ThreadID)
+	if ferr != nil {
+		return nil, ferr
+	}
+	jobID := strings.TrimSpace(input.JobID)
+	if jobID == "" {
+		return nil, bad(400, "需要 jobId")
+	}
+	r.mu.Lock()
+	running, task := r.conn != nil, r.rootTask
+	r.mu.Unlock()
+	if !running {
+		return nil, bad(409, "这一轮已经结束，后台命令也一起结束了")
+	}
+	record := audit.Record{Actor: "user", User: input.User, Event: "user_job_kill", Task: task, Conversation: r.ID, Target: r.jobCommand(jobID), Detail: c.clientName()}
+	if err := audit.Write(c.ctx, record); err != nil {
+		return nil, bad(500, "审计日志写入失败，没有停掉命令："+err.Error())
+	}
+	return c.jobForward(r, "job/kill", jobID)
+}
+
+// jobCommand 从这一轮的 job/updated 通知里取命令原文：审计的 Target 写它，看得出停的是哪条。
+func (r *run) jobCommand(id string) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	command := ""
+	for _, e := range r.events {
+		var p struct {
+			ID      string `json:"id"`
+			Command string `json:"command"`
+		}
+		if e.Kind == "notify" && e.Method == "job/updated" && json.Unmarshal(e.Body, &p) == nil && p.ID == id {
+			command = p.Command
+		}
+	}
+	return command
+}
+
+// jobForward 把一个后台命令的请求转给这一轮的 agent：job 表在 agent 进程里。
+// 这一轮已经结束（agent 不在）时回 409；agent 有话说（比如没有这个 job_id）就照它的话回。
+func (c *conn) jobForward(r *run, method, jobID string) (any, *protocol.Error) {
+	if jobID == "" {
+		return nil, bad(400, "需要 jobId")
+	}
+	r.mu.Lock()
+	conn := r.conn
+	r.mu.Unlock()
+	if conn == nil {
+		return nil, bad(409, "这一轮已经结束，后台命令也一起结束了")
+	}
+	ctx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
+	defer cancel()
+	var result json.RawMessage
+	if err := conn.Call(ctx, method, map[string]string{"id": jobID}, &result); err != nil {
+		var pe *protocol.Error
+		if errors.As(err, &pe) && pe.Message != "" {
+			return nil, bad(409, pe.Message)
+		}
+		return nil, bad(409, "这一轮已经结束，后台命令也一起结束了")
+	}
+	return result, nil
 }
 
 // audit/list：审计页只读。每次都从头校验整条哈希链，返回最近的 500 条（可按任务过滤）。

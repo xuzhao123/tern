@@ -25,7 +25,8 @@ import (
 )
 
 // 设置：工具常驻，由这里决定；每个对话只选模型和工作区（参考 Claude Code 的 settings.json、Codex 的 config.toml）。
-// 一份设置是一张扁平的“键 → 字符串值”表，按 内置默认 → 平台 → 个人 的顺序合并，后面的覆盖前面的；
+// 一份设置是一张扁平的“键 → 字符串值”表，按 内置默认 → 平台 → 项目 → 个人 的顺序合并，后面的覆盖前面的；
+// 项目层是所选工作区里的 .agents/tern.json（见 projectConfig），其中 permission_rules 与 net_allow 是追加不是覆盖。
 // 本机能不能跑（没装 bubblewrap、没找到 Chrome）只会把工具关掉，不会打开。
 // 新对话开始时把合并结果拍成快照写进 start 事件，续聊沿用快照，之后改设置不影响已经开始的对话。
 // 文件放 .data/settings.json（不提交）。
@@ -104,6 +105,8 @@ type workspaceDir struct {
 	Path string `json:"path"`
 	// Git 只在设置页的回复里填（标出不是 git 仓库的目录），settings.json 里没有这一项。
 	Git bool `json:"git,omitempty"`
+	// Project 同样只在设置页的回复里填：这个工作区里 .agents/tern.json 生效的键值，空表示没有项目配置。
+	Project string `json:"project,omitempty"`
 }
 
 type settingsFile struct {
@@ -213,11 +216,17 @@ func valid(key, value string, f settingsFile) error {
 func (s *Server) unavailable(key string, skills []string, servers []mcpServer) string {
 	switch key {
 	case "bash":
-		if runtime.GOOS != "linux" {
-			return "Bash 沙箱只支持 Linux"
-		}
-		if _, err := exec.LookPath("bwrap"); err != nil {
-			return "没有找到 bubblewrap（bwrap），请先安装"
+		switch runtime.GOOS {
+		case "linux":
+			if _, err := exec.LookPath("bwrap"); err != nil {
+				return "没有找到 bubblewrap（bwrap），请先安装"
+			}
+		case "darwin":
+			if _, err := os.Stat("/usr/bin/sandbox-exec"); err != nil {
+				return "没有找到 /usr/bin/sandbox-exec"
+			}
+		default:
+			return "Bash 沙箱只支持 Linux 与 macOS"
 		}
 	case "web_search", "open_page":
 		if os.Getenv("CHROME_PATH") != "" {
@@ -245,18 +254,112 @@ func (s *Server) unavailable(key string, skills []string, servers []mcpServer) s
 	return ""
 }
 
+// 项目级配置：工作区根目录的 .agents/tern.json，一个扁平的“键 → 字符串值”表，键和设置页的键一样。
+// 仓库想默认用某个模型、关掉某些工具、加几条权限规则或联网白名单，就写在这里，不用改全局设置；
+// 只在对话选了这个工作区时生效，已登记的工作区就当人信任它。
+// 只认下面这些键与工具开关：hooks 会在宿主机上跑命令，只能由平台设置；其余键（workspace、embedding、memory_ttl）也不收。
+var projectKeys = []string{"provider", "model", "reasoning_effort", "permission_mode", "permission_rules", "net_allow", "max_steps", "context_window", "tool_output"}
+
+func projectAllowed(key string) bool {
+	return slices.Contains(projectKeys, key) || slices.Contains(toolOrder, key)
+}
+
+// projectConfig 读一个工作区里的 .agents/tern.json：只留 projectAllowed 的键，值照 valid 校验。
+// 不生效的键与不合规的值列进 ignored，设置页据此说明；文件不是合法的 JSON 对象时整份忽略，原因放进 invalid。
+func projectConfig(dir string, f settingsFile) (values map[string]string, ignored []string, invalid string) {
+	if dir == "" {
+		return nil, nil, ""
+	}
+	data, err := os.ReadFile(filepath.Join(dir, ".agents", "tern.json"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil, ""
+	}
+	if err != nil {
+		return nil, nil, "读不了 .agents/tern.json：" + err.Error()
+	}
+	var raw map[string]string
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, nil, ".agents/tern.json 不是合法的 JSON 对象，整份忽略：" + err.Error()
+	}
+	for key, value := range raw {
+		switch {
+		case !projectAllowed(key):
+			ignored = append(ignored, key)
+		case valid(key, value, f) != nil:
+			ignored = append(ignored, key+"（值不合规）")
+		default:
+			if values == nil {
+				values = map[string]string{}
+			}
+			values[key] = value
+		}
+	}
+	slices.Sort(ignored)
+	return values, ignored, ""
+}
+
+// appendSetting 合并项目层追加的两项：权限规则一行一条接在平台规则后面，联网白名单取并集。
+func appendSetting(key, base, extra string) string {
+	if key == "permission_rules" {
+		return strings.Join(ruleLines(base+"\n"+extra), "\n")
+	}
+	return strings.Join(netDomains(base+" "+extra), "\n")
+}
+
+// projectApplied 是 start 事件里记的 project_config：只留真正进了快照的键，横幅才不会说这条对话用了没用的设置。
+// 被个人层盖掉的（合并后的来源不是 project）不记；被 thread/start 明确给的参数盖掉的（给了而且和项目的值不一样）也不记。
+// explicit 是界面明确给的启动参数（provider、model、effort、permission），参数名与设置键名不同。
+func projectApplied(settings effective, explicit map[string]string) map[string]string {
+	param := map[string]string{"provider": "provider", "model": "model", "reasoning_effort": "effort", "permission_mode": "permission"}
+	applied := map[string]string{}
+	for key, value := range settings.Project {
+		if settings.Source[key] != "project" {
+			continue
+		}
+		if name := param[key]; name != "" && explicit[name] != "" && explicit[name] != value {
+			continue
+		}
+		applied[key] = value
+	}
+	if len(applied) == 0 {
+		return nil
+	}
+	return applied
+}
+
+// projectSummary 是设置页工作区列表的悬停文字：项目配置里生效的键值，不生效的键、整份没读进来的原因也列上。
+// 空表示这个工作区没有 .agents/tern.json。
+func projectSummary(f settingsFile, dir string) string {
+	values, ignored, invalid := projectConfig(dir, f)
+	var parts []string
+	for _, key := range slices.Sorted(maps.Keys(values)) {
+		parts = append(parts, key+"="+strings.ReplaceAll(values[key], "\n", " "))
+	}
+	if invalid != "" {
+		parts = append(parts, invalid)
+	}
+	if len(ignored) > 0 {
+		parts = append(parts, "不生效："+strings.Join(ignored, "、"))
+	}
+	return strings.Join(parts, " · ")
+}
+
 // effective 是某个账号此刻的设置：合并后的值、每个值来自哪一层、被关掉的工具及原因。
 type effective struct {
-	Values     map[string]string `json:"values"`
-	Source     map[string]string `json:"source"`     // builtin、platform、user
-	Blocked    map[string]string `json:"blocked"`    // 工具 → 被关掉的原因（本机不可用）
-	Workspaces []workspaceDir    `json:"workspaces"` // 这个账号能选的工作区
-	Skills     []string          `json:"skills"`
-	MCP        []mcpServer       `json:"mcp"`
+	Values         map[string]string `json:"values"`
+	Source         map[string]string `json:"source"`            // builtin、platform、project、user
+	Blocked        map[string]string `json:"blocked"`           // 工具 → 被关掉的原因（本机不可用）
+	Project        map[string]string `json:"project,omitempty"` // 项目配置里生效的键值（对话快照的 project_config 也用它）
+	ProjectIgnored []string          `json:"project_ignored,omitempty"`
+	ProjectError   string            `json:"project_error,omitempty"` // .agents/tern.json 整份没读进来时的原因
+	Workspaces     []workspaceDir    `json:"workspaces"`              // 这个账号能选的工作区
+	Skills         []string          `json:"skills"`
+	MCP            []mcpServer       `json:"mcp"`
 }
 
 // effectiveFor 是某个账号此刻的设置；name 为空（chat 这类不带账号的界面）就是没有个人层。
-func (s *Server) effectiveFor(name string) (effective, settingsFile, error) {
+// dir 非空（对话选了工作区）时再加上这个工作区里的项目配置，见 projectConfig。
+func (s *Server) effectiveFor(name, dir string) (effective, settingsFile, error) {
 	s.hubMu.Lock()
 	f, err := s.readSettings()
 	s.hubMu.Unlock()
@@ -271,17 +374,29 @@ func (s *Server) effectiveFor(name string) (effective, settingsFile, error) {
 	for key := range builtin {
 		e.Source[key] = "builtin"
 	}
+	var project map[string]string
+	if dir != "" {
+		var ignored []string
+		project, ignored, e.ProjectError = projectConfig(dir, f)
+		e.Project, e.ProjectIgnored = project, ignored
+	}
 	for _, layer := range []struct {
 		name   string
 		values map[string]string
-	}{{"platform", f.Platform}, {"user", f.Users[name]}} {
+	}{{"platform", f.Platform}, {"project", project}, {"user", f.Users[name]}} {
 		for key, value := range layer.values {
 			if layer.name == "user" && key == "hooks" {
 				continue
 			}
-			if _, ok := builtin[key]; ok && valid(key, value, f) == nil {
-				e.Values[key], e.Source[key] = value, layer.name
+			if _, ok := builtin[key]; !ok || valid(key, value, f) != nil {
+				continue
 			}
+			// 权限规则与联网白名单在项目层是追加不是覆盖：规则接在平台规则后面，白名单取并集。
+			if layer.name == "project" && value != "" && e.Values[key] != "" && (key == "permission_rules" || key == "net_allow") {
+				e.Values[key], e.Source[key] = appendSetting(key, e.Values[key], value), layer.name
+				continue
+			}
+			e.Values[key], e.Source[key] = value, layer.name
 		}
 	}
 	// 具体模型同理：合并后不在当前供应商清单里就当没设（改了供应商、旧模型名留在个人设置里的情况），
@@ -334,19 +449,41 @@ func modelFor(provider, model string) string {
 
 // settings/read：合并后的设置、每一层自己的值、内置默认与工具顺序，界面据此画设置页。
 // instructions 是这台机器上 $TERN_HOME/AGENTS.md 个人指令的位置与现状，只显示，不在网页上编辑。
+// workspace 是页面上新对话下拉里选中的工作区：给了就按它加上项目层（.agents/tern.json），不选就不算。
 func (c *conn) settingsRead(m protocol.Message) (any, *protocol.Error) {
+	var input struct {
+		Workspace string `json:"workspace"`
+	}
+	if ferr := decode(m, &input); ferr != nil {
+		return nil, ferr
+	}
 	name := userName(m)
-	e, f, err := c.s.effectiveFor(name)
+	// 项目配置按目录读：先按名字从登记列表里解析出这个工作区的目录。
+	dir := ""
+	if input.Workspace != "" {
+		c.s.hubMu.Lock()
+		f, err := c.s.readSettings()
+		c.s.hubMu.Unlock()
+		if err != nil {
+			return nil, bad(500, "无法读取设置："+err.Error())
+		}
+		if i := slices.IndexFunc(f.Workspaces, func(w workspaceDir) bool { return w.Name == input.Workspace }); i >= 0 {
+			dir = f.Workspaces[i].Path
+		}
+	}
+	e, f, err := c.s.effectiveFor(name, dir)
 	if err != nil {
 		return nil, bad(500, "无法读取设置："+err.Error())
 	}
 	path, exists, chars := workspace.PersonalFile(c.s.dir)
 	instructions := map[string]any{"path": path, "exists": exists, "chars": chars}
-	// 设置页要标出不是 git 仓库的工作区：按 .git 现查，只放在这次的回复里，不写回 settings.json。
+	// 设置页要标出不是 git 仓库的工作区：按 .git 现查，只放在这次的回复里，不写回 settings.json；
+	// 有 .agents/tern.json 的工作区一并标出来，悬停列出生效的键。
 	workspaces := make([]workspaceDir, len(e.Workspaces))
 	copy(workspaces, e.Workspaces)
 	for i := range workspaces {
 		workspaces[i].Git = isGitRepo(workspaces[i].Path)
+		workspaces[i].Project = projectSummary(f, workspaces[i].Path)
 	}
 	e.Workspaces = workspaces
 	return map[string]any{"effective": e, "platform": f.Platform, "user": f.Users[name], "builtin": builtin, "tool_order": toolOrder, "instructions": instructions}, nil
@@ -789,7 +926,7 @@ func (c *conn) commandList(m protocol.Message) (any, *protocol.Error) {
 	if ferr := decode(m, &input); ferr != nil {
 		return nil, ferr
 	}
-	e, _, err := c.s.effectiveFor(input.User)
+	e, _, err := c.s.effectiveFor(input.User, "")
 	if err != nil {
 		return nil, bad(500, err.Error())
 	}
