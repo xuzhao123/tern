@@ -181,13 +181,9 @@ func systemdRun(extra ...string) error {
 	return exec.Command("systemd-run", append(args, "true")...).Run()
 }
 
-// sandboxCommand 拼出 Linux 上的一次启动：bwrap 的参数、seccomp 程序与 chrome 包装脚本那两个文件描述符，
+// sandboxCommand 拼出 Linux 上的一次启动：bwrap 的参数与需要传递的文件描述符，
 // 有 systemd 用户会话时再放进一个有名字的 scope（cgroup）。
 func sandboxCommand(ctx context.Context, workspace, command string, tty, writable bool) (*launchSpec, error) {
-	self, err := os.Executable()
-	if err != nil {
-		return nil, llm.Permanent(err)
-	}
 	// seccomp 程序通过文件描述符交给 bwrap（--seccomp 3）。bwrap 要到 exec 之后才读它，
 	// 所以临时文件在启动之后才删（见 launchSpec.done）。
 	filter, err := os.CreateTemp("", "tern-seccomp-")
@@ -200,7 +196,13 @@ func sandboxCommand(ctx context.Context, workspace, command string, tty, writabl
 		return nil, llm.Permanent(err)
 	}
 	filter.Seek(0, 0)
-	spec := &launchSpec{extra: []*os.File{filter}, done: func() { filter.Close(); os.Remove(filter.Name()) }}
+	spec := &launchSpec{extra: []*os.File{filter}}
+	spec.done = func() {
+		for _, f := range spec.extra {
+			f.Close()
+		}
+		os.Remove(filter.Name())
+	}
 
 	// chrome 的包装脚本经管道交给 bwrap 的 --ro-bind-data：它是 ExtraFiles 的第二项，也就是 fd 4
 	// （第一项是 fd 3 的 seccomp 程序）。脚本几百字节，放得进管道缓冲，写完就关掉写端。
@@ -220,8 +222,26 @@ func sandboxCommand(ctx context.Context, workspace, command string, tty, writabl
 		spec.extra = append(spec.extra, wrapper)
 	}
 
+	// 程序文件还在原路径（且就是正在运行的这一个）时直接只读挂载，不复制；
+	// go run 的临时文件可能已经被删掉或换掉，这时才经 fd 交给 bwrap，由它复制成只读的可执行文件（每次执行复制整个程序）。
+	selfMount := []string{"--ro-bind", "", "/.sandbox/agent"}
+	path, err := os.Executable()
+	running, runErr := os.Stat("/proc/self/exe")
+	onDisk, diskErr := os.Stat(path)
+	if err == nil && runErr == nil && diskErr == nil && os.SameFile(running, onDisk) {
+		selfMount[1] = path
+	} else {
+		self, err := os.Open("/proc/self/exe")
+		if err != nil {
+			spec.done()
+			return nil, llm.Permanent(err)
+		}
+		selfMount = []string{"--perms", "0555", "--ro-bind-data", fmt.Sprint(3 + len(spec.extra)), "/.sandbox/agent"}
+		spec.extra = append(spec.extra, self)
+	}
+
 	// 和 Claude Code 给 Bash 子进程设 TRACEPARENT 一样：沙箱里的程序愿意的话，可以把自己的 span 接到这次执行下面。
-	spec.argv = bwrapArgs(ctx, workspace, self, command, tty, writable)
+	spec.argv = bwrapArgs(ctx, workspace, selfMount, command, tty, writable)
 	if cgroupOK() {
 		// 每次执行一个有名字的 scope（一个 cgroup）：超时时按 cgroup 整体杀掉。
 		// 不能只杀进程组：bwrap 的 --new-session 让沙箱里的进程进了新的会话，进程组信号打不到它们。
@@ -254,7 +274,7 @@ func cleanup() {
 	}
 }
 
-func bwrapArgs(ctx context.Context, workspace, self, command string, tty, writable bool) []string {
+func bwrapArgs(ctx context.Context, workspace string, selfMount []string, command string, tty, writable bool) []string {
 	args := []string{"bwrap",
 		// 新的用户、PID、网络、IPC、UTS、cgroup namespace；禁止沙箱里再建 user namespace；去掉全部特权。
 		"--unshare-all", "--unshare-user", "--disable-userns", "--cap-drop", "ALL",
@@ -337,8 +357,9 @@ func bwrapArgs(ctx context.Context, workspace, self, command string, tty, writab
 		}
 	}
 	proxy := "http://" + proxyEndpoint()
+	args = append(args, selfMount...)
 	args = append(args,
-		"--ro-bind", self, "/.sandbox/agent", "--ro-bind", proxyDir, "/.sandbox/net",
+		"--ro-bind", proxyDir, "/.sandbox/net",
 		// 挂载都设好之后把根目录改成只读（/workspace、/tmp 是单独的挂载，仍可写）；
 		// 让 sandbox-init 当 1 号进程，/proc/1/cmdline 就不会暴露 bwrap 的命令行和宿主机上的路径。
 		"--remount-ro", "/", "--as-pid-1",
@@ -350,16 +371,16 @@ func bwrapArgs(ctx context.Context, workspace, self, command string, tty, writab
 		// script 用 $SHELL 跑命令（不设就是 sh），设成 bash：命令的写法和前台一致（前台是 /bin/bash -c）。
 		args = append(args, "--setenv", "SHELL", "/bin/bash")
 	}
+	if ServicePorts != "" {
+		args = append(args, "--setenv", "TERN_SERVICE_PORTS", ServicePorts)
+	}
 	for _, pair := range append(extraEnv, telemetry.Env(ctx)...) {
 		name, value, _ := strings.Cut(pair, "=")
 		args = append(args, "--setenv", name, value)
 	}
 	args = append(args, "--seccomp", "3", "/.sandbox/agent", "sandbox-init")
 	if tty {
-		// 命令放进 script，由它开一个伪终端：命令以为自己在终端里。-e 让退出码是命令的（不然总是 0）；
-		// -f 每条输出立刻交出来。script 用 $SHELL 跑命令（不设就是 sh），上面设成 bash，命令的写法和前台一致。
-		// 命令原样作为一个参数传，不经 shell 再转一层。
-		args = append(args, "script", "-q", "-f", "-e", "-c", command, "/dev/null")
+		args = append(args, scriptCommand(command)...)
 	} else {
 		args = append(args, "/bin/bash", "-c", command)
 	}
