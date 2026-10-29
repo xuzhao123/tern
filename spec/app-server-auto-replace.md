@@ -71,3 +71,15 @@ tern 的 agent 是独立进程，app-server 退出时照常跑，新的 app-serv
 3. 接着再 `B app-server start`：build 相同，不换。
 4. 一个早于 B 启动、还开着的 A 界面（chat）重连后不把 app-server 换回 A。
 5. 旧版本（这次改动之前的提交，`initialize` 不带 `build`）起的 app-server：新界面启动时换掉它。
+
+## Linux 沙箱与 web 重启（2026-10-25 修正）
+
+`go run . web` 退出后，Go 可能删除临时可执行文件，但常驻 app-server 和已启动 agent 仍在运行。再次运行同版本 web 会复用后台；不能要求用户额外 stop/start app-server 才能执行 bash。
+
+Linux 沙箱应从 `/proc/self/exe` 打开正在运行的程序，通过文件描述符交给 bwrap 的 `--ro-bind-data`，以只读、可执行权限挂到 `/.sandbox/agent`。不再用 `os.Executable()` 返回的可能已删除的路径作为挂载来源。文件描述符在子进程启动后或构造失败时关闭，保留现有 seccomp 与 Chrome 包装脚本的 fd 位置。前台、后台和 PTY 共用这条启动路径。
+
+按文件改动：`internal/sandbox/launch_linux.go` 的程序来源、fd 生命周期与 bwrap 参数；根 README 的源码启动说明。无需改变自动替换判断、模型、工作区权限、数据格式或 macOS 启动方式。
+
+验收：隔离运行目录中，先复现旧版程序路径删除后 bash 挂载失败；修复后验证删掉当前程序仍可执行前台/后台/PTY 并写文件，检查沙箱内程序只读、退出码传递与 fd 回收。实际 `go run . web` 重启后，同版本复用后台仍正常；换成新 build 后自动替换后台，原对话可继续通过真实模型写入文件。不在用户日常数据目录执行此验收。
+
+本次隔离验收通过：旧实现删除程序后稳定复现 bwrap 路径不存在；修复后程序存在/删除、有/无 Chrome 包装时，前台、后台、PTY 和只读挂载检查通过，连续执行的 fd 数保持 8 → 8。实际启动旧 web、停止并删除其程序，再运行修复后的 `go run . web`，后台自动换成新 build，原对话通过真实模型写入文件；再次停止 web 并重新运行同版本，复用程序已删除的同一个后台进程，原对话再次通过真实模型写文件，HTTP 下载内容和 `!` 命令读取均正确。Linux vet/build、Darwin arm64 build/vet 与 diff 检查通过。
