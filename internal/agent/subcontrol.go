@@ -65,20 +65,31 @@ func forkHistory() *HistoryInput {
 	return &HistoryInput{Messages: messages, WithTools: true}
 }
 
-func startBackground(call llm.ToolCall, id, task string, history *HistoryInput) (any, error) {
+func startBackground(call llm.ToolCall, id, task string, history *HistoryInput, contextMode string) (any, error) {
 	bgMu.Lock()
-	for _, b := range bgs {
+	previous := -1
+	for i, b := range bgs {
 		if b.id == id {
-			bgMu.Unlock()
-			return nil, llm.Permanent(fmt.Errorf("子任务 %s 已经在后台运行，用 agent_wait 等它", id))
+			select {
+			case <-b.done:
+				previous = i
+			default:
+				bgMu.Unlock()
+				return nil, llm.Permanent(fmt.Errorf("子任务 %s 已经在后台运行，用 agent_wait 等它", id))
+			}
+			break
 		}
 	}
 	b := &backgroundSub{id: id, callID: call.ID, task: task, done: make(chan struct{})}
-	bgs = append(bgs, b)
+	if previous < 0 {
+		bgs = append(bgs, b)
+	} else {
+		bgs[previous] = b
+	}
 	bgMu.Unlock()
 	go func() {
 		defer close(b.done)
-		b.result, b.err = runSub(turnCtx, call.ID, id, task, history, func(conn *protocol.Conn) {
+		b.result, b.err = runSub(turnCtx, call.ID, id, task, history, contextMode, func(conn *protocol.Conn) {
 			b.mu.Lock()
 			b.conn = conn
 			b.mu.Unlock()
@@ -209,6 +220,7 @@ func agentControl(ctx context.Context, name, arguments string) (any, error) {
 	select {
 	case <-b.done:
 	case <-time.After(30 * time.Second):
+		return map[string]any{"task_id": b.id, "status": "stopping", "note": "停止请求已发出，进程还没有确认退出；继续用 agent_wait 核对"}, nil
 	}
 	return map[string]any{"task_id": b.id, "status": "stopped", "note": "已经停下并写好检查点；要接着做就用 spawn_agent 传这个 task_id"}, nil
 }

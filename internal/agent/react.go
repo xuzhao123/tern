@@ -135,9 +135,12 @@ func Run(ctx context.Context, config llm.Config, question string, images []llm.I
 			completed["final_check"] = cp.FinalCheck
 		}
 		// 还没用上的插话交回界面，由它当作下一轮的问题。
-		if queued := closeSteers(); len(queued) > 0 {
+		queued, managed := closeSteers()
+		if len(queued) > 0 {
 			completed["queued"] = queued
 		}
+		completed["queued_inputs"] = managed
+		completed["managed_steer_closed"] = true
 		protocol.Notify("turn/completed", completed)
 	}()
 	summary := []string{}
@@ -164,6 +167,11 @@ func Run(ctx context.Context, config llm.Config, question string, images []llm.I
 			state = prev.State
 		}
 	}
+	consumedSteers := map[string]SteerReceipt{}
+	for id, receipt := range state.ManagedSteers {
+		consumedSteers[id] = receipt
+	}
+	restoreSteerReceipts(consumedSteers)
 	privateSources, granted = slices.Clone(state.Private), slices.Clone(state.Granted)
 	if workspace.Dir != "" {
 		workspace.RestoreSeen(state.Seen) // 只搬“读过”这个事实和当时的哈希，编辑前照常比对当前内容
@@ -215,7 +223,7 @@ func Run(ctx context.Context, config llm.Config, question string, images []llm.I
 		}
 		cp.Step, cp.Calls, cp.Messages, cp.Summary, cp.Progress = completed, client.Calls, conversation.View, summary, loop
 		grantMu.Lock()
-		cp.State = State{Private: privateSources, Granted: slices.Clone(granted), Seen: workspace.Seen(), Env: conversation.env, Announced: conversation.announced}
+		cp.State = State{ManagedSteers: consumedSteers, Private: privateSources, Granted: slices.Clone(granted), Seen: workspace.Seen(), Env: conversation.env, Announced: conversation.announced}
 		grantMu.Unlock()
 		cp.Input, cp.Output, cp.Cached, cp.LogSeq = client.Input, client.Completion, client.Cached, journalSeq()
 		return cp.write()
@@ -335,21 +343,45 @@ func Run(ctx context.Context, config llm.Config, question string, images []llm.I
 				fmt.Printf("Reminder: %s\n", firstLine(text))
 			}
 			// 用户在这一轮进行中说的话，作为用户消息排在最后，和首问一样先过 UserPromptSubmit hook。
-			for _, s := range takeSteers() {
+			batch := takeSteers()
+			receipts := make([]protocol.Item, 0, len(batch))
+			states := make([]string, 0, len(batch))
+			managed := false
+			for _, item := range batch {
+				text, state := item.text, "consumed"
 				if hooks.Has("UserPromptSubmit") {
-					if r := hooks.Run(ctx, "UserPromptSubmit", "", map[string]any{"prompt": s.text}); r.Block {
-						fmt.Printf("Steer blocked: %s\n", r.Reason)
-						protocol.ItemCompleted(CheckpointID, steerItem(fmt.Sprintf("steer-%d", step), "（这条插话被 UserPromptSubmit hook 拦下）", s.clientID))
-						continue
+					if result := hooks.Run(ctx, "UserPromptSubmit", "", map[string]any{"prompt": text}); result.Block {
+						text, state = "（这条插话被 UserPromptSubmit hook 拦下）", "blocked"
+						fmt.Printf("Steer blocked: %s\n", result.Reason)
 					}
 				}
-				conversation.Append(llm.Message{Role: "user", Content: s.text})
-				if memory.Active != nil {
-					memory.Active.UserTexts = append(memory.Active.UserTexts, s.text)
+				if state != "blocked" {
+					conversation.Append(llm.Message{Role: "user", Content: text})
+					if memory.Active != nil {
+						memory.Active.UserTexts = append(memory.Active.UserTexts, text)
+					}
+					fmt.Printf("Steer: %s\n", firstLine(text))
 				}
-				fmt.Printf("Steer: %s\n", firstLine(s.text))
-				protocol.ItemCompleted(CheckpointID, steerItem(fmt.Sprintf("steer-%d", step), s.text, s.clientID))
+				notification := steerItem(fmt.Sprintf("steer-%d", step), text, item.clientID)
+				if item.managed {
+					managed = true
+					consumedSteers[item.clientID] = SteerReceipt{Hash: steerHash(item.text), State: state, Managed: true}
+					notification.Data.(map[string]any)["managed"] = true
+					notification.Data.(map[string]any)["state"] = state
+				}
+				receipts = append(receipts, notification)
+				states = append(states, state)
 			}
+			if managed {
+				if err := save(); err != nil {
+					return stopRun("checkpoint_error", err.Error(), summary)
+				}
+			}
+			for i, item := range batch {
+				completeSteer(item, states[i])
+				protocol.ItemCompleted(CheckpointID, receipts[i])
+			}
+
 			response, err := conversation.Next(ctx, client)
 			if err != nil {
 				reason := "model_error"
