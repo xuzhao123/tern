@@ -1,6 +1,7 @@
 import { renderChat } from "./chat.js";
 import { renderShell } from "./shell.js";
 import { $, api, el, ui } from "./util.js";
+import { closeWorkTab, openWorkTab } from "./workpanel.js";
 // 后台命令侧栏：模型用 bash 带 background=true 起的命令（见 runs.js 的 job/updated）。
 // 列表是这条对话最新一轮的；一轮结束以后还在（只读），没有按钮。
 // 命令与输出都是模型那边写出来的，不可信：只用 textContent 显示。
@@ -43,11 +44,15 @@ function poll(r, j) {
   const s = ui.jobs;
   clearTimeout(s.timer);
   const tick = async () => {
-    if (ui.run !== r || s.open !== j.id) return;
+    s.timer = null;
+    if (s.closed || ui.run !== r || s.open !== j.id) return;
+    s.polling = true;
     const state = await loadOutput(r, j);
-    if (ui.run !== r || s.open !== j.id) return;
-    renderChat();
+    s.polling = false;
+    if (s.closed || ui.run !== r || s.open !== j.id) return;
+    s.settled = state && state !== "running" ? j.id : "";
     if (state === "running") s.timer = setTimeout(tick, POLL_MS);
+    renderChat();
   };
   tick();
 }
@@ -68,7 +73,7 @@ async function stopJob(r, j) {
 
 export function renderJobsPanel() {
   const panel = $("subpanel"), r = ui.run, s = ui.jobs;
-  if (!r || ui.page !== "chat" || !r.jobs.length) {
+  if (!r || ui.page !== "chat" ) {
     clearTimeout(s.timer);
     Object.assign(s, { open: null, timer: null });
     ui.jobsOpen = false;
@@ -77,15 +82,21 @@ export function renderJobsPanel() {
     return;
   }
   if (s.run !== r.id) { clearTimeout(s.timer); Object.assign(s, { run: r.id, open: null, timer: null, output: "", dropped: 0, err: "" }); }
+  const selected = r.jobs.find((j) => j.id === s.open);
+  if (selected?.state === "running" && selected.id !== s.settled && !r.exit && !s.timer && !s.polling && !s.err) poll(r, selected);
   panel.hidden = false;
   panel.dataset.agent = "";
   const head = el("div", "sp-head"), close = el("button", "sp-close", "✕");
   close.type = "button";
   close.title = "关闭";
   close.setAttribute("aria-label", "关闭后台命令面板");
-  close.onclick = () => { ui.jobsOpen = false; clearTimeout(s.timer); s.open = null; renderChat(); renderShell(); };
+  close.onclick = () => closeWorkTab();
   head.append(el("strong", "", `后台命令 · ${r.jobs.length} 个`), close);
   const body = el("div", "sp-body");
+  const operations=el("button","ghost","项目操作与开发服务");operations.type="button";operations.onclick=()=>openWorkTab("operations","","项目操作");body.append(operations);
+  for(const command of r.shells||[]) {const row=el("details");row.append(el("summary","",`用户命令 · ${command.text} · 退出码 ${command.body.exit_code}`),el("pre","job-out",command.body.output||"（无输出）"));body.append(row);}
+  const prepare=el("button","ghost","在输入区准备命令");prepare.type="button";prepare.disabled=!!$("query").value;prepare.onclick=()=>{if($("query").value)return;$("query").value="! ";$("query").dispatchEvent(new Event("input"));$("query").focus();};body.append(prepare);
+  if(!r.jobs.length)body.append(el("p","meta","本轮没有后台命令。上面的用户命令记录来自实际执行；! 命令在当前轮结束后运行，不经过模型。"));
   body.append(el("div", "meta", r.exit
     ? "这一轮已经结束，后台命令也一起结束了；这里只留着当时的状态。"
     : "模型用 bash 带 background=true 起的命令，只活到这一轮结束；看输出不影响模型自己读（bash_output 照样从上次的位置读到）。"));

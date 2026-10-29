@@ -15,5 +15,26 @@
 - 二进制内容（附图、沙箱文件、浏览器画面、导入的会话文件）按块：上传每块不超过 `appserver.MaxChunk`（4MB），最后一块带 `done` 与文件名；下载按 `size` 接着取。原来放在响应头里的信息照旧设：`Content-Type`、`X-Content-Type-Options: nosniff`、`Cache-Control`、`Content-Disposition`。
 - 事件流 `GET /runs/{id}/events` 用那台主机的 `appclient` 的 `Subscribe`：每个事件写一条 `data:`，结束时写 `event: end`（对话结束、主机被断开都算结束）；浏览器断开就退订。
 - 页面在 `page/`：浏览器原生 ES 模块，不打包，不引入构建工具与前端框架，按功能分文件；模块顶层只定义与挂事件，启动时的调用放 `main.js`。主页面的第三方脚本固定版本并带 SRI；模型写的可视化只在沙箱 iframe（`allow-scripts`，不给 `allow-same-origin`）里运行。`page/` 会整个打进程序，不要在里面放文档。
-- 页面按地址上的 `/h/<别名>/` 认出当前主机（`util.js` 的 `HOST`），对话与数据的请求都走 `api(path)`，由它补前缀；`/login`、`/logout`、`/me`、`/connection`、`/hosts` 直接用原地址。顶栏的 `#host` 点开是主机菜单（连、断开、重试），左侧对话列表在连了几台时按主机分组，换主机一律整页跳转（`hostURL`），不动页面里按单台主机攒起来的状态。
+- 页面按地址上的 `/h/<别名>/` 认出当前主机（`util.js` 的 `HOST`），对话与数据的请求都走 `api(path)`，由它补前缀；`/login`、`/logout`、`/me`、`/connection`、`/hosts` 直接用原地址。输入框下方的 `#host`（观测页在顶栏）点开是主机菜单（连、断开、重试），左侧对话列表在连了几台时按主机分组，换主机一律整页跳转（`hostURL`），不动页面里按单台主机攒起来的状态。
 - 导入对话只接受 Codex 的 rollout 与 Claude Code 的会话 JSONL，只读、不续聊（解析在 app-server）。
+
+- 项目导航：`GET /workspaces` 代理 `workspace/list`；`PUT /runs/{id}/pin` 代理 `thread/pin`，user 仍由认证账号注入。项目树/筛选按主机与 workspace_id 分组；没有目录证据的老记录单列历史项目，不按显示名合并。副本关联原项目，但顶栏展示实际 workspace_dir。
+
+- 网页发送恢复：`GET /requests/{id}` 代理 request/status；事件流接受 Last-Event-ID/after，输出 snapshot（历史边界）、SSE id 与 data。X-Tern-Account 仅用于发现页面账号与已认证账号不一致，不作为身份凭证；不一致则返回 409 与 X-Tern-Account-Changed。草稿和不确定发送由页面按账号/主机/任务隔离保存，不直接读任务数据文件。
+
+- 活动中心复用任务列表和服务端 waiting_requests；阅读游标与手动未读按账号/主机/任务保存在浏览器，不作为执行事实。批量已读固定点击时版本。分类系统通知经 Web Locks + 本地事件认领去重；不支持锁或存储失败时不发送，不保证关闭网页后通知。
+
+- 子任务审批/提问按 task_id + original_call_id 对应工具轨迹，实际回答仍提交服务端 call_id；提问同时携带事件 request_id，防止旧控件答到新尝试。input_closed 只撤下对应 RPC 等待，父子共享状态引用保持一致。
+
+- 队列编辑/排序使用服务端 version；发队首调用 queue/send，不再 messages 后 DELETE。未知发送结果保留独立回执查询；queue/add 复用草稿与请求回执。编辑冲突保留输入，用户核对服务器内容后明确切到最新版本；编辑草稿按账号、主机、任务、队列项与标签页隔离。
+
+- 当前轮补充声明 managed=true，使用相同 request_id/client_id 和目标 turn_seq。待采纳状态来自 thread/list 的 steer_pending/steer_error；网页不自动补发。停止并发送提交确切 ID，状态未知时核对或显式转暂停队列；旧版浏览器残留只恢复草稿。/steer/refresh 与 /steer/resolve 仍只代理 app-server。
+
+- 工作资源由 workpanel.js 统一管理标签，按账号/主机/任务保存描述与阅读偏好；数据仍来自任务事件和 app-server。关闭/恢复标签不执行或停止任务。异步文件读取只回填自己的资源状态，原始文件正文和认证数据不进偏好存储。
+- GET /runs/{id}/workspace/file 代理 workspace/file/read；项目文件预览只显示受限读取的 UTF-8 文本，按内容版本和行号形成可编辑引用草稿，不直接发送。Markdown 本地文件链接只进入此路径，由服务端验证任务的实际目录，不在网页一侧读取宿主文件。
+- 改动范围 scope/base 原样代理 workspace/diff；网页核对返回范围，不把旧版主机忽略参数的结果冒充新范围。行/文件反馈以账号/主机/任务隔离保存在浏览器，修改采用独立版本；加入输入前核对引用和意见版本，只追加草稿，保存或删除意见不调用模型。正文未完整预览、基准/文件变化或核对失败均保留原引用并明确状态。
+- 子智能体、项目文件、diff 和浏览器过程统一放在右侧工作区标签中，桌面默认与聊天并排；窄屏覆盖展开。输入框上方的改动摘要属于最近读取的工作目录预览，普通目标条仅显示已保存目标，不冒充持续执行调度状态。
+- 操作面板 tasks 用 thread/search 查完整历史；history 用 thread/find 的 after/through 分页，旧异步结果不得回填新账号/任务。/version 报实际运行 Web 与最近握手 backend 构建，不宣称源码已部署。Skill 引用和下一次压缩选项属于草稿，只有正常发送携带；只支持文字的插话/队列遇到这些引用应保留草稿并提示。
+- 产物预览共享 artifact-preview.js。HTML 静态预览使用空 sandbox 和限制性 CSP，并移除主动导航元素；PDF.js 本地固定版本，关闭 eval/文档脚本，只绘制画布。项目2MiB、临时产物10MiB有界读取。批注按资源和版本保存，重新读版本后才加入草稿，不自动发送。
+- 计划、持续Goal、项目操作和Git交付继续使用右侧workpanel资源标签。每个有副作用的按钮保存独立request_id回执；错误或断网不能当成未执行自动重发。表单/批注不能抢占主输入或自动发送。
+- artifact-preview统一项目/临时产物的静态HTML/Markdown、图片和PDF；HTML无脚本/同源权限，PDF只用本地固定依赖绘制canvas。批注携带内容hash/来源/定位，加入草稿前核对版本；切换任务清理viewer生命周期。网页交互预览必须通过19的隔离运行门槛，不得用截图回放冒充。

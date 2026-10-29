@@ -1,0 +1,24 @@
+/* 子智能体总览与详情复用右侧工作区；颜色表示身份，不表示成功或失败。 */
+.agents-overview.sp-body { padding:22px 20px; }
+.agents-group + .agents-group { margin-top:28px; }
+.agents-group-title { margin:0 0 12px; color:var(--muted); font-size:13px; line-height:1.5; font-weight:500; }
+.agents-items { list-style:none; margin:0; padding:0; }
+.agent-row, .agent-card.agent-row { display:grid; grid-template-columns:24px minmax(0,1fr) auto; align-items:start; gap:13px; width:100%; padding:12px 3px; margin:0; border:0; border-radius:7px; background:transparent; color:var(--text); text-align:left; }
+.agent-row:hover, .agent-card.agent-row.on { background:var(--hover); }
+.agent-row:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.agent-row-text { min-width:0; }
+.agent-name { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:14px; line-height:1.6; font-weight:400; }
+.agent-progress { display:block; margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font-size:13px; line-height:1.5; }
+.agent-row.failed .agent-progress { color:var(--err); }
+.agent-row.waiting .agent-progress { color:var(--accent); }
+.agent-avatar { display:block; width:24px; height:24px; flex:none; color:var(--agent-color); }
+.agent-avatar svg { display:block; width:100%; height:100%; }
+.agent-clock { padding-top:2px; color:var(--muted); font-size:12px; line-height:20px; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.agent-summary-link { border:0; border-radius:4px; background:none; padding:2px 0 5px; color:var(--muted); font-size:12px; }
+.agent-summary-link:hover { color:var(--text); }
+.agent-detail-head .agent-avatar { width:21px; height:21px; }
+.agent-detail-head .sp-close { flex:none; }
+@media (max-width:760px) {
+  .agents-overview.sp-body { padding:18px 14px; }
+  .agent-row, .agent-card.agent-row { gap:10px; }
+}

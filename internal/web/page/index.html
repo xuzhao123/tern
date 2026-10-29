@@ -8,6 +8,8 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.css" integrity="sha384-5TcZemv2l/9On385z///+d7MSYlvIEw9FuZTIdZ14vJLqWphw7e7ZPuOiCHJcFCP" crossorigin="anonymous">
 <script async id="katex-js" src="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.js" integrity="sha384-cMkvdD8LoxVzGF/RPUKAcvmm49FQ0oxwDF3BGKtDXcEc+T1b2N+teh/OJfpU0jr6" crossorigin="anonymous"></script>
 <link rel="stylesheet" href="/ui/app.css">
+<link rel="stylesheet" href="/ui/layout.css">
+<link rel="stylesheet" href="/ui/agents.css">
 <!-- 页面脚本是原生 ES 模块，不打包、不需要构建：入口 main.js，按功能分文件。 -->
 <script type="module" src="/ui/main.js"></script>
 </head>
@@ -15,29 +17,35 @@
 <div id="app">
   <aside id="sidebar">
     <div class="brand"><span class="mark"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 7 5 5-5 5"/><path d="M13 17h6"/></svg></span>tern</div>
-    <button id="new-chat" class="navbtn"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></span>新对话</button>
-    <button id="settings" class="navbtn"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></svg></span>设置</button>
-    <button id="import" class="navbtn" title="Codex 的 rollout-*.jsonl 或 Claude Code 的会话 .jsonl，导入后只读查看"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3"/><path d="m7 8 5-5 5 5"/><path d="M5 15v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"/></svg></span>导入对话</button><input id="import-file" type="file" accept=".jsonl,application/x-ndjson,application/json" hidden>
-    <div class="navlabel"><span>中心</span></div>
-    <button id="skills-hub" class="navbtn"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.9 4.6 4.6 1.9-4.6 1.9L12 16l-1.9-4.6-4.6-1.9 4.6-1.9Z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8Z"/></svg></span>Skills</button>
-    <button id="mcp-hub" class="navbtn"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 2v5M15 2v5"/><path d="M6 7h12v4a6 6 0 0 1-12 0Z"/><path d="M12 17v5"/></svg></span>MCP</button>
-    <div class="navlabel"><span>记录</span></div>
-    <button id="memory" class="navbtn"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-6-4-6 4Z"/></svg></span>长期记忆</button>
-    <button id="evals" class="navbtn"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg></span>评测与归因</button>
-    <button id="audit" class="navbtn"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 15l6-6"/><path d="M11 6l1-1a4 4 0 0 1 6 6l-1 1"/><path d="M13 18l-1 1a4 4 0 0 1-6-6l1-1"/></svg></span>审计日志</button>
-    <div class="navlabel"><span>对话</span><span id="cmp-hint" hidden>勾选 2–5 条对比</span></div>
+    <button id="new-chat" class="navbtn"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></span>新任务</button>
+    <button id="command-menu" class="navbtn" type="button">搜索与操作 <kbd>⌘/Ctrl ⇧ P</kbd></button>
+    <button id="activity-open" class="navbtn" type="button">活动</button>
+    <div class="navlabel"><span>任务</span><button id="add-project" class="link" type="button">＋ 添加项目</button><span id="cmp-hint" hidden>勾选 2–5 条对比</span></div>
     <div id="list-tools">
-      <select id="run-filter" aria-label="按工作区筛选对话" title="只显示这个工作区的对话（只按名字筛，工作区改名前的对话还在旧名字里）" hidden></select>
+      <select id="run-filter" aria-label="按项目筛选任务" title="按执行主机和项目目录筛选，项目改名后历史任务仍属于原项目" hidden></select>
       <input id="run-search" type="search" placeholder="搜索对话：名字、问题、回答" autocomplete="off" aria-label="搜索对话" hidden>
     </div>
     <div id="runs"></div>
+    <div class="sidebar-footer">
+    <button id="settings" class="navbtn"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></svg></span>设置</button>
+    <details class="nav-tools"><summary>工具与更多</summary>
+    <button id="import" class="navbtn" title="Codex 的 rollout-*.jsonl 或 Claude Code 的会话 .jsonl，导入后只读查看"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3"/><path d="m7 8 5-5 5 5"/><path d="M5 15v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"/></svg></span>导入对话</button><input id="import-file" type="file" accept=".jsonl,application/x-ndjson,application/json" hidden>
+    <button id="skills-hub" class="navbtn"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.9 4.6 4.6 1.9-4.6 1.9L12 16l-1.9-4.6-4.6-1.9 4.6-1.9Z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8Z"/></svg></span>Skills</button>
+    <button id="mcp-hub" class="navbtn"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 2v5M15 2v5"/><path d="M6 7h12v4a6 6 0 0 1-12 0Z"/><path d="M12 17v5"/></svg></span>MCP</button>
+    <button id="memory" class="navbtn"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-6-4-6 4Z"/></svg></span>长期记忆</button>
+    <button id="evals" class="navbtn"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg></span>评测与归因</button>
+    <button id="audit" class="navbtn"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 15l6-6"/><path d="M11 6l1-1a4 4 0 0 1 6 6l-1 1"/><path d="M13 18l-1 1a4 4 0 0 1-6-6l1-1"/></svg></span>审计日志</button>
+    </details>
+    <label class="theme-control">外观 <select id="theme" aria-label="外观"><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label>
+    </div>
     <div class="whoami"><span class="avatar" id="avatar"></span><span id="whoami"></span><button id="logout" type="button">退出</button></div>
   </aside>
   <div id="main">
     <div id="topbar">
       <button id="menu" aria-label="对话列表"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
-      <div id="heading"><div id="title">新对话</div><button id="run-id" type="button" aria-label="复制对话 ID" hidden></button><button id="goal" type="button" hidden title="这条对话的目标：之后各轮都朝这个做，改了以后下一轮告诉模型"><span id="goal-text"></span><span id="goal-edit" hidden>改</span></button></div>
+      <div id="heading"><div id="title">新任务</div><div id="execution-context" class="meta"></div><button id="run-id" type="button" aria-label="复制对话 ID" hidden></button><button id="goal" type="button" hidden title="这条对话的目标：之后各轮都朝这个做，改了以后下一轮告诉模型"><span id="goal-text"></span><span id="goal-edit" hidden>改</span></button></div>
       <div class="seg"><button id="page-chat">对话</button><button id="page-observe">观测</button></div>
+      <button id="work-btn" class="ghost" type="button" hidden title="打开文件、改动与子任务的工作标签">工作面板</button>
       <button id="files-btn" class="ghost" type="button" hidden title="本对话的 /workspace：各轮 bash 共用">沙箱文件</button>
       <button id="export-btn" class="ghost" type="button" hidden title="把这条对话存成 Markdown 文件：问题、插话、用到的工具次数与回答（不含工具的参数与结果）">导出</button>
       <button id="side-btn" class="ghost" type="button" hidden title="从这里临时分出去问一句，问答不进这条对话">旁支提问</button>
@@ -61,24 +69,35 @@
           <div id="hm-msg"></div>
         </div>
       </div>
+      <button id="attention-open" class="ghost" type="button" hidden>待处理</button>
       <span id="status"></span>
     </div>
     <section id="chat-pane">
      <div id="chat-col">
       <div id="chat-scroll"><div id="thread"></div></div><div id="viz-park" hidden></div>
       <div id="composer-wrap">
+        <div id="composer-review" hidden><button id="composer-diff" type="button"></button></div>
+        <button id="composer-goal" type="button" hidden><span class="goal-symbol" aria-hidden="true">◎</span><strong>目标</strong><span id="composer-goal-text"></span><span aria-hidden="true">↗</span></button>
+        <div id="draft-notice" class="composer-notice" role="status" hidden></div>
+        <div id="delivery-notice" class="composer-notice" role="status" hidden></div>
         <button id="jump" type="button" hidden></button>
         <form id="composer">
           <div id="slash" hidden></div>
           <div id="steer-strip" hidden></div>
-          <div id="attach-strip" hidden></div>
+          <div id="skill-strip" hidden></div><div id="attach-strip" hidden></div>
           <textarea id="query" rows="1" placeholder="给 agent 布置一个任务"></textarea>
-          <div class="crow"><button id="attach" type="button" aria-label="附图"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="m4 17 4.5-4.5L12 16l3-3 5 5"/></svg></button><input id="attach-file" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden><select id="provider" class="pick" aria-label="供应商与接口" title="供应商与接口：对话开始后固定（换模型请新建对话）"></select><select id="model" class="pick" aria-label="具体模型" title="具体模型：对话开始后固定；不选时用设置里的默认具体模型" hidden></select><select id="workspace" class="pick" aria-label="工作区" title="工作区：对话开始后固定"></select><label id="copy-pick" class="pick" hidden title="在这个工作区的副本里跑：不碰原目录，做完可以把改动应用回去"><input type="checkbox" id="copy">副本</label><select id="perm" class="pick" aria-label="权限模式" title="权限模式：每轮可以换"><option value="plan">只读计划</option><option value="ask">改动都问</option><option value="edit">自动编辑</option><option value="full">全权</option></select><select id="effort" class="pick" aria-label="推理强度" title="推理强度：越高越仔细，也越慢、越贵；每轮可以换"><option value="high">推理：高</option><option value="medium">推理：中</option><option value="low">推理：低</option><option value="minimal">推理：最低</option></select><span id="mode-chip"></span><div id="ctx-ring" role="img" aria-label="上下文用量" hidden><svg viewBox="0 0 30 30" aria-hidden="true"><circle class="track" cx="15" cy="15" r="11.5"/><circle class="fill" cx="15" cy="15" r="11.5"/></svg><span class="pct"></span></div><button id="queue" type="button" aria-label="排队" title="这一轮结束后再发，不打断现在这一步（Tab）" hidden>排队</button><button id="send" aria-label="发送"></button></div>
+          <div class="crow"><button id="attach" type="button" aria-label="附图"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="m4 17 4.5-4.5L12 16l3-3 5 5"/></svg></button><input id="attach-file" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden><select id="provider" class="pick" aria-label="供应商与接口" title="供应商与接口：对话开始后固定（换模型请新建对话）"></select><select id="model" class="pick" aria-label="具体模型" title="具体模型：对话开始后固定；不选时用设置里的默认具体模型" hidden></select><select id="workspace" class="pick" aria-label="工作区" title="工作区：对话开始后固定"></select><label id="copy-pick" class="pick" hidden title="在这个工作区的副本里跑：不碰原目录，做完可以把改动应用回去"><input type="checkbox" id="copy">副本</label><select id="perm" class="pick" aria-label="权限模式" title="权限模式：每轮可以换"><option value="ask">请求批准</option><option value="edit">帮我批准</option><option value="unrestricted">完全访问</option><option value="plan" data-advanced="1" hidden>只读计划</option><option value="full" data-advanced="1" hidden>无人值守（沙箱内）</option></select><select id="effort" class="pick" aria-label="推理强度" title="推理强度：越高越仔细，也越慢、越贵；每轮可以换"><option value="high">推理：高</option><option value="medium">推理：中</option><option value="low">推理：低</option><option value="minimal">推理：最低</option></select><span id="mode-chip"></span><div id="ctx-ring" role="button" tabindex="0" aria-label="上下文用量" hidden><svg viewBox="0 0 30 30" aria-hidden="true"><circle class="track" cx="15" cy="15" r="11.5"/><circle class="fill" cx="15" cy="15" r="11.5"/></svg><span class="pct"></span></div><button id="queue" type="button" aria-label="排队" title="这一轮结束后再发，不打断现在这一步" hidden>排队</button><button id="send" aria-label="发送"></button></div>
         </form>
+        <div id="composer-context"></div>
         <p id="hint"></p>
       </div>
      </div>
-      <aside id="subpanel" aria-label="子 agent" hidden></aside>
+      <aside id="workpanel" aria-label="工作面板" hidden>
+        <div id="work-resize" role="separator" tabindex="0" aria-label="工作面板宽度" aria-orientation="vertical" aria-valuemin="320" aria-valuemax="800" aria-controls="workpanel"></div>
+        <div id="work-head"><div id="work-tabs" role="tablist" aria-label="工作资源标签"></div><div id="work-tools"></div></div>
+        <div id="work-notice" role="status" hidden></div>
+        <div id="subpanel" role="tabpanel" aria-label="工作资源内容"></div>
+      </aside>
     </section>
     <section id="observe-pane" hidden>
       <div class="obs-grid">
@@ -104,6 +123,28 @@
     </section>
   </div>
 </div>
+<dialog id="command-dialog" aria-labelledby="command-title">
+  <div class="command-head"><strong id="command-title">搜索与操作</strong><button id="command-close" type="button" aria-label="关闭搜索与操作">关闭</button></div>
+  <div class="command-modes"><button type="button" data-command-mode="actions">操作</button><button type="button" data-command-mode="tasks">任务</button><button type="button" data-command-mode="files">文件</button><button type="button" data-command-mode="history">任务内查找</button></div>
+  <input id="command-query" type="search" placeholder="搜索操作…" aria-label="搜索操作或任务" autocomplete="off">
+  <div id="command-results" aria-live="polite"></div>
+  <p id="command-status" class="meta" role="status"></p>
+  <div class="command-modes"><button id="command-prev" type="button">上一处</button><button id="command-next" type="button">下一处</button><button id="command-more" type="button" hidden>继续查找</button></div>
+</dialog>
+<dialog id="queue-dialog" aria-labelledby="queue-title">
+ <div class="activity-heading"><h2 id="queue-title">编辑排队消息</h2><button id="queue-edit-close" type="button">关闭</button></div>
+ <textarea id="queue-edit-text" rows="6" aria-label="排队消息内容"></textarea>
+ <p id="queue-edit-note" role="status"></p><pre id="queue-edit-latest" hidden></pre>
+ <div class="activity-actions"><button id="queue-edit-rebase" type="button" hidden>已核对，使用最新版本</button><button id="queue-edit-save" type="button">保存修改</button></div>
+</dialog>
+<dialog id="activity-dialog" aria-labelledby="activity-title">
+  <div class="activity-heading"><h2 id="activity-title">活动</h2><button id="activity-close" type="button">关闭</button></div>
+  <div class="activity-filters"><select id="activity-host" aria-label="活动主机筛选"><option value="all">全部主机</option></select><select id="activity-project" aria-label="活动项目筛选"><option value="">全部项目</option></select></div>
+  <div class="activity-filters" role="group" aria-label="活动状态筛选"><button type="button" data-activity-filter="waiting">待处理</button><button type="button" data-activity-filter="running">运行中</button><button type="button" data-activity-filter="unread">完成未读</button><button type="button" data-activity-filter="all">全部</button></div>
+  <p id="activity-error" role="status"></p><div id="activity-list"></div>
+  <div class="activity-footer"><span class="meta">阅读状态仅保存于当前账号、本浏览器；已读不会批准请求。</span><button id="activity-read-all" type="button">当前筛选全部标为已读</button></div>
+</dialog>
+<dialog id="pending-dialog" aria-labelledby="pending-title"><div class="activity-heading"><h2 id="pending-title">待处理请求</h2><button id="pending-close" type="button">关闭</button></div><div id="pending-body"></div></dialog>
 <div id="ctx-tip" hidden></div>
 <!-- 撤销：文件和对话一起退（默认）、只退文件、只退对话，下面是预览；换单选就按这个 mode 重新预览（见 shell.js）。 -->
 <!-- 编辑重发用同一个对话框：多一个装着这一轮问题的文本框（#rw-text），平时藏着。 -->

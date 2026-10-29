@@ -1,4 +1,5 @@
-import { loadRuns } from "./shell.js";
+import { invalidateActivity } from "./activity.js";
+import { loadRuns, renderShell } from "./shell.js";
 import { $, HOST, HOST_STATE, el, hostURL, ui } from "./util.js";
 // ---------- 顶栏的主机与连接状态，以及主机菜单 ----------
 // GET /connection 是 SSE：连上先推一次，之后任何一台的状态或 runs 变了再推（网页端自己的接口，不带主机前缀）。
@@ -11,18 +12,21 @@ let seen = null; // 上一次各台的 runs：任何一台变了就重新加载�
 export function watchConnection() {
   const es = new EventSource("/connection");
   es.onmessage = (m) => {
+    ui.connectionLost = false;
     const hosts = (ui.hosts = JSON.parse(m.data).hosts || []);
     renderHost();
+    renderShell();
     // 当前这台被断开了：整页跳到剩下的第一台（本机是 /，远端是 /h/<别名>/）。
     if (!hosts.some((h) => h.alias === HOST)) {
       const next = hosts.find((h) => h.state !== "failed");
       if (next) { location.href = hostURL(next.alias); return; }
     }
-    const runs = hosts.map((h) => `${h.alias}:${h.runs}`).join(",");
+    const runs = hosts.map((h) => `${h.alias}:${h.runs}:${h.state}`).join(",");
     // 第一条也要重画列表：页面启动时列表先按当前主机画过一次，这会儿才知道一共几台、怎么分组。
     if (seen !== runs) loadRuns();
     seen = runs;
   };
+  es.onerror = () => { seen = null; ui.connectionLost = true; invalidateActivity(); };
 }
 
 // 顶栏那一个：当前主机 · 连接状态；重连中、连不上换成醒目的样式，悬停看这台是哪种连接或那次连不上的报错。

@@ -38,13 +38,16 @@ export function netCard(r, t) {
   return netBox(domain, "沙箱请求访问 ", "理由：" + (args.reason || ""), { done, open: res?.status === "ok", idle: res ? (res.error || "请求无效") : "等待中…", waitText: "agent 正在等待：批准后本轮立即生效" });
 }
 // 命令连到不在白名单的域名时，代理当场发起审批，命令停在那里等：批准后同一条命令接着跑。卡片跟在发起它的 bash 后面。
-export function proxyNetCards(t) {
-  return Object.entries(ui.run.netAsks[t.id] || {}).map(([domain, reason]) =>
+export function proxyNetCards(t, source = ui.run) {
+  return Object.entries(source.netAsks[t.id] || {}).map(([domain, reason]) =>
     netBox(domain, "命令要联网 ", reason, { open: true, waitText: "命令正停在代理里等待：批准后接着执行" }));
 }
 // “允许”只在本对话内（续聊沿用）；“始终允许”另外写进你的个人设置（沙箱联网白名单），之后新开的对话都不再询问。
 // 同 Claude Code：只有等人答复时是一张带按钮的卡片，答过的只留一行，理由与生效范围放在悬停提示里。
 const NET_EFFECT = { "已允许联网": "本对话内可经代理访问它及其子域名（agent 正在等的当场生效，否则从下一轮起）", "已始终允许联网": "写进了你的个人设置，之后新开的对话都可经代理访问它及其子域名" };
+export function pendingNetCard(domain) {
+  return netBox(domain, "等待联网审批", "请核对对话中的联网原因。", { open: true, waitText: "允许仅作用于当前对话；始终允许会写入个人设置。" });
+}
 function netBox(domain, head, why, { done, open, idle, waitText }) {
   const root = ui.run, decision = root.netDecision[domain], waiting = !!root.netPending[domain];
   const settled = decision === "always" ? "已始终允许联网" : done || (decision && !waiting ? (decision === "allow" ? "已允许联网" : "已拒绝联网") : "");
@@ -79,9 +82,19 @@ function netBox(domain, head, why, { done, open, idle, waitText }) {
 // 高风险操作确认。规则在 agent 的执行器里，命中后 agent 暂停等这里的答复；“允许”只对这一项调用有效。
 // 外发类另有“本对话内都允许”：范围由 agent 给出（搜索按工具，读网页按工具和主机），之后同一范围不再询问，续聊沿用，审计照记。
 const RISK_LABEL = { irreversible: "不可撤回", destructive: "破坏性操作", outbound: "可能外发私有数据", redo: "重做中断的操作", permission: "权限设置要求确认" };
+export function inputCallID(root, source, original, kind) {
+  const entries = kind === "question" ? root.asks : root.approvals;
+  if (!source?.isSub) return original;
+  return Object.keys(entries).find((id) => entries[id].task_id === source.id && (entries[id].original_call_id || entries[id].call_id) === original);
+}
+function inputSource(a) {
+  const title = a?.task_id && Object.values(ui.run?.subCalls || {}).find((s) => s.task === a.task_id)?.text;
+  return a?.task_id ? `来自子任务 ${title ? clip(title, 100) : a.task_id}` : "来自主任务";
+}
 export function approvalCard(root, callID) {
   const a = root.approvals[callID];
   const card = el("div", "net-card");
+  card.append(el("div", "meta", inputSource(a)));
   card.append(el("div", "", `需要你确认 · ${RISK_LABEL[a.risk] || a.risk} · `), el("b", "", a.tool), el("div", "why", "原因：" + a.reason + "\n参数：" + a.arguments));
   const acts = el("div", "acts");
   if (a.state === "waiting") {
@@ -107,9 +120,10 @@ export function approvalCard(root, callID) {
 }
 // 模型向你提问（ask_user）。agent 在这里等：点一个选项或写一句话，回答作为这次工具调用的结果交给模型。
 // 页面随新事件整页重画，输入到一半的草稿记在提问上，重画后放回去、保持焦点。
-export function askCard(root, t) {
-  const args = parse(t.args) || {}, a = root.asks[t.id], res = parse(t.result);
+export function askCard(root, t, source = root) {
+  const callID = inputCallID(root, source, t.id, "question"), args = parse(t.args) || {}, a = root.asks[callID], res = parse(t.result);
   const card = el("div", "net-card ask-card");
+  card.append(el("div", "meta", inputSource(a)));
   card.append(el("div", "", "agent 问你："), el("b", "", args.question || ""));
   const acts = el("div", "acts");
   if (a?.state === "waiting" && !root.exit) {
@@ -117,7 +131,7 @@ export function askCard(root, t) {
     const send = async (answer) => {
       for (const b of buttons) b.disabled = true;
       try {
-        const resp = await fetch(api(`/runs/${encodeURIComponent(root.id)}/answer`), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ call_id: t.id, answer }) });
+        const resp = await fetch(api(`/runs/${encodeURIComponent(root.id)}/answer`), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ call_id: callID, answer, request_id: a.requestID }) });
         if (!resp.ok) throw new Error(await resp.text());
         Object.assign(a, { state: "answered", answer });
         ui.askFocus = null;
@@ -133,14 +147,14 @@ export function askCard(root, t) {
     const input = el("input", "ask-input");
     input.placeholder = (args.options || []).length ? "或者写下你的回答，回车发送" : "写下你的回答，回车发送";
     input.value = a.draft || "";
-    input.oninput = () => { a.draft = input.value; ui.askFocus = t.id; };
+    input.oninput = () => { a.draft = input.value; ui.askFocus = callID; };
     input.onkeydown = (ev) => { if (ev.key === "Enter" && !ev.isComposing && input.value.trim()) { ev.preventDefault(); send(input.value.trim()); } };
     buttons.push(input);
     acts.append(...buttons);
-    if (ui.askFocus === t.id) queueMicrotask(() => { input.focus(); input.setSelectionRange(input.value.length, input.value.length); });
+    if (ui.askFocus === callID) queueMicrotask(() => { input.focus(); input.setSelectionRange(input.value.length, input.value.length); });
   } else {
     const answer = a?.answer ?? res?.result?.answer;
-    acts.append(el("span", "meta", answer != null ? "你的回答：" + answer : res?.status === "error" ? res.error || "" : res?.result?.answered === false ? "没有回答（等待超时）" : root.exit ? "没有回答（agent 已结束）" : "等待中…"));
+    acts.append(el("span", "meta", answer != null ? "你的回答：" + answer : res?.status === "error" ? res.error || "" : res?.result?.answered === false ? "没有回答（等待超时）" : a?.state === "expired" || root.exit ? "没有回答（请求已取消、超时或 agent 已结束）" : "等待中…"));
   }
   card.append(acts);
   return card;

@@ -1,9 +1,10 @@
 import { endLabel } from "./analysis.js";
 import { memFields } from "./chat.js";
 import { renderSteers, settleSteers } from "./composer.js";
+import { savePendingSteers } from "./drafts.js";
 import { compact, incomingUsers, parse, textOf, toolText, ui } from "./util.js";
 // ---------- 事件 → 运行模型：只依赖 Chat Completions 协议字段 ----------
-export function newRun(id) { return { id, query: "", t0: null, last: null, tEnd: null, exit: "", logs: [], calls: [], aux: [], turns: [], prevMessages: [], lastMainMessages: [], inputCapacity: 0, mem: [], memTurn: 0, memPhase: "start", skills: [], mcp: [], caps: [], hookCalls: {}, hookAfter: {}, subs: {}, subCalls: {}, subagents: false, browser: false, dsSearch: false, disallowedTools: [], provider: "", model: "", bash: false, sandbox: "", netDecision: {}, web: {}, stopRequested: false, traces: [], spanCalls: {}, protocol: false, netPending: {}, netAsks: {}, approvals: {}, source: "", eval: "", goal: "", lastBody: null, openTools: new Map(), rewindNotes: {}, rewoundAll: false, canContinue: false, forkNote: null, userImages: [], asks: {}, steers: [], shells: [], jobs: [], askUser: false }; }
+export function newRun(id) { return { id, query: "", t0: null, last: null, tEnd: null, exit: "", logs: [], calls: [], aux: [], turns: [], prevMessages: [], lastMainMessages: [], inputCapacity: 0, mem: [], memTurn: 0, memPhase: "start", skills: [], mcp: [], caps: [], hookCalls: {}, hookAfter: {}, subs: {}, subCalls: {}, subagents: false, browser: false, dsSearch: false, disallowedTools: [], provider: "", model: "", bash: false, sandbox: "", sandboxMode: "sandbox", netDecision: {}, web: {}, stopRequested: false, traces: [], spanCalls: {}, protocol: false, netPending: {}, netRequests: {}, netAsks: {}, approvals: {}, source: "", eval: "", goal: "", lastBody: null, openTools: new Map(), rewindNotes: {}, rewoundAll: false, canContinue: false, forkNote: null, userImages: [], asks: {}, steers: [], shells: [], jobs: [], askUser: false }; }
 export function apply(r, e) {
   const time = Date.parse(e.time);
   if (r.t0 === null) r.t0 = time;
@@ -18,10 +19,11 @@ export function apply(r, e) {
   // pending：问题已提交、agent 还没发出第一次请求时，对话流先显示这条消息。
   // 上一轮中途停下：记在新一轮之前，对话流里显示一条中断标记（先记，再重置停止状态）。
   if (e.kind === "continue" && r.exit && r.exit !== "exit 0") (r.interrupted ??= {})[r.turns.length + 1] = r.stopRequested ? "上一轮已按停止按钮中断" : "上一轮未正常结束（" + endLabel(r) + "）";
-  if (e.kind === "start" || e.kind === "continue") { r.memory = !!e.memory; r.memoryTTL = e.memory_ttl || ""; r.memTurn++; r.memPhase = "start"; r.skills = e.skills || []; r.mcp = e.mcp || []; r.subagents = !!e.subagents; r.askUser = !!e.ask_user; r.browser = !!e.browser; r.dsSearch = !!e.ds_search; r.disallowedTools = e.disallowed_tools || []; r.provider = e.provider || "ark"; r.model = e.model || ""; r.bash = !!e.bash; r.rag = !!e.rag; r.workspace = e.workspace || ""; r.maxSteps = e.max_steps || 0; r.permission = e.permission || ""; r.effort = e.reasoning_effort || ""; r.stopRequested = false; r.checkpoint = ""; r.protocol = !!e.protocol; r.source = e.source || ""; if (e.trace) r.traces.push({ turn: r.memTurn, id: e.trace }); r.jobs = []; }
+  if (e.kind === "start" || e.kind === "continue") { r.memory = !!e.memory; r.memoryTTL = e.memory_ttl || ""; r.memTurn++; (r.skillRefs ||= {})[r.memTurn] = e.skill_refs || []; r.memPhase = "start"; r.skills = e.skills || []; r.mcp = e.mcp || []; r.subagents = !!e.subagents; r.askUser = !!e.ask_user; r.browser = !!e.browser; r.dsSearch = !!e.ds_search; r.disallowedTools = e.disallowed_tools || []; r.provider = e.provider || "ark"; r.model = e.model || ""; r.bash = !!e.bash; r.rag = !!e.rag; r.workspace = e.workspace || ""; r.maxSteps = e.max_steps || 0; r.permission = e.permission || ""; r.sandboxMode = e.sandbox || "sandbox"; r.effort = e.reasoning_effort || ""; r.stopRequested = false; r.subControl = false; r.checkpoint = ""; r.protocol = !!e.protocol; r.source = e.source || ""; if (e.trace) r.traces.push({ turn: r.memTurn, id: e.trace }); r.jobs = []; }
   if (e.kind === "start") { r.query = e.text; r.embedding = e.embedding; r.embeddingExplicit = !!e.embedding; r.pending = e.text; r.turnPending = true; r.pendingTime = time; r.eval = e.eval || ""; r.projectConfig = e.project_config || {}; }
   else if (e.kind === "continue") {
     r.exit = ""; r.termination = ""; r.finalCheck = null; r.tEnd = null; r.pending = e.text; r.turnPending = true; r.pendingTime = time;
+    r.pendingSteer = !!e.steer_ids?.length;
     // 撤销到第一轮之前以后又开始了新一轮（服务端允许在同一条对话里重新开始）：不再当成“请新建对话”。
     r.rewoundAll = false;
     if (e.embedding) { r.embedding = e.embedding; r.embeddingExplicit = true; }
@@ -95,16 +97,29 @@ export function apply(r, e) {
   else if (e.kind === "notify" || e.kind === "delta") applyNotify(r, e.method, e.body || {}, time);
   else if (e.kind === "approval") {
     const p = e.body || {};
-    if (e.method === "tool/requestApproval") r.approvals[p.call_id] = { ...p, state: "waiting" };
-    else if (e.method === "user/requestInput") r.asks[p.call_id] = { ...p, state: "waiting" }; // 模型的提问，等人回答
+    const source = p.task_id ? subRun(r, p.task_id) : r, original = p.original_call_id || p.call_id;
+    const input = { ...p, rpc: e.rpc, requestID: `event:${e.seq}`, state: "waiting" };
+    if (e.method === "tool/requestApproval") { r.approvals[p.call_id] = input; if (source !== r) source.approvals[original] = input; }
+    else if (e.method === "user/requestInput") { r.asks[p.call_id] = input; if (source !== r) source.asks[original] = input; }
     else if (p.domain) {
-      r.netPending[p.domain] = true;
-      if (p.call_id) (r.netAsks[p.call_id] ||= {})[p.domain] = p.reason || ""; // 代理发起的挂在发起它的 bash 下面（见 proxyNetCards）
+      r.netRequests[e.rpc] = input;
+      r.netPending[p.domain] = source.netPending[p.domain] = true;
+      if (p.call_id) (r.netAsks[p.call_id] ||= {})[p.domain] = p.reason || "";
+      if (original) (source.netAsks[original] ||= {})[p.domain] = p.reason || "";
     }
+  }
+  else if (e.kind === "input_closed") {
+    for (const a of [...Object.values(r.approvals), ...Object.values(r.asks), ...Object.values(r.netRequests)]) if (a.rpc === e.rpc && a.state === "waiting") a.state = "expired";
+    refreshNetworkWaiting(r);
   }
   else if (e.kind === "answer") { const a = r.asks[e.text]; if (a) Object.assign(a, { state: "answered", answer: (e.body || {}).answer }); }
   else if (e.kind === "decision") { const a = r.approvals[e.text]; if (a) a.state = (e.body || {}).decision; }
-  else if (e.kind === "allow" || e.kind === "deny") { r.netDecision[e.text] = e.kind === "allow" && e.body?.always ? "always" : e.kind; delete r.netPending[e.text]; }
+  else if (e.kind === "allow" || e.kind === "deny") {
+    const decision = e.kind === "allow" && e.body?.always ? "always" : e.kind;
+    r.netDecision[e.text] = decision;
+    for (const a of Object.values(r.netRequests)) if (a.domain === e.text && a.state === "waiting") { a.state = decision; if (a.task_id) subRun(r, a.task_id).netDecision[e.text] = decision; }
+    delete r.netPending[e.text]; refreshNetworkWaiting(r);
+  }
   else if (e.kind === "rewind") {
     // 撤销按 mode 分三种（agent 的 rewind）：both 文件与对话一起退、chat 只退对话、files 只退文件。
     // 三种都照旧把 checkpoint 设成 continues——files 时它就是最新一轮，对话没退。
@@ -128,7 +143,8 @@ export function apply(r, e) {
   else if (e.kind === "shell") r.shells.push({ text: e.text || "", body: e.body || {}, turn: r.turns.length });
   else if (e.kind === "exit") {
     r.exit = e.text || "exit"; r.tEnd = time; r.netPending = {};
-    for (const a of Object.values(r.approvals)) if (a.state === "waiting") a.state = "expired";
+    for (const a of [...Object.values(r.approvals), ...Object.values(r.asks), ...Object.values(r.netRequests)]) if (a.state === "waiting") a.state = "expired";
+    refreshNetworkWaiting(r);
     // 这一轮结束了：待发送区里还剩的接着作为下一条消息发（点了停止的放回输入框）。回放与对比里的运行不是当前这条，不动输入框。
     if (r === ui.run) settleSteers(r);
   }
@@ -137,7 +153,7 @@ export function apply(r, e) {
 // agent 经协议发来的结构化通知。页面需要的信息（任务ID、输入容量、记忆与能力事件、浏览器地址、子 agent 的起止和输出）
 // 都从这里来，不再解析终端文本。方法名见 internal/protocol。
 function applyNotify(r, method, p, time) {
-  if (method === "turn/started") { if (p.turn_id) r.checkpoint = p.turn_id; if (p.input_capacity) r.inputCapacity = p.input_capacity; if (p.sandbox) r.sandbox = p.sandbox; if (p.model) r.model = p.model; }
+  if (method === "turn/started") { r.subControl = p.subagent_control === true; if (r.isSub) { r.exit = ""; r.termination = ""; r.finalCheck = null; r.tEnd = null; } if (p.turn_id) r.checkpoint = p.turn_id; if (p.input_capacity) r.inputCapacity = p.input_capacity; if (p.sandbox) r.sandbox = p.sandbox; if (p.model) r.model = p.model; }
   // 附图：用户消息带了哪几张图由 agent 在协议里报（引用、编号、尺寸），页面据此画缩略图。
   // 这条通知在本次交互的第一次请求之前发出，所以此刻的轮次数就是这条消息所属轮的序号。
   // 运行中插话（steer=true）排进了下一次模型请求：记下它在哪次请求之前，对话流里显示在那里。
@@ -147,10 +163,11 @@ function applyNotify(r, method, p, time) {
     const q = p.item.data.client_id && ui.steers[r.id];
     if (q) {
       q.items = q.items.filter((it) => it.id !== p.item.data.client_id);
+      savePendingSteers(r.id, q);
       if (r === ui.run) renderSteers();
     }
   }
-  else if (method === "item/completed" && p.item?.type === "userMessage") r.userImages[r.turns.length] = p.item.data?.images || [];
+  else if (method === "item/completed" && p.item?.type === "userMessage") { r.userImages[r.turns.length] = p.item.data?.images || []; if (r.pendingSteer && r.turnPending && typeof p.item.data?.text === "string") r.pending = p.item.data.text; }
   // agent 标明的回复分段，挂在产生它的那次模型请求上（响应先于这条通知记录）。旧存档没有，按有没有工具调用判断。
   else if (method === "item/completed" && p.item?.type === "agentMessage") { const c = r.calls.filter((x) => !x.compact && x.end).at(-1); if (c) c.phase = p.item.data?.phase; }
   else if (method === "memory/event") {
@@ -168,9 +185,10 @@ function applyNotify(r, method, p, time) {
   }
   // 浏览器画面按“任务ID/调用ID”保存；续聊每轮是新进程、新任务ID，所以记下当时的任务ID。
   else if (method === "browser/navigate") r.web[p.call_id] = { task: r.checkpoint, url: p.url };
-  else if (method === "subagent/started") Object.assign(r.subCalls[p.call_id] ??= {}, { task: p.task_id, text: p.task, state: "running" });
+  else if (method === "subagent/started") Object.assign(r.subCalls[p.call_id] ??= {}, { task: p.task_id, text: p.task, state: "running", contextMode: p.context_mode, startedAt: time, finishedAt: null });
   // 被取消、超时或进程中途退出的子任务可以续跑，标为“已中断”（stopped）；预算耗尽、熔断等才算失败。
-  else if (method === "subagent/completed") Object.assign(r.subCalls[p.call_id] ??= { task: p.task_id }, { state: p.state, calls: p.model_calls || 0, replayed: !!p.replayed, error: p.error || "" });
+  else if (method === "subagent/stopping") Object.assign(r.subCalls[p.call_id] ??= {task:p.task_id}, {state:"stopping"});
+  else if (method === "subagent/completed") Object.assign(r.subCalls[p.call_id] ??= { task: p.task_id }, { state: p.state, calls: p.model_calls || 0, replayed: !!p.replayed, error: p.error || "", answer: p.answer, finishedAt: time });
   else if (method === "subagent/log") subRun(r, p.task_id).logs.push({ kind: "stdout", text: p.text, time });
   // 子 agent 转发上来的通知，原样应用到它自己的运行状态上（任务ID、浏览器地址、结局……），和父 agent 走同一套处理。
   else if (method === "subagent/message" && p.message?.method) applyNotify(subRun(r, p.task_id), p.message.method, p.message.params || {}, time);
@@ -178,12 +196,20 @@ function applyNotify(r, method, p, time) {
   // 主任务的模型请求一次只有一个在进行，增量一定属于最后一次请求；晚到的增量直接丢弃。
   // 模型请求重试前 agent 发 reset，清掉这次请求已经显示的半段，免得同一段话出现两遍。
   else if (method === "item/delta") { const c = r.calls.at(-1); if (c && !c.end) { if (p.field === "reset") c.live = {}; else { const live = c.live ??= {}; live[p.field] = (live[p.field] || "") + p.delta; } } }
-  else if (method === "turn/completed") { r.termination = p.outcome === "no_tool_calls" ? "" : p.outcome + (p.error ? "：" + p.error : ""); r.finalCheck = p.final_check || null; }
+  else if (method === "turn/completed") { r.termination = p.outcome === "no_tool_calls" ? "" : p.outcome + (p.error ? "：" + p.error : ""); r.finalCheck = p.final_check || null; if (r.pendingSteer && r.turnPending && p.outcome === "hook_blocked") r.pending = "（转入本轮的补充已被提交规则拦下，原文未写入对话记录）"; }
   // 后台命令：模型用 bash 带 background=true 起的命令，启动、自己结束、被停掉时各来一条（见 jobs.js 的侧栏）。
   // 一轮结束时后台命令一起结束，所以列表在 start/continue 上清空（见上面）。
   else if (method === "job/updated" && p.id) {
     const j = r.jobs.find((x) => x.id === p.id);
     if (j) Object.assign(j, p); else r.jobs.push({ ...p });
+  }
+}
+function refreshNetworkWaiting(r) {
+  r.netPending = {};
+  for (const sub of Object.values(r.subs)) sub.netPending = {};
+  for (const a of Object.values(r.netRequests)) if (a.state === "waiting") {
+    r.netPending[a.domain] = true;
+    if (a.task_id) subRun(r, a.task_id).netPending[a.domain] = true;
   }
 }
 function subRun(r, task) { return r.subs[task] ??= Object.assign(newRun(task), { isSub: true }); }

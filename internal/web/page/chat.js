@@ -1,4 +1,5 @@
-import { agentCard, renderSubPanel } from "./agents.js";
+import { renderPending } from "./activity.js";
+import { agentCard, collaborationSummary, renderSubPanel } from "./agents.js";
 import { analyze, endLabel, tokenParts, toolResult } from "./analysis.js";
 import { WEB_TOOLS, webCard } from "./browser.js";
 import { start } from "./composer.js";
@@ -8,7 +9,7 @@ import { show } from "./follow.js";
 import { claimViz, md, parkViz } from "./md.js";
 import { openMCP, openMemory, openSkills } from "./pages.js";
 import { render } from "./render.js";
-import { approvalCard, askCard, bashCard, netCard, proxyNetCards } from "./sandbox.js";
+import { approvalCard, inputCallID, askCard, bashCard, netCard, proxyNetCards } from "./sandbox.js";
 import { forkTurn, loadRuns, markCurrentSeen, rewindTurn, syncComposer, toolOn } from "./shell.js";
 import { $, AUX_LABEL, MEM_KIND, MEM_STATUS, MEM_TYPE, callPosition, clip, compact, el, fold, ico, idleText, kfmt, parse, pretty, rawIO, sec, textOf, ui, userPictures } from "./util.js";
 // agent 终端行形如 "Memory recall: id=M1 kind=semantic score=0.48 content=…"；content 放在最后，可含空格。
@@ -73,6 +74,8 @@ function capsCard(r, turn) {
   if (turn > 1 && !command && parts.join() === capsSummary(r, turn - 1).parts.join()) return null;
   if (command) parts.push(command.text.replace(/^Command: /, "命令 "));
   const rows = [];
+  const refs = r.skillRefs?.[turn] || [];
+  for (const ref of refs) rows.push(el("div", "meta", `用户指定并读取：${ref.name} · ${ref.path} · 版本 ${ref.version.slice(0,12)}；实际执行结果见下方工具与回答`));
   if (r.skills.length) rows.push(el("div", "meta", "skill：" + r.skills.join("、") + " · 模型判断相关时调用 load_skill 读取全文"));
   for (const m of r.mcp) rows.push(el("div", "meta", `MCP ${m.name}：${m.command}`));
   rows.push(el("pre", "", logs.map((l) => l.text).join("\n")));
@@ -208,6 +211,7 @@ export function renderCall(outer, r, c, last) {
   // 每次请求不再单独占一行编号（同 Codex、Claude Code 的主视图）：原始输入 / 输出的开关悬停时出现在右上角，
   // Turn、Step 与请求号写在它的提示里；按 Step 展开的完整记录在轨迹页。
   const raw = rawIO(c, r.id), box = el("div", "req");
+  box.dataset.call = c.n;
   raw.button.title = `${callPosition(c)} · 请求 #${c.n}`;
   box.append(raw.button, raw.panel); outer.append(box);
   if (!c.end) {
@@ -241,12 +245,13 @@ export function renderCall(outer, r, c, last) {
   if (commentary) { const mid = md(m.content, true); mid.classList.add("mid"); if (!c.tools.length) mid.title = "过程说明：还没有结束（比如被 Stop hook 拦下，接着做）"; box.append(mid); }
   for (const t of c.tools) {
     if (hooksWorthShowing(r.hookCalls[t.id])) box.append(hookCard(`h${c.n}-${t.index}`, r.hookCalls[t.id]));
-    if (ui.run.approvals[t.id]) box.append(approvalCard(ui.run, t.id));
+    const approvalID = inputCallID(ui.run, r, t.id, "approval");
+    if (ui.run.approvals[approvalID]) box.append(approvalCard(ui.run, approvalID));
     if (t.name === "spawn_agent" && !r.isSub) { box.append(agentCard(r, t)); continue; }
     if (WEB_TOOLS.includes(t.name)) { box.append(webCard(r, t)); continue; }
-    if (t.name === "bash") { box.append(bashCard(r, c, t), ...proxyNetCards(t)); continue; }
+    if (t.name === "bash") { box.append(bashCard(r, c, t), ...proxyNetCards(t, r)); continue; }
     if (t.name === "request_network_access") { box.append(netCard(r, t)); continue; }
-    if (t.name === "ask_user") { box.append(askCard(ui.run, t)); continue; }
+    if (t.name === "ask_user") { box.append(askCard(ui.run, t, r)); continue; }
     const icon = t.state === "running" ? el("span", "ico") : ico(t.detour ? "bad" : "ok", t.detour ? "bad" : "ok");
     if (t.state === "running") icon.append(el("span", "spin"));
     const head = [icon, el("span", "tname", t.name), el("span", "targs", clip(compact(t.args), 90))];
@@ -381,6 +386,7 @@ export function renderChat() {
   parkViz();
   drawChat();
   claimViz();
+  renderPending(ui.run);
   // 这条对话正开着、页面也在前台，重画一次就记一次“看过”：行尾的未读圆点不用等列表刷新。
   markCurrentSeen();
 }
@@ -400,6 +406,8 @@ function drawChat() {
   // 项目配置的横幅同样在第一轮之前：新对话用的工作区里有 .agents/tern.json，开始前告诉人它改了哪些设置。
   const project = projectBanner(r);
   if (project) box.append(project);
+  const collaboration = collaborationSummary(r);
+  if (collaboration) box.append(collaboration);
   let group = null, shown = 0;
   const drawnShells = new Set();
   const flow = exploreRuns(r, chatFlow(r));
@@ -413,6 +421,7 @@ function drawChat() {
     const turn = r.turns[(f.turn ?? f.call?.turn) - 1];
     if (f.kind === "user") {
       const u = el("div", turn?.rewound ? "u rewound" : "u"), bubble = el("div", "", f.text);
+      u.dataset.turn = f.turn;
       if (turn?.images?.length) bubble.append(userPictures(turn.images));
       u.append(bubble); box.append(u); group = null;
       const tools = el("div", "utools");
@@ -482,7 +491,7 @@ function drawChat() {
     const a = el("div", "a");
     for (const card of [capsCard(r, r.memTurn), memoryCard(r, r.turns.length + 1, "start") || memoryCard(r, r.memTurn, "start")]) if (card) a.append(card);
     if (a.childNodes.length) box.append(a);
-    box.append(el("div", "shimmer", "正在启动 agent…"));
+    if (!r.exit) box.append(el("div", "shimmer", "正在启动 agent…"));
   } else if (!r.exit && !r.calls.length) box.append(el("div", "shimmer", "正在启动 agent…"));
   const last = r.calls.filter((c) => !c.compact).at(-1);
   const answered = last && last.choice && !last.tools.length && last.choice.message.content;
