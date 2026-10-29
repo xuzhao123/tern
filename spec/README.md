@@ -8,6 +8,7 @@
 
 | 文档 | 内容 | 状态 |
 | --- | --- | --- |
+| [harness-next-phase.md](harness-next-phase.md) | **下一阶段迭代计划**：先稳住刚合并的网页功能，主线是 agent 质量的度量与回归（扩充编码评测、合并前回归门槛、按失败归因改进），并行收口网页产品、清旧账；流程回到“spec → tern 实现 → review”，小批次合并 | 计划（2026-10-29），待用户定优先级 |
 | [web-product/](web-product/README.md) | **网页产品方案**：Codex 体验对齐，含界面、交互、子 agent、9 类日常工作流补充；共 47 项需求、42 个验收场景，已有能力与新增体验分开记录 | 开发中（2026-10-25），进度见 web-product/08-implementation.md；不计入旧功能完成数 |
 | [codex-parity-plan.md](codex-parity-plan.md) | **任务清单**：和 Codex 对齐的功能点，哪些没做、哪些做得不好，按优先级排；做某一条前先写它的 spec，填回这里 | 清单（2026-10-24），持续更新 |
 | [app-server-design.md](app-server-design.md) | 照 Codex 的 SSH 远程：常驻的 `tern app-server` 管对话，网页端、终端、以后的桌面端经 Unix socket 或 SSH 连它；`TERN_HOME` | 第一步（`TERN_HOME`、`-agent-server`）已实现（2026-10-23）；第一期（app-server、网页端与 chat 改成客户端、去掉租户账号、SSH 远程与重连）已实现（2026-10-24）。第二期另写在 app-server-phase2-design.md，已实现（2026-10-23）；第三期桌面端未做 |
@@ -45,7 +46,7 @@
 | [mcp-oauth.md](mcp-oauth.md) | MCP 的 OAuth 登录，令牌存 `.data/mcp-tokens.json`（计划 6.4） | 已实现并通过 Keycloak 真实授权验收（2026-10-25），见收尾记录 |
 | [tern-mcp-server.md](tern-mcp-server.md) | `tern mcp-server`：别的客户端把 tern 当 MCP 工具用（计划 6.5） | 已实现并收尾验证（2026-10-25），见收尾记录 |
 | [macos-sandbox.md](macos-sandbox.md) | macOS 上的 bash 沙箱（Seatbelt）（计划 6.1） | 已实现并收尾验证（2026-10-25），见收尾记录 |
-| [sandbox-modes.md](sandbox-modes.md) | 沙箱与审批：对外三档（请求批准 / 帮我批准 / 完全访问），内部 `permission` + `sandbox` 两个旋钮；新增 `-bash-host` 与 `sandbox_mode`，「完全访问」在宿主机执行；只读计划与无人值守走高级项；项目配置不能开 | 已实现（2026-10-26），编译与真实模型验证待做 |
+| [sandbox-modes.md](sandbox-modes.md) | 沙箱与审批：对外三档（请求批准 / 帮我批准 / 完全访问），内部 `permission` + `sandbox` 两个旋钮；新增 `-bash-host` 与 `sandbox_mode`，「完全访问」在宿主机执行；只读计划与无人值守走高级项；项目配置不能开 | 已实现（2026-10-26）；2026-10-29 合并前用真实模型验证了宿主机执行、`!命令`、审计与子 agent 继承，见 web-product/08-implementation.md 末节 |
 | [architecture.md](architecture.md) | 现状：进程、模块与数据链路（界面 → app-server → agent → 模型与工具），数据落在哪 | 说明（2026-10-23），不是设计 |
 | [remote-agent-design.md](remote-agent-design.md)（配图页面 [remote-agent.html](remote-agent.html)） | 远程 agent：网页上的对话交给用户本机的 tern 执行；tern 的几种界面与命名 | 已被 app-server-design.md 替代，不再排期；保留历史方案。前置改动“macOS 上能编译”已完成 |
 | [remote-control-research.html](remote-control-research.html) | 调研：Claude Code 的 Remote Control、Codex 的远程连接与 app-server，和 tern 远程 agent 的两种方案对比，以及要先对齐的产品问题 | 调研（2026-10-23），不是设计 |
@@ -61,7 +62,7 @@
 | 终端界面与 CLI 体验（11 项） | 暂缓 | 包括输入编辑、历史、多行、状态栏、终端斜杠命令、渲染、续聊选择、机器可读输出、配置和补全；完整清单见 [计划第 8 节](codex-parity-plan.md#8-暂缓命令行界面)。没有重新启动这批开发 |
 | app-server 第三期：桌面端 | 未开发 | 见 [app-server 分期](app-server-design.md#11-分期)；现有网页端、多主机与 SSH 已实现 |
 | `tern web` 从源码编译并自动替换占用端口的旧网页端 | 方案讨论，未排期 | 本轮会话提出，尚无独立 spec 或实现；现有 [app-server 自动替换](app-server-auto-replace.md)只处理后端，不监听源码，也不替换旧网页端进程 |
-| Go 只读模块缓存的 stat cache 警告 | 历史问题，待复测与处理 | `go: writing stat cache … read-only file system` 曾不影响结果但反复产生解释。当前模块缓存仍只读挂载；“缓存目录不存在导致启动失败”已另行修复，不代表这条警告也已解决 |
+| Go 只读模块缓存的 stat cache 警告 | 2026-10-29 复现，待处理（编码评测的校验命令在沙箱里 `go test`、`go build` 时出现） | `go: writing stat cache … read-only file system` 曾不影响结果但反复产生解释。当前模块缓存仍只读挂载；“缓存目录不存在导致启动失败”已另行修复，不代表这条警告也已解决 |
 | 知识库中的旧名称和过时说明 | 未整理 | `retrieval/corpus.md` 仍有“观测台”，检索提示词仍提 learning-agent；需一起核对资料与提示词，不只改标题 |
 | 验证账号变量改名 | 未迁移 | 约定仍使用 `OBSERVER_TEST_USER`、`OBSERVER_TEST_PASSWORD`；需要同步文档、使用方与用户本机配置。本次不读取或修改密钥 |
 | 删除对话后的子 agent 检查点清理 | 历史问题，待专项回归 | 原记录指出子 agent 的检查点可能不在 `run.turnIDs()` 的删除范围。当前删除仍按轮次列表清理；需验证子任务和分叉共享场景，尚无这项的关闭证据 |
