@@ -1,11 +1,12 @@
 """隔离副本的基线、应用冲突与分叉引用生命周期真实回归。"""
 import argparse,http.cookiejar,json,time,urllib.request,urllib.error,uuid,subprocess
 from pathlib import Path
-p=argparse.ArgumentParser();p.add_argument('--home',required=True);a=p.parse_args();home=Path(a.home).resolve();assert home.name.startswith('.tern-web-product-qa')
+import os as _os; QA_BASE = _os.environ.get('TERN_QA_BASE', 'http://127.0.0.1:8095')  # 网页端地址，默认是原来的 8095
+p=argparse.ArgumentParser();p.add_argument('--home',required=True);a=p.parse_args();home=Path(a.home).resolve();assert home.name.startswith(('.tern-web-product-qa','tern-qa-'))
 config=dict(x.split('=',1) for x in (home/'.env').read_text().splitlines() if '=' in x and not x.startswith('#'))
 opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
 def call(method,path,body=None):
- req=urllib.request.Request('http://127.0.0.1:8095'+path,method=method,data=None if body is None else json.dumps(body).encode(),headers={'Content-Type':'application/json'})
+ req=urllib.request.Request(QA_BASE+path,method=method,data=None if body is None else json.dumps(body).encode(),headers={'Content-Type':'application/json'})
  try:res=opener.open(req,timeout=60)
  except urllib.error.HTTPError as error:res=error
  data=res.read().decode()

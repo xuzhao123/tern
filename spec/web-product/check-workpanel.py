@@ -8,18 +8,19 @@ import urllib.request
 import urllib.error
 import uuid
 from pathlib import Path
+import os as _os; QA_BASE = _os.environ.get('TERN_QA_BASE', 'http://127.0.0.1:8095')  # 网页端地址，默认是原来的 8095
 
 p = argparse.ArgumentParser()
 p.add_argument('--home', required=True)
 a = p.parse_args()
 home = Path(a.home).resolve()
-assert home.name.startswith('.tern-web-product-qa')
+assert home.name.startswith(('.tern-web-product-qa','tern-qa-'))
 config = dict(line.split('=', 1) for line in (home / '.env').read_text().splitlines() if '=' in line and not line.startswith('#'))
 opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
 deadline = time.monotonic() + 15
 while True:
     try:
-        with urllib.request.urlopen('http://127.0.0.1:8095/login', timeout=2) as response:
+        with urllib.request.urlopen(QA_BASE+'/login', timeout=2) as response:
             assert response.status == 200
         break
     except urllib.error.URLError:
@@ -28,7 +29,7 @@ while True:
         time.sleep(.2)
 
 def call(method, path, body=None):
-    req = urllib.request.Request('http://127.0.0.1:8095' + path, method=method,
+    req = urllib.request.Request(QA_BASE + path, method=method,
                                 data=None if body is None else json.dumps(body).encode(), headers={'Content-Type': 'application/json'})
     with opener.open(req, timeout=30) as res:
         data = res.read().decode()
@@ -58,7 +59,7 @@ while True:
 files = call('GET', f'/runs/{task["id"]}/files')['files']
 assert {'panel-a.txt', 'panel-b.txt'} <= {f['path'] for f in files}, files
 for name, prefix in [('panel-a.txt', 'PANEL_A'), ('panel-b.txt', 'PANEL_B')]:
-    with opener.open(f'http://127.0.0.1:8095/runs/{task["id"]}/files/{name}') as res:
+    with opener.open(f'{QA_BASE}/runs/{task["id"]}/files/{name}') as res:
         text = res.read().decode()
     assert len(text.splitlines()) == 180 and prefix + '_001' in text and prefix + '_180' in text
 report['real_files_verified'] = True

@@ -60,7 +60,7 @@ def main():
     parser.add_argument('--resume', type=Path, help='沿既有报告/任务和保存的阶段继续，不创建新任务')
     args = parser.parse_args()
     home = args.home.resolve()
-    assert home.name.startswith('.tern-web-product-qa'), '只允许专用 QA home'
+    assert home.name.startswith(('.tern-web-product-qa','tern-qa-')), '只允许专用 QA home'
     assert args.port not in (8090, 8094), '不得访问日常或 OAuth 验收端口'
     assert 1 <= args.port <= 65535
     config = dict(line.split('=', 1) for line in (home / '.env').read_text().splitlines()

@@ -8,14 +8,15 @@ import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
+import os as _os; QA_BASE = _os.environ.get('TERN_QA_BASE', 'http://127.0.0.1:8095')  # 网页端地址，默认是原来的 8095
 
 p = argparse.ArgumentParser()
 p.add_argument("--home", required=True)
-p.add_argument("--url", default="http://127.0.0.1:8095")
+p.add_argument("--url", default=QA_BASE)
 p.add_argument("--verify-existing", action="store_true")
 args = p.parse_args()
 home = Path(args.home).resolve()
-assert home.name.startswith(".tern-web-product-qa")
+assert home.name.startswith((".tern-web-product-qa","tern-qa-"))
 config = dict(x.split("=", 1) for x in (home / ".env").read_text().splitlines() if "=" in x and not x.startswith("#"))
 deadline = time.monotonic() + 15
 while True:

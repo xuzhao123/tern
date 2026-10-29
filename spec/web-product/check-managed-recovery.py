@@ -36,7 +36,7 @@ def main():
     binary, home = args.binary.resolve(), args.home.resolve()
     assert Path('/proc').is_dir(), '本脚本依赖 Linux /proc 核验自有进程'
     assert binary.is_file(), 'binary 必须是已编译程序'
-    assert home.name.startswith('.tern-web-product-qa'), '只允许隔离 QA 运行目录'
+    assert home.name.startswith(('.tern-web-product-qa','tern-qa-')), '只允许隔离 QA 运行目录'
     assert args.port not in (8090, 8094, 8095), '不要占用日常或共享验收端口'
     with socket.socket() as probe:
         probe.bind(('127.0.0.1', args.port))

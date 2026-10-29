@@ -11,8 +11,9 @@ import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
+import os as _os; QA_BASE = _os.environ.get('TERN_QA_BASE', 'http://127.0.0.1:8095')  # 网页端地址，默认是原来的 8095
 p=argparse.ArgumentParser();p.add_argument('--home',required=True);a=p.parse_args()
-home=Path(a.home).resolve();assert home.name.startswith('.tern-web-product-qa')
+home=Path(a.home).resolve();assert home.name.startswith(('.tern-web-product-qa','tern-qa-'))
 web_pid=(home/'web.pid').read_text().strip()
 binary=Path(Path('/proc',web_pid,'cmdline').read_bytes().split(b'\0')[0].decode()).resolve();assert binary.parent==home
 report=json.loads((home/'queue-results.json').read_text());task=report['task'];assert report['verified']
@@ -22,7 +23,7 @@ def client():
     end=time.monotonic()+20
     o=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
     def call(method,path,body=None):
-        req=urllib.request.Request('http://127.0.0.1:8095'+path,method=method,data=json.dumps(body).encode() if body is not None else None,headers={'Content-Type':'application/json'})
+        req=urllib.request.Request(QA_BASE+path,method=method,data=json.dumps(body).encode() if body is not None else None,headers={'Content-Type':'application/json'})
         try:r=o.open(req,timeout=5)
         except urllib.error.HTTPError as error:r=error
         text=r.read().decode()
@@ -57,7 +58,7 @@ def stop():
         if len(cmd)>1 and cmd[0].startswith(str(home).encode()) and cmd[1]==b'app-server':stop_pid(int(proc.name),b'app-server')
 def start():
     with (home/'web.log').open('ab') as log:
-        proc=subprocess.Popen([str(binary),'web','-addr','127.0.0.1:8095'],env={**os.environ,'TERN_HOME':str(home)},stdin=subprocess.DEVNULL,stdout=log,stderr=log,start_new_session=True)
+        proc=subprocess.Popen([str(binary),'web','-addr',QA_BASE.split('//', 1)[1]],env={**os.environ,'TERN_HOME':str(home)},stdin=subprocess.DEVNULL,stdout=log,stderr=log,start_new_session=True)
     (home/'web.pid').write_text(str(proc.pid));return client()
 def history():return [json.loads(x) for x in (home/'.data/runs'/f'{task}.jsonl').read_text().splitlines()]
 call=client();rows=call('GET','/runs')[1];assert all(r['done'] for r in rows),'QA has running tasks; do not stop it'

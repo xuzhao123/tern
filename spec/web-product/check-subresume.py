@@ -9,12 +9,13 @@ import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
+import os as _os; QA_BASE = _os.environ.get('TERN_QA_BASE', 'http://127.0.0.1:8095')  # 网页端地址，默认是原来的 8095
 p = argparse.ArgumentParser(); p.add_argument('--home', required=True); p.add_argument('--verify', action='store_true'); args = p.parse_args()
-home = Path(args.home).resolve(); assert home.name.startswith('.tern-web-product-qa')
+home = Path(args.home).resolve(); assert home.name.startswith(('.tern-web-product-qa','tern-qa-'))
 cfg = dict(x.split('=', 1) for x in (home / '.env').read_text().splitlines() if '=' in x and not x.startswith('#'))
 opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
 def call(method, path, body=None):
-    req = urllib.request.Request('http://127.0.0.1:8095' + path, method=method, data=json.dumps(body).encode() if body is not None else None, headers={'Content-Type': 'application/json'})
+    req = urllib.request.Request(QA_BASE + path, method=method, data=json.dumps(body).encode() if body is not None else None, headers={'Content-Type': 'application/json'})
     try: res = opener.open(req, timeout=30)
     except urllib.error.HTTPError as error: res = error
     text = res.read().decode()

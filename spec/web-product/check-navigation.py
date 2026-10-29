@@ -7,14 +7,15 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+import os as _os; QA_BASE = _os.environ.get('TERN_QA_BASE', 'http://127.0.0.1:8095')  # 网页端地址，默认是原来的 8095
 
 p = argparse.ArgumentParser()
 p.add_argument("--home", required=True)
-p.add_argument("--url", default="http://127.0.0.1:8095")
+p.add_argument("--url", default=QA_BASE)
 p.add_argument("--verify-existing", action="store_true")
 args = p.parse_args()
 home = Path(args.home).resolve()
-assert home.name.startswith(".tern-web-product-qa"), "只允许专用 QA 目录"
+assert home.name.startswith((".tern-web-product-qa","tern-qa-")), "只允许专用 QA 目录"
 config = dict(line.split("=", 1) for line in (home / ".env").read_text().splitlines() if "=" in line and not line.startswith("#"))
 password = config["OBSERVER_TEST_PASSWORD"].strip("\"'")
 

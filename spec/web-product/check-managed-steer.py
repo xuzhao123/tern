@@ -11,13 +11,14 @@ import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
+import os as _os; QA_BASE = _os.environ.get('TERN_QA_BASE', 'http://127.0.0.1:8095')  # 网页端地址，默认是原来的 8095
 p=argparse.ArgumentParser();p.add_argument('--home',required=True);p.add_argument('--scenario',choices=['legacy','consumed','stop','immediate','stopping','unknown','natural','hook','storage','ui'],required=True);p.add_argument('--resume-unknown',action='store_true');a=p.parse_args()
-home=Path(a.home).resolve();assert home.name.startswith('.tern-web-product-qa')
+home=Path(a.home).resolve();assert home.name.startswith(('.tern-web-product-qa','tern-qa-'))
 cfg=dict(x.split('=',1) for x in (home/'.env').read_text().splitlines() if '=' in x and not x.startswith('#'))
 def client():
     opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
     def call(method,path,body=None):
-        request=urllib.request.Request('http://127.0.0.1:8095'+path,method=method,data=None if body is None else json.dumps(body).encode(),headers={'Content-Type':'application/json'})
+        request=urllib.request.Request(QA_BASE+path,method=method,data=None if body is None else json.dumps(body).encode(),headers={'Content-Type':'application/json'})
         try:response=opener.open(request,timeout=30)
         except urllib.error.HTTPError as error:response=error
         text=response.read().decode()
