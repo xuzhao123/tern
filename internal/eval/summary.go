@@ -16,6 +16,7 @@ type Summary struct {
 	Compare  *Compare    `json:"compare,omitempty"`  // 与基线逐题对比
 	Labels   []Count     `json:"labels,omitempty"`   // 人工归类的计数
 	Coding   *Coding     `json:"coding,omitempty"`   // 编码题的自评与校验
+	Infra    []string    `json:"infra,omitempty"`    // 因上游限流、额度或故障没跑完的试次（题目 ID，可重复），不计入分数
 	Progress struct {
 		Done  int `json:"done"`
 		Total int `json:"total"`
@@ -98,7 +99,12 @@ func Summarize(rec *Record, cases []Case, baseline *Record) Summary {
 			s.Progress.Done++
 		}
 	}
-	with := func(t *Trial) bool { return t.Arm == "with" && finished(t) }
+	with := func(t *Trial) bool { return t.Arm == "with" && scored(t) }
+	for _, t := range rec.Trials {
+		if finished(t) && t.Infra() != "" {
+			s.Infra = append(s.Infra, t.Case)
+		}
+	}
 	s.Cases = caseScores(rec.Trials, info, with)
 	s.Main = score("主分", rec, s.Cases, func(c CaseScore) bool { return !c.Network })
 	if slices.ContainsFunc(s.Cases, func(c CaseScore) bool { return c.Network }) {
@@ -158,6 +164,9 @@ func Summarize(rec *Record, cases []Case, baseline *Record) Summary {
 
 func finished(t *Trial) bool { return t.Status == "done" || t.Status == "failed" }
 
+// scored：跑完了、而且不是上游基础设施失败的试次才计分（见 Trial.Infra）。
+func scored(t *Trial) bool { return finished(t) && t.Infra() == "" }
+
 func caseScores(trials []*Trial, info map[string]Case, keep func(*Trial) bool) []CaseScore {
 	byCase := map[string]*CaseScore{}
 	var order []string
@@ -213,7 +222,7 @@ func score(name string, rec *Record, cases []CaseScore, keep func(CaseScore) boo
 	done, tokens := 0, 0
 	var seconds []float64
 	for _, t := range rec.Trials {
-		if t.Arm != "with" || !ids[t.Case] || !finished(t) {
+		if t.Arm != "with" || !ids[t.Case] || !scored(t) {
 			continue
 		}
 		tokens += t.Tokens
@@ -261,7 +270,7 @@ func ablation(rec *Record, info map[string]Case) []Delta {
 	var order []string
 	for _, t := range rec.Trials {
 		c := info[t.Case]
-		if c.Ablation == "" || !finished(t) || (t.Arm != "with" && t.Arm != "without") {
+		if c.Ablation == "" || !scored(t) || (t.Arm != "with" && t.Arm != "without") {
 			continue
 		}
 		total, passed := 0, 0
@@ -303,7 +312,7 @@ func ablation(rec *Record, info map[string]Case) []Delta {
 }
 
 func compare(baseline *Record, current []CaseScore, info map[string]Case) *Compare {
-	before := caseScores(baseline.Trials, info, func(t *Trial) bool { return t.Arm == "with" && finished(t) })
+	before := caseScores(baseline.Trials, info, func(t *Trial) bool { return t.Arm == "with" && scored(t) })
 	old := map[string]CaseScore{}
 	for _, c := range before {
 		old[c.ID] = c

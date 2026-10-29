@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 )
@@ -189,6 +190,9 @@ func report(r *Runner, baselineID string) error {
 	if c := s.Compare; c != nil {
 		fmt.Printf("\n与基线 %s 配对比较（%d 道共同的题）：平均差 %+.1f 个百分点 ± %.1f（1.96 SE）\n  回归：%v\n  修复：%v\n  其他变化：%v\n",
 			c.Baseline, c.Common, c.MeanDiff*100, 1.96*c.SE*100, c.Regressed, c.Fixed, c.Changed)
+	}
+	if len(s.Infra) > 0 {
+		fmt.Printf("\n上游限流、额度或故障没跑完 %d 个试次，不计入上面的分数；额度恢复后用 -case %s 重跑\n", len(s.Infra), strings.Join(slices.Compact(slices.Sorted(slices.Values(s.Infra))), ","))
 	}
 	fmt.Printf("\n评审模型：%d 次请求，%d tokens。归因：go run . eval triage %s\n", rec.JudgeUse.Calls, rec.JudgeUse.Input+rec.JudgeUse.Output, rec.ID)
 	if s.Compare != nil && len(s.Compare.Regressed) > 0 {

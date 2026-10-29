@@ -42,6 +42,19 @@ type Trial struct {
 	Diff     string          `json:"diff,omitempty"`
 }
 
+// infraError 是重试之后仍然失败的上游错误里，不能算 agent 做错的那些：限流与额度（429）、上游自身故障（5xx）。
+// 上下文超长一类的 4xx 不在内，那是 harness 发出的请求有问题，照常算未通过。
+var infraError = regexp.MustCompile(`模型API返回HTTP (429|5\d\d)`)
+
+// Infra 报告这个试次是不是因为上游的基础设施失败而没跑完：是的话返回原因，汇总时不计入分数，提示重跑。
+// 按存下的结局与说明现算，旧记录重新汇总时也一样识别。
+func (t *Trial) Infra() string {
+	if t.Outcome != "model_error" {
+		return ""
+	}
+	return infraError.FindString(t.Detail)
+}
+
 // ToolUse 来自事件流里的 toolCall Item：和检查点不同，它不受上下文压缩影响，是完整的过程记录。
 type ToolUse struct {
 	Round    int    `json:"round"` // 第几次主模型请求之后发起的
