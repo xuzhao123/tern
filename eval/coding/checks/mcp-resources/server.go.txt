@@ -1,0 +1,28 @@
+// 校验用的 MCP server：两个文本资源、一个二进制资源，外加一个工具（tern 要求 server 声明 tools）。
+package main
+
+import (
+	"context"
+	"encoding/base64"
+
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
+)
+
+func main() {
+	s := server.NewMCPServer("evalsrv", "1.0.0", server.WithResourceCapabilities(false, false), server.WithToolCapabilities(false))
+	s.AddTool(mcp.NewTool("ping", mcp.WithDescription("返回 pong")), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return mcp.NewToolResultText("pong"), nil
+	})
+	text := func(uri, body string) server.ResourceHandlerFunc {
+		return func(ctx context.Context, req mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+			return []mcp.ResourceContents{mcp.TextResourceContents{URI: uri, MIMEType: "text/plain", Text: body}}, nil
+		}
+	}
+	s.AddResource(mcp.NewResource("file:///readme", "readme", mcp.WithMIMEType("text/plain"), mcp.WithResourceDescription("说明")), text("file:///readme", "EVAL_README_TEXT_42"))
+	s.AddResource(mcp.NewResource("file:///notes", "notes", mcp.WithMIMEType("text/plain")), text("file:///notes", "EVAL_NOTES_TEXT_77"))
+	s.AddResource(mcp.NewResource("file:///logo.png", "logo", mcp.WithMIMEType("image/png")), func(ctx context.Context, req mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+		return []mcp.ResourceContents{mcp.BlobResourceContents{URI: "file:///logo.png", MIMEType: "image/png", Blob: base64.StdEncoding.EncodeToString([]byte("PNGBYTES1234567"))}}, nil
+	})
+	server.ServeStdio(s)
+}

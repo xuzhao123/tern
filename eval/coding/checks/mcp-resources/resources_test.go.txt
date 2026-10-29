@@ -1,0 +1,58 @@
+// 校验：按工具名调用 list_mcp_resources、read_mcp_resource，只依赖 spec 约定的工具名、参数和返回字段。
+package agent
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/xuzhao123/tern/internal/llm"
+	"github.com/xuzhao123/tern/internal/mcp"
+)
+
+func evalCall(t *testing.T, ctx context.Context, name, args string) string {
+	t.Helper()
+	call := llm.ToolCall{ID: "eval-" + name}
+	call.Function.Name, call.Function.Arguments = name, args
+	result, err := runTool(ctx, call)
+	if err != nil {
+		t.Fatalf("%s %s 返回错误：%v", name, args, err)
+	}
+	data, _ := json.Marshal(result)
+	return string(data)
+}
+
+func TestEvalMCPResources(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	conn, _, err := mcp.Connect(ctx, os.Getenv("EVAL_MCP_SERVER"))
+	if err != nil {
+		t.Fatalf("连不上校验 server：%v", err)
+	}
+	defer conn.Close()
+	mcp.Conns = append(mcp.Conns, conn)
+	llm.Tools = append(llm.Tools, map[string]any{"name": "list_mcp_resources"}, map[string]any{"name": "read_mcp_resource"})
+
+	list := evalCall(t, ctx, "list_mcp_resources", `{}`)
+	for _, want := range []string{"file:///readme", "file:///notes", "file:///logo.png", "evalsrv", "image/png"} {
+		if !strings.Contains(list, want) {
+			t.Errorf("list_mcp_resources 的结果里没有 %s：%s", want, list)
+		}
+	}
+	if only := evalCall(t, ctx, "list_mcp_resources", `{"server":"evalsrv"}`); !strings.Contains(only, "file:///notes") {
+		t.Errorf("指定 server=evalsrv 时没列出资源：%s", only)
+	}
+	if text := evalCall(t, ctx, "read_mcp_resource", `{"server":"evalsrv","uri":"file:///readme"}`); !strings.Contains(text, "EVAL_README_TEXT_42") {
+		t.Errorf("读文本资源没有原文：%s", text)
+	}
+	blob := evalCall(t, ctx, "read_mcp_resource", `{"server":"evalsrv","uri":"file:///logo.png"}`)
+	if !strings.Contains(blob, `"bytes":15`) || !strings.Contains(blob, "image/png") {
+		t.Errorf("二进制资源应返回类型和字节数（15）：%s", blob)
+	}
+	if strings.Contains(blob, "UE5HQllURVMx") || strings.Contains(blob, "PNGBYTES") {
+		t.Errorf("二进制内容不应放进结果：%s", blob)
+	}
+}
