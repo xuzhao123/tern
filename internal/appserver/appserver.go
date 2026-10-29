@@ -34,9 +34,12 @@ const (
 const Protocol = 2
 
 type Server struct {
-	ln   net.Listener
-	llm  *http.Server // 模型代理，跑在 llm.sock 上，路由同原来的 POST /llm/<对话ID>
-	lock *os.File     // 文件锁一直开着，进程退出（包括崩溃）时由系统释放
+	gitMu       sync.Mutex
+	operationMu sync.Mutex
+	operations  map[string]*operation
+	ln          net.Listener
+	llm         *http.Server // 模型代理，跑在 llm.sock 上，路由同原来的 POST /llm/<对话ID>
+	lock        *os.File     // 文件锁一直开着，进程退出（包括崩溃）时由系统释放
 
 	dir     string    // TERN_HOME：对话存档、沙箱、附件都相对它
 	dev     bool      // 每次启动 agent 用 go run .（要求 TERN_HOME 是 tern 源码根目录）
@@ -45,9 +48,10 @@ type Server struct {
 	mu    sync.Mutex
 	conns map[*conn]struct{}
 
-	runs  []*run
-	hubMu sync.Mutex // 保护 .data/hub.json 与 .data/settings.json 的读改写
-	evals evals      // 评测记录（见 eval.go）
+	runs      []*run
+	hubMu     sync.Mutex // 保护 .data/hub.json 与 .data/settings.json 的读改写
+	requestMu sync.Mutex // 发送回执认领与原子写入
+	evals     evals      // 评测记录（见 eval.go）
 
 	oauthMu       sync.Mutex // 保护下面两项：MCP 的 OAuth 状态只在内存里
 	oauth         map[string]oauthLogin
@@ -87,6 +91,8 @@ func Run(args []string) error {
 	}
 	defer s.Shutdown()
 	s.loadRuns()
+	s.pruneRecords()
+	go s.watchGoals()
 	fmt.Fprintf(os.Stderr, "app-server 在 %s 监听（pid %d）\n", Socket, os.Getpid())
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
@@ -153,6 +159,7 @@ func pidText() string {
 // 正在跑的 agent 不动：新的 app-server 起来后由它接管。
 func (s *Server) Shutdown() {
 	s.once.Do(func() {
+		s.closeOperations()
 		s.ln.Close()
 		s.llm.Close()
 		s.mu.Lock()

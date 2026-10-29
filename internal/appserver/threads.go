@@ -14,19 +14,25 @@ import (
 	"github.com/xuzhao123/tern/internal/audit"
 	"github.com/xuzhao123/tern/internal/protocol"
 	"github.com/xuzhao123/tern/internal/tenant"
-
-	"github.com/google/uuid"
 )
 
 // 名字、归档、旁支、排队与目标放在单独的 .data/runs/<对话ID>.meta.json：
 // {"name": "…", "archived": true, "side": true, "queue": [{"id": "…", "text": "…", "at": "…"}], "goal": {"text": "…", "at": "…", "sent": false}}，五项都可以没有。
 // 不写进存档 .jsonl：对话结束后存档文件已经关了（run.add 在 exit 时关），改个名也不该把对话顶到列表最上面。
 type runMeta struct {
-	Name     string      `json:"name,omitempty"`
-	Archived bool        `json:"archived,omitempty"`
-	Side     bool        `json:"side,omitempty"`
-	Queue    []queueItem `json:"queue,omitempty"`
-	Goal     *threadGoal `json:"goal,omitempty"`
+	BashEnabled   bool            `json:"bash_enabled,omitempty"`
+	Continuous    *continuousGoal `json:"continuous_goal,omitempty"`
+	Plan          *taskPlan       `json:"plan,omitempty"`
+	ManagedSteers []managedSteer  `json:"managed_steers,omitempty"`
+	Name          string          `json:"name,omitempty"`
+	Archived      bool            `json:"archived,omitempty"`
+	Side          bool            `json:"side,omitempty"`
+	Queue         []queueItem     `json:"queue,omitempty"`
+	QueueVersion  uint64          `json:"queue_version,omitempty"`
+	QueueClaim    *queueItem      `json:"queue_claim,omitempty"`
+	QueuePaused   bool            `json:"queue_paused,omitempty"`
+	QueueError    string          `json:"queue_error,omitempty"`
+	Goal          *threadGoal     `json:"goal,omitempty"`
 }
 
 // threadGoal 是人给这条对话定的目标：界面上常显（summary 的 goal），设了、改了以后在下一轮开始时说给模型一次。
@@ -41,13 +47,62 @@ type threadGoal struct {
 // queueItem 是排着的一条后续消息：这一轮结束后由 app-server 接着发（见 followUp）。
 // ID 由 app-server 生成，换个页面、重开界面删的还是同一项。
 type queueItem struct {
-	ID   string    `json:"id"`
-	Text string    `json:"text"`
-	At   time.Time `json:"at"`
+	GoalID       string    `json:"goal_id,omitempty"`
+	GoalRevision int       `json:"goal_revision,omitempty"`
+	Immediate    bool      `json:"immediate,omitempty"`
+	SteerIDs     []string  `json:"steer_ids,omitempty"`
+	DispatchID   string    `json:"dispatch_request_id,omitempty"`
+	DispatchUser string    `json:"dispatch_user,omitempty"`
+	User         string    `json:"user,omitempty"`
+	RequestID    string    `json:"request_id,omitempty"`
+	ID           string    `json:"id"`
+	Text         string    `json:"text"`
+	At           time.Time `json:"at"`
 }
 
 const maxThreadName = 100 // 名字最多这么多个字（按字符数，不按字节）
 const maxGoal = 500       // 目标最多这么多个字
+
+// 置顶属于当前账号的视图偏好，不改共享对话的名字、归档或活动时间。
+func (c *conn) threadPin(m protocol.Message) (any, *protocol.Error) {
+	var input struct {
+		ThreadID string `json:"threadId"`
+		Pinned   *bool  `json:"pinned"`
+	}
+	if ferr := decode(m, &input); ferr != nil {
+		return nil, ferr
+	}
+	if input.Pinned == nil {
+		return nil, bad(400, "pinned 必须是布尔值")
+	}
+	r, ferr := c.threadToManage(input.ThreadID)
+	if ferr != nil {
+		return nil, ferr
+	}
+	s := c.s
+	s.hubMu.Lock()
+	f, err := s.readSettings()
+	if err != nil {
+		s.hubMu.Unlock()
+		return nil, bad(500, err.Error())
+	}
+	user := userName(m)
+	if f.ThreadPins == nil {
+		f.ThreadPins = map[string][]string{}
+	}
+	pins := slices.DeleteFunc(f.ThreadPins[user], func(id string) bool { return id == r.ID })
+	if *input.Pinned {
+		pins = append(pins, r.ID)
+	}
+	f.ThreadPins[user] = pins
+	err = s.writeSettings(f)
+	s.hubMu.Unlock()
+	if err != nil {
+		return nil, bad(500, "无法保存置顶："+err.Error())
+	}
+	s.status(r.ID, r.liveStatus())
+	return map[string]any{"id": r.ID, "pinned": *input.Pinned}, nil
+}
 
 func (s *Server) metaPath(id string) string {
 	return filepath.Join(s.runsDir(), id+".meta.json")
@@ -67,7 +122,7 @@ func readMeta(path string) (runMeta, error) {
 // 五项都没有时删掉文件，不留空壳。
 func (s *Server) writeMeta(id string, meta runMeta) error {
 	path := s.metaPath(id)
-	if meta.Name == "" && !meta.Archived && !meta.Side && len(meta.Queue) == 0 && meta.Goal == nil {
+	if !meta.BashEnabled && meta.Continuous == nil && meta.Plan == nil && meta.Name == "" && !meta.Archived && !meta.Side && len(meta.Queue) == 0 && meta.Goal == nil && meta.QueueVersion == 0 && meta.QueueClaim == nil && !meta.QueuePaused && meta.QueueError == "" && len(meta.ManagedSteers) == 0 {
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
@@ -81,8 +136,20 @@ func (s *Server) writeMeta(id string, meta runMeta) error {
 		return err
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, append(data, '\n'), 0o600); err != nil {
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
 		return err
+	}
+	_, err = f.Write(append(data, '\n'))
+	if err == nil {
+		err = f.Sync()
+	}
+	closeErr := f.Close()
+	if err != nil {
+		return err
+	}
+	if closeErr != nil {
+		return closeErr
 	}
 	if err := os.Rename(tmp, path); err != nil {
 		os.Remove(tmp)
@@ -94,16 +161,33 @@ func (s *Server) writeMeta(id string, meta runMeta) error {
 // setMeta 改一项元数据：先写文件再改内存，写不进去就不改。
 // Goal 是指针：change 里要改它先复制一份再换，不就地改 r.goal 那一份（写文件失败时内存里就说了不算）。
 func (s *Server) setMeta(r *run, change func(*runMeta)) *protocol.Error {
+	return s.updateMeta(r, func(meta *runMeta) *protocol.Error { change(meta); return nil })
+}
+
+func (r *run) metaLocked() runMeta {
+	return runMeta{BashEnabled: r.bashEnabled, Continuous: r.continuous, Plan: r.plan, ManagedSteers: slices.Clone(r.managedSteers), Name: r.Name, Archived: r.Archived, Side: r.Side, Queue: slices.Clone(r.queue), Goal: r.goal, QueueVersion: r.queueVersion, QueueClaim: r.queueClaim, QueuePaused: r.queuePaused, QueueError: r.queueError}
+}
+
+func (r *run) applyMeta(meta runMeta) {
+	r.bashEnabled = meta.BashEnabled
+	r.continuous = meta.Continuous
+	r.plan = meta.Plan
+	r.managedSteers = meta.ManagedSteers
+	r.Name, r.Archived, r.Side, r.queue, r.goal = meta.Name, meta.Archived, meta.Side, meta.Queue, meta.Goal
+	r.queueVersion, r.queueClaim, r.queuePaused, r.queueError = meta.QueueVersion, meta.QueueClaim, meta.QueuePaused, meta.QueueError
+}
+
+func (s *Server) updateMeta(r *run, change func(*runMeta) *protocol.Error) *protocol.Error {
 	r.mu.Lock()
-	meta := runMeta{Name: r.Name, Archived: r.Archived, Side: r.Side, Queue: slices.Clone(r.queue), Goal: r.goal}
-	r.mu.Unlock()
-	change(&meta)
+	defer r.mu.Unlock()
+	meta := r.metaLocked()
+	if ferr := change(&meta); ferr != nil {
+		return ferr
+	}
 	if err := s.writeMeta(r.ID, meta); err != nil {
 		return bad(500, "无法写入对话的元数据："+err.Error())
 	}
-	r.mu.Lock()
-	r.Name, r.Archived, r.Side, r.queue, r.goal = meta.Name, meta.Archived, meta.Side, meta.Queue, meta.Goal
-	r.mu.Unlock()
+	r.applyMeta(meta)
 	return nil
 }
 
@@ -258,8 +342,10 @@ func (c *conn) threadDelete(m protocol.Message) (any, *protocol.Error) {
 	if ferr != nil {
 		return nil, ferr
 	}
+	r.turnMu.Lock()
+	defer r.turnMu.Unlock()
 	r.mu.Lock()
-	running, turns := r.conn != nil || r.proc != nil, r.turnIDs()
+	running, turns := r.conn != nil || r.proc != nil || goalActive(r.continuous), r.turnIDs()
 	r.mu.Unlock()
 	if running {
 		return nil, bad(409, "这条对话还在运行，先停止再删除")
@@ -272,68 +358,6 @@ func (c *conn) threadDelete(m protocol.Message) (any, *protocol.Error) {
 	}
 	c.s.status(r.ID, r.liveStatus())
 	c.s.broadcast("thread/deleted", map[string]string{"threadId": r.ID})
-	return nil, nil
-}
-
-// thread/queue/add：这一轮结束后再发，不打断现在这一步（网页端的 Tab）。文字去掉首尾空白，空的不收；
-// 对话没在跑时没什么可排的，直接发就行（409）。成功回这一项，ID 由 app-server 生成。
-func (c *conn) threadQueueAdd(m protocol.Message) (any, *protocol.Error) {
-	var input struct {
-		ThreadID string `json:"threadId"`
-		Text     string `json:"text"`
-	}
-	if ferr := decode(m, &input); ferr != nil {
-		return nil, ferr
-	}
-	r, ferr := c.threadToQueue(input.ThreadID)
-	if ferr != nil {
-		return nil, ferr
-	}
-	text := strings.TrimSpace(input.Text)
-	if text == "" {
-		return nil, bad(400, "请填写要排队的消息")
-	}
-	r.mu.Lock()
-	running := r.conn != nil || r.proc != nil
-	r.mu.Unlock()
-	if !running {
-		return nil, bad(409, "这条对话没在跑，直接发送就行")
-	}
-	item := queueItem{ID: uuid.NewString(), Text: text, At: time.Now().UTC()}
-	if ferr := c.s.setMeta(r, func(meta *runMeta) { meta.Queue = append(meta.Queue, item) }); ferr != nil {
-		return nil, ferr
-	}
-	c.s.status(r.ID, r.liveStatus())
-	return item, nil
-}
-
-// thread/queue/delete：删掉排着的一项；这一项已经不在了（别的页面先删了、队列接着发过了）回 404。
-func (c *conn) threadQueueDelete(m protocol.Message) (any, *protocol.Error) {
-	var input struct {
-		ThreadID string `json:"threadId"`
-		ID       string `json:"id"`
-	}
-	if ferr := decode(m, &input); ferr != nil {
-		return nil, ferr
-	}
-	r, ferr := c.threadToQueue(input.ThreadID)
-	if ferr != nil {
-		return nil, ferr
-	}
-	// 找到才动：change 拿的是这一刻的队列，不用先在锁外算下标再删（中间可能被别的页面改过）。
-	found := false
-	if ferr := c.s.setMeta(r, func(meta *runMeta) {
-		if i := slices.IndexFunc(meta.Queue, func(q queueItem) bool { return q.ID == input.ID }); i >= 0 {
-			meta.Queue = slices.Delete(meta.Queue, i, i+1)
-			found = true
-		}
-	}); ferr != nil {
-		return nil, ferr
-	}
-	if !found {
-		return nil, bad(404, "队列里没有这一项，可能已经被删掉或者发出去了")
-	}
-	c.s.status(r.ID, r.liveStatus())
 	return nil, nil
 }
 
@@ -406,7 +430,7 @@ func (r *run) searchHit(needle []rune) *threadHit {
 	if where == "" {
 		return nil
 	}
-	item := map[string]any{"id": r.ID, "name": r.Name, "query": r.Query, "archived": r.Archived, "where": where, "snippet": snippet}
+	item := map[string]any{"id": r.ID, "name": r.Name, "query": r.Query, "archived": r.Archived, "where": where, "snippet": snippet, "workspace": r.workspaceName()}
 	hit := &threadHit{item: item}
 	if len(r.events) > 0 {
 		hit.updated = r.events[len(r.events)-1].Time
