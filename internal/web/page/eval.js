@@ -163,7 +163,7 @@ async function evalDetail(panel, id) {
   // 主分：答对率与完成率分开；SE 按题聚类，95% 区间约 ±1.96 SE。
   const m = sum.main, tiles = el("div", "eval-tiles");
   tiles.append(tile(`${pctf(m.pass1)} ± ${pctf(1.96 * m.se)}`, `pass@1 · ${m.cases} 题（95% 区间）`), tile(pctf(m.passk), `pass^${m.k}：${m.k} 次全对的题`), tile(pctf(m.completion), "完成率（给出最终回答）"),
-    tile(kfmt(Math.round(m.tokens_per_trial)), "每试次 tokens"), tile(m.tokens_per_pass ? kfmt(Math.round(m.tokens_per_pass)) : "—", "每答对一次 tokens"), tile(m.p50_seconds.toFixed(1) + " s", "延迟 P50"));
+    tile(kfmt(Math.round(m.tokens_per_trial)), "每试次 tokens" + (m.cached_per_trial ? `（缓存命中 ${pctf(m.cached_per_trial / m.tokens_per_trial)}）` : "")), tile(m.tokens_per_pass ? kfmt(Math.round(m.tokens_per_pass)) : "—", "每答对一次 tokens"), tile(m.p50_seconds.toFixed(1) + " s", "延迟 P50"));
   const attr = rec.kind === "attribution";
   if (!attr) body.append(el("h3", "", "主分（不含依赖外网的题与消融对照组）"), tiles);
   const parts = attr ? [] : [...sum.suites, ...(sum.network ? [sum.network] : [])];
@@ -241,7 +241,7 @@ async function evalDetail(panel, id) {
 }
 function trialView(t, info) {
   const box = el("div", "eval-trial"), head = el("div", "hub-head");
-  head.append(el("strong", "", `${t.case} #${t.n}` + (ARM[t.arm] ? " · " + ARM[t.arm] : "")), el("span", "meta", `${t.status}${t.outcome ? " · 结局 " + t.outcome : ""} · ${t.model_calls} 次模型请求 · ${kfmt(t.tokens)} tokens · ${t.seconds.toFixed(1)} s`));
+  head.append(el("strong", "", `${t.case} #${t.n}` + (ARM[t.arm] ? " · " + ARM[t.arm] : "")), el("span", "meta", `${t.status}${t.outcome ? " · 结局 " + t.outcome : ""} · ${t.model_calls} 次模型请求 · ${kfmt(t.tokens)} tokens${t.cached_tokens ? `（缓存 ${kfmt(t.cached_tokens)}）` : ""} · ${t.seconds.toFixed(1)} s`));
   if (t.run) {
     const push = el("div", "push"), chat = el("button", "ghost", "对话"), trace = el("button", "ghost", "轨迹 / 调用链");
     chat.onclick = () => { ui.page = "chat"; show(t.run); };

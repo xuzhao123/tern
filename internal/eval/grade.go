@@ -32,6 +32,7 @@ type Trial struct {
 	Seconds float64   `json:"seconds"`
 	Calls   int       `json:"model_calls"`
 	Tokens  int       `json:"tokens"`
+	Cached  int       `json:"cached_tokens,omitempty"` // Tokens 里命中缓存的输入；每次请求都重发整段历史，这部分通常占九成以上，计价远低于新输入
 	Traces  []string  `json:"traces,omitempty"`
 	Checks  []Check   `json:"checks"`
 	Score   float64   `json:"score"` // 通过的检查占比

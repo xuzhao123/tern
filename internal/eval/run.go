@@ -334,17 +334,24 @@ func (r *Runner) execute(ctx context.Context, t *Trial, common []string) {
 		args = nil // 回放的检查点已存好启动参数，RunChild 用 -resume 接着跑
 	}
 	// 编码题每个试次一份新的仓库拷贝，作为工作区；bash 用来构建、运行和检查。
+	// 回放在新拷贝上打原试次的最终 diff，-workspace 已在分叉时指到这里（见 startReplay）。
 	var work string
-	if c.Repo != nil && t.Arm != "replay" {
+	if c.Repo != nil {
 		work = workDir(t.TaskID)
-		if err := prepareRepo(c.Repo, work); err != nil {
+		err := prepareRepo(c.Repo, work)
+		if err == nil && t.Arm == "replay" {
+			err = r.restoreReplay(t, work)
+		}
+		if err != nil {
 			done(false)
 			r.finish(t, "failed", "准备仓库失败："+err.Error())
 			return
 		}
 		defer os.RemoveAll(work)
-		abs, _ := filepath.Abs(work)
-		args = append(slices.Clone(args), "-workspace", abs, "-bash")
+		if t.Arm != "replay" {
+			abs, _ := filepath.Abs(work)
+			args = append(slices.Clone(args), "-workspace", abs, "-bash")
+		}
 	}
 	// 评测不读个人指令：试次的结果要能互相比较，不能混进个人偏好。
 	result := queue.RunTask(ctx, queue.Task{ID: t.TaskID, Question: c.Question}, append(append(slices.Clone(args), common...), "-personal-instructions=false"), 2, child)
@@ -355,7 +362,7 @@ func (r *Runner) execute(ctx context.Context, t *Trial, common []string) {
 		r.rec.Model = capture.model
 	}
 	if err == nil {
-		t.Outcome, t.Answer, t.Calls, t.Tokens, t.Traces = cp.Reason, cp.Answer, cp.Calls, cp.Input+cp.Output, cp.Traces
+		t.Outcome, t.Answer, t.Calls, t.Tokens, t.Cached, t.Traces = cp.Reason, cp.Answer, cp.Calls, cp.Input+cp.Output, cp.Cached, cp.Traces
 		if cp.Status == "running" {
 			t.Outcome = "vanished"
 		}
@@ -483,6 +490,18 @@ func (r *Runner) startReplay(from string, rounds int, note string, n int, snap *
 	if err != nil {
 		return nil, err
 	}
+	// 编码题的工作区在试次结束后就删了，回放只能用存下的最终 diff 还原。分叉点之后又改过文件的，
+	// 还原出来的就不是分叉那一刻的工作区，拒绝；bash 的副作用（gofmt -w、建目录）查不出来，会一起带进去。
+	if c, ok := r.find(r.rec.Trials[i].Case); ok && c.Repo != nil {
+		if r.rec.Trials[i].Diff == "" {
+			return nil, fmt.Errorf("试次 %s 没有存下工作区的 diff，无法还原工作区", from)
+		}
+		if j := slices.IndexFunc(r.rec.Trials[i].Tools, func(u ToolUse) bool {
+			return u.Round > rounds && u.Status == "ok" && (u.Name == "edit_file" || u.Name == "write_file")
+		}); j >= 0 {
+			return nil, fmt.Errorf("第 %d 轮还改过工作区文件，工作区只能还原到最终状态；回放点要选在最后一次改文件之后", r.rec.Trials[i].Tools[j].Round)
+		}
+	}
 	rp := &Replay{ID: fmt.Sprintf("rp%d", len(r.rec.Replays)+1), From: from, Case: r.rec.Trials[i].Case, Rounds: rounds, Note: strings.TrimSpace(note), Created: time.Now().UTC(), Status: "running"}
 	for k := 1; k <= n; k++ {
 		id := fmt.Sprintf("%s-%s-%d", from, rp.ID, k)
@@ -497,10 +516,38 @@ func (r *Runner) startReplay(from string, rounds int, note string, n int, snap *
 		if err != nil {
 			return nil, err
 		}
+		if c, ok := r.find(rp.Case); ok && c.Repo != nil {
+			abs, _ := filepath.Abs(workDir(id))
+			if err = agent.MoveWorkspace(id, abs); err != nil {
+				return nil, err
+			}
+		}
 		rp.Trials = append(rp.Trials, &Trial{Case: rp.Case, Arm: "replay", N: k, TaskID: id, Status: "pending", Tools: kept})
 	}
 	r.rec.Replays = append(r.rec.Replays, rp)
 	return rp, r.save()
+}
+
+// restoreReplay 把回放来源试次存下的 diff 打到新拷贝上，不提交：和原试次一样，git status 里看得到之前的改动。
+func (r *Runner) restoreReplay(t *Trial, work string) error {
+	r.mu.Lock()
+	var diff string
+	for _, rp := range r.rec.Replays {
+		if slices.Contains(rp.Trials, t) {
+			if i := slices.IndexFunc(r.rec.Trials, func(s *Trial) bool { return s.TaskID == rp.From }); i >= 0 {
+				diff = r.rec.Trials[i].Diff
+			}
+		}
+	}
+	r.mu.Unlock()
+	if diff == "" {
+		return errors.New("找不到回放来源的 diff")
+	}
+	abs, err := filepath.Abs(diff)
+	if err != nil {
+		return err
+	}
+	return git(work, "apply", abs)
 }
 
 // RunReplay 依次跑完一次回放的各份分叉（每份都从分叉点接着跑，所以不需要题目参数）。

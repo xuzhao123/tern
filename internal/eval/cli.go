@@ -156,8 +156,13 @@ func report(r *Runner, baselineID string) error {
 	pct := func(v float64) string { return fmt.Sprintf("%.0f%%", v*100) }
 	fmt.Printf("\n评测 %s（%s）· commit %s · 题目 %s@%s · 模型 %s · 评审 %s\n", rec.ID, rec.Status, rec.Commit, rec.CasesFile, rec.CasesHash, rec.Model, rec.Judge)
 	line := func(sc Score) {
-		fmt.Printf("  %-8s %2d 题 × k=%d：pass@1 %s ± %s（95%% 区间 ±1.96 SE）  pass^%d %s  完成率 %s  每试次 %.0f tokens  每次答对 %.0f tokens  P50 %.1fs\n",
-			sc.Name, sc.Cases, sc.K, pct(sc.Pass1), pct(1.96*sc.SE), sc.K, pct(sc.PassK), pct(sc.Completion), sc.Tokens, sc.TokensPass, sc.Seconds)
+		// 每次请求重发整段历史，命中缓存的那部分计价低得多；单列出来，免得把总数当成花费。
+		cache := ""
+		if sc.Cached > 0 {
+			cache = fmt.Sprintf("（缓存命中 %s，其余 %.0f）", pct(sc.Cached/sc.Tokens), sc.Tokens-sc.Cached)
+		}
+		fmt.Printf("  %-8s %2d 题 × k=%d：pass@1 %s ± %s（95%% 区间 ±1.96 SE）  pass^%d %s  完成率 %s  每试次 %.0f tokens%s  每次答对 %.0f tokens  P50 %.1fs\n",
+			sc.Name, sc.Cases, sc.K, pct(sc.Pass1), pct(1.96*sc.SE), sc.K, pct(sc.PassK), pct(sc.Completion), sc.Tokens, cache, sc.TokensPass, sc.Seconds)
 	}
 	line(s.Main)
 	for _, sc := range s.Suites {

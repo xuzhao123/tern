@@ -45,7 +45,8 @@ type Score struct {
 	K          int     `json:"k"`
 	Completion float64 `json:"completion"`
 	Tokens     float64 `json:"tokens_per_trial"`
-	TokensPass float64 `json:"tokens_per_pass"` // 每答对一次花的 token（答错的花费也算进去）
+	TokensPass float64 `json:"tokens_per_pass"`            // 每答对一次花的 token（答错的花费也算进去）
+	Cached     float64 `json:"cached_per_trial,omitempty"` // 每试次 tokens 里命中缓存的输入
 	Seconds    float64 `json:"p50_seconds"`
 }
 
@@ -219,13 +220,14 @@ func score(name string, rec *Record, cases []CaseScore, keep func(CaseScore) boo
 	}
 	sc.Pass1, sc.SE = meanSE(rates)
 	sc.PassK /= float64(sc.Cases)
-	done, tokens := 0, 0
+	done, tokens, cached := 0, 0, 0
 	var seconds []float64
 	for _, t := range rec.Trials {
 		if t.Arm != "with" || !ids[t.Case] || !scored(t) {
 			continue
 		}
 		tokens += t.Tokens
+		cached += t.Cached
 		seconds = append(seconds, t.Seconds)
 		if t.Status == "done" {
 			done++
@@ -233,6 +235,7 @@ func score(name string, rec *Record, cases []CaseScore, keep func(CaseScore) boo
 	}
 	sc.Completion = float64(done) / float64(max(1, sc.Trials))
 	sc.Tokens = float64(tokens) / float64(max(1, sc.Trials))
+	sc.Cached = float64(cached) / float64(max(1, sc.Trials))
 	if sc.Passed > 0 {
 		sc.TokensPass = float64(tokens) / float64(sc.Passed)
 	}

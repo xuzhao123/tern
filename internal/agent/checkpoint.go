@@ -322,3 +322,17 @@ func ForkSnapshot(src *Checkpoint, id string, messages []llm.Message, step, call
 	}
 	return cp, cp.write()
 }
+
+// MoveWorkspace 把检查点启动参数里 -workspace 的值换成 dir：回放编码题时，每份分叉在自己的工作区副本上接着跑。
+func MoveWorkspace(id, dir string) error {
+	cp, err := LoadCheckpoint(id)
+	if err != nil {
+		return err
+	}
+	i := slices.Index(cp.Args, "-workspace")
+	if i < 0 || i+1 >= len(cp.Args) {
+		return fmt.Errorf("检查点 %s 没有 -workspace 参数", id)
+	}
+	cp.Args[i+1] = dir
+	return cp.write()
+}

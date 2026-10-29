@@ -111,7 +111,7 @@ func (r *Runner) Attribute(ctx context.Context) {
 	c := Case{ID: "conversation", Suite: "capability", Group: "对话归因", Question: cp.Question, Args: cp.Args, Reference: d.Expected,
 		Graders: []Grader{{Type: "judge", Rubric: d.Rubric}}}
 	t := &Trial{Case: c.ID, Arm: "with", N: 1, TaskID: cp.ID, Run: a.Run, Status: "done", Outcome: cp.Reason, Answer: cp.Answer, Tools: toolsFrom(cp.Messages),
-		Started: cp.StartedAt, Seconds: cp.UpdatedAt.Sub(cp.StartedAt).Seconds(), Calls: cp.Calls, Tokens: cp.Input + cp.Output, Traces: cp.Traces}
+		Started: cp.StartedAt, Seconds: cp.UpdatedAt.Sub(cp.StartedAt).Seconds(), Calls: cp.Calls, Tokens: cp.Input + cp.Output, Cached: cp.Cached, Traces: cp.Traces}
 	if cp.Status != "done" {
 		t.Status = "failed"
 	}
