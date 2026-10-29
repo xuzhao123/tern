@@ -8,6 +8,7 @@
 
 | 文档 | 内容 | 状态 |
 | --- | --- | --- |
+| [web-product/](web-product/README.md) | **网页产品方案**：Codex 体验对齐，含界面、交互、子 agent、9 类日常工作流补充；共 47 项需求、42 个验收场景，已有能力与新增体验分开记录 | 开发中（2026-10-25），进度见 web-product/08-implementation.md；不计入旧功能完成数 |
 | [codex-parity-plan.md](codex-parity-plan.md) | **任务清单**：和 Codex 对齐的功能点，哪些没做、哪些做得不好，按优先级排；做某一条前先写它的 spec，填回这里 | 清单（2026-10-24），持续更新 |
 | [app-server-design.md](app-server-design.md) | 照 Codex 的 SSH 远程：常驻的 `tern app-server` 管对话，网页端、终端、以后的桌面端经 Unix socket 或 SSH 连它；`TERN_HOME` | 第一步（`TERN_HOME`、`-agent-server`）已实现（2026-10-23）；第一期（app-server、网页端与 chat 改成客户端、去掉租户账号、SSH 远程与重连）已实现（2026-10-24）。第二期另写在 app-server-phase2-design.md，已实现（2026-10-23）；第三期桌面端未做 |
 | [app-server-phase2-design.md](app-server-phase2-design.md) | app-server 第二期：`thread/fork` 与 chat 的 `/fork`、网页端的“分叉”；`thread/rewind` 只退文件或只退对话，网页端的撤销可选三种；一个网页端同时连几台主机（读 `~/.ssh/config`，记住连过的，列表按主机分组） | 已实现（2026-10-23） |
@@ -44,6 +45,7 @@
 | [mcp-oauth.md](mcp-oauth.md) | MCP 的 OAuth 登录，令牌存 `.data/mcp-tokens.json`（计划 6.4） | 已实现并通过 Keycloak 真实授权验收（2026-10-25），见收尾记录 |
 | [tern-mcp-server.md](tern-mcp-server.md) | `tern mcp-server`：别的客户端把 tern 当 MCP 工具用（计划 6.5） | 已实现并收尾验证（2026-10-25），见收尾记录 |
 | [macos-sandbox.md](macos-sandbox.md) | macOS 上的 bash 沙箱（Seatbelt）（计划 6.1） | 已实现并收尾验证（2026-10-25），见收尾记录 |
+| [sandbox-modes.md](sandbox-modes.md) | 沙箱与审批：对外三档（请求批准 / 帮我批准 / 完全访问），内部 `permission` + `sandbox` 两个旋钮；新增 `-bash-host` 与 `sandbox_mode`，「完全访问」在宿主机执行；只读计划与无人值守走高级项；项目配置不能开 | 已实现（2026-10-26），编译与真实模型验证待做 |
 | [architecture.md](architecture.md) | 现状：进程、模块与数据链路（界面 → app-server → agent → 模型与工具），数据落在哪 | 说明（2026-10-23），不是设计 |
 | [remote-agent-design.md](remote-agent-design.md)（配图页面 [remote-agent.html](remote-agent.html)） | 远程 agent：网页上的对话交给用户本机的 tern 执行；tern 的几种界面与命名 | 已被 app-server-design.md 替代，不再排期；保留历史方案。前置改动“macOS 上能编译”已完成 |
 | [remote-control-research.html](remote-control-research.html) | 调研：Claude Code 的 Remote Control、Codex 的远程连接与 app-server，和 tern 远程 agent 的两种方案对比，以及要先对齐的产品问题 | 调研（2026-10-23），不是设计 |

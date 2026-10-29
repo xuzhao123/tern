@@ -31,6 +31,7 @@ import (
 // 平台相关的启动在 launch_linux.go、launch_darwin.go；这里放共用的：参数解析、输出截断、后台命令、规则文字。
 var (
 	Enabled   bool
+	Host      bool   // -bash-host：完全访问，普通 bash 与 !命令 在宿主机上跑
 	ProjectRO bool   // -bash-project-ro：把项目目录只读挂到 /project（.env、.data、.git 除外）
 	Dir       string // 本对话的工作目录 .data/sandbox/<对话第一轮的检查点ID>，由 main 设置
 
@@ -82,12 +83,20 @@ var Timeout = 30 * time.Second
 
 // Definitions 在 Project 定下之后调用：有没有工作区，bash 里的路径不是同一个，描述要和 Rules 一致。
 func Definitions() []map[string]any {
-	bash := bashIntro() + "每次调用是新的 shell（cd 和环境变量不保留），" + tmpNote + "不能写其他位置，默认不能联网。" +
-		"单条命令最多 " + Timeout.String() + "，到时整条命令被终止，返回终止前的输出。要跑得更久的（长时间构建、监视）设 background=true：立刻返回 job_id，用 bash_output 读输出，用 bash_kill 停掉。" +
-		"要回答提示的程序（交互式安装、python -i 一类）用 background=true（需要终端的加 tty=true），再用 bash_input 写输入；前台命令的标准输入是 /dev/null，读不到输入。" +
-		"每条命令（包括后台命令）都在自己的沙箱里" + processView + "：之后的命令看不到、也连不上后台命令和它起的服务。" + serviceNote
+	var bash string
+	if Host {
+		bash = hostIntro() + "每次调用是新的 shell（cd 和环境变量不保留）。" +
+			"单条命令最多 " + Timeout.String() + "，到时整条命令被终止，返回终止前的输出。要跑得更久的（长时间构建、监视）设 background=true：立刻返回 job_id，用 bash_output 读输出，用 bash_kill 停掉。" +
+			"要回答提示的程序（交互式安装、python -i 一类）用 background=true（需要终端的加 tty=true），再用 bash_input 写输入；前台命令的标准输入是 /dev/null，读不到输入。" +
+			"每条命令（包括后台命令）都在宿主机上直接跑，能看到、也能连上本机的进程与服务；后台命令只活到这一轮结束。"
+	} else {
+		bash = bashIntro() + "每次调用是新的 shell（cd 和环境变量不保留），" + tmpNote + "不能写其他位置，默认不能联网。" +
+			"单条命令最多 " + Timeout.String() + "，到时整条命令被终止，返回终止前的输出。要跑得更久的（长时间构建、监视）设 background=true：立刻返回 job_id，用 bash_output 读输出，用 bash_kill 停掉。" +
+			"要回答提示的程序（交互式安装、python -i 一类）用 background=true（需要终端的加 tty=true），再用 bash_input 写输入；前台命令的标准输入是 /dev/null，读不到输入。" +
+			"每条命令（包括后台命令）都在自己的沙箱里" + processView + "：之后的命令看不到、也连不上后台命令和它起的服务。" + serviceNote
+	}
 	job := map[string]any{"type": "string", "description": "bash 带 background=true 时返回的 job_id"}
-	return []map[string]any{
+	tools := []map[string]any{
 		{"name": "bash", "description": bash, "parameters": map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -117,20 +126,26 @@ func Definitions() []map[string]any {
 			},
 			"required": []string{"job_id"},
 		}},
-		{"name": "request_network_access", "description": "请求用户允许沙箱访问一个域名（如 pypi.org）。由用户在界面上批准：用户当场批准时本轮接下来就能访问；没有界面或用户未答复时返回 pending。", "parameters": map[string]any{
+	}
+	if !Host {
+		tools = append(tools, map[string]any{"name": "request_network_access", "description": "请求用户允许沙箱访问一个域名（如 pypi.org）。由用户在界面上批准：用户当场批准时本轮接下来就能访问；没有界面或用户未答复时返回 pending。", "parameters": map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"domain": map[string]string{"type": "string", "description": "要访问的域名，小写，不含协议和路径，如 pypi.org"},
 				"reason": map[string]string{"type": "string", "description": "为什么需要访问，会原样展示给用户"},
 			},
 			"required": []string{"domain", "reason"},
-		}},
+		}})
 	}
+	return tools
 }
 
 // SeesUserFiles 报告 bash 能不能读到用户的文件：挂了工作区或项目目录，或本对话目录里已经有文件
 // （用户上传的，或之前的命令留下的）。据此判断 bash 的输出算不算私有数据。目录读不了时按读得到算。
 func SeesUserFiles() bool {
+	if Host {
+		return true // 宿主机上的命令本来就什么都能看到
+	}
 	if Project != "" || ProjectRO {
 		return true
 	}
@@ -148,6 +163,9 @@ var ApprovalWait = 4 * time.Minute
 // Rules 是提示词里 bash 那一段：平台相关的工作目录、能写哪里、限制由 ruleText 给，
 // 联网与权限模式的说法两个平台一样。
 func Rules() string {
+	if Host {
+		return hostRules()
+	}
 	rule := ruleText()
 	if len(Allow) == 0 {
 		rule += "沙箱默认不能联网，只能经已设置好的 HTTP(S) 代理访问用户批准的域名。"
@@ -229,14 +247,14 @@ func Run(ctx context.Context, callID, name, arguments string) (any, error) {
 	if args.Background {
 		return startJob(ctx, callID, command, args.Tty)
 	}
-	return execute(ctx, callID, command, ProjectWrite, Timeout)
+	return execute(ctx, callID, command, ProjectWrite, Timeout, Host)
 }
 
 // Shell 是人在界面上自己发起的一条命令（网页端的 !命令，见 agent 的 -shell）：
 // 和 bash 工具走同一条可写路径，工作区按权限模式挂成可写或只读（plan 模式只读）；
 // 沙箱目录由调用方设好 Dir（对话的沙箱目录），不另建。
 func Shell(ctx context.Context, callID, command string) (map[string]any, error) {
-	result, err := execute(ctx, callID, command, ProjectWrite, Timeout)
+	result, err := execute(ctx, callID, command, ProjectWrite, Timeout, Host)
 	if err != nil {
 		return nil, err
 	}
@@ -244,8 +262,9 @@ func Shell(ctx context.Context, callID, command string) (map[string]any, error) 
 }
 
 // Check 在工作区只读挂载的沙箱里跑一条校验命令（独立验证）：验证命令自己改不了被验证的代码。
+// 校验永远进沙箱：完全访问只放开模型的普通命令，不放开验证。
 func Check(ctx context.Context, callID, command string) (map[string]any, error) {
-	result, err := execute(ctx, callID, command, false, 0)
+	result, err := execute(ctx, callID, command, false, 0, false)
 	if err != nil {
 		return nil, err
 	}
@@ -254,7 +273,7 @@ func Check(ctx context.Context, callID, command string) (map[string]any, error) 
 
 // writable 决定工作区（Project）挂成可写还是只读：普通 bash 跟着权限模式（ProjectWrite），校验命令一律只读。
 // limit 是命令的时限，不算等人批准联网的时间；0 表示只由 ctx 决定（校验命令由调用方给时限）。
-func execute(ctx context.Context, callID, command string, writable bool, limit time.Duration) (_ any, err error) {
+func execute(ctx context.Context, callID, command string, writable bool, limit time.Duration, host bool) (_ any, err error) {
 	// 一次沙箱执行一个 span，等锁的时间也算在内（同一进程的 bash 调用串行）。
 	ctx, span := telemetry.Begin(ctx, "sandbox.exec", trace.SpanKindInternal, attribute.Int("sandbox.command_bytes", len(command)))
 	telemetry.Content(span, "sandbox.command", command)
@@ -266,9 +285,25 @@ func execute(ctx context.Context, callID, command string, writable bool, limit t
 	deniedMu.Lock()
 	denials = nil
 	deniedMu.Unlock()
+	if host {
+		// 完全访问没有沙箱兜底：每条命令先写审计，写不进去就不执行（同高风险动作）。
+		actor := "model"
+		if callID == "shell" {
+			actor = "user"
+		}
+		record := audit.Record{Actor: actor, CallID: callID, Event: "host_exec", Tool: "bash", Detail: "host"}
+		record.Args(command)
+		if err := audit.Write(ctx, record); err != nil {
+			return nil, llm.Permanent(errors.New("审计日志写入失败，没有执行命令：" + err.Error()))
+		}
+	}
 	out := &capture{}
 	start := time.Now()
-	cmd, unit, err := launch(ctx, callID, command, out, nil, false, writable)
+	var serviceOutput io.Writer = out
+	if ServiceLog {
+		serviceOutput = io.MultiWriter(out, os.Stdout)
+	}
+	cmd, unit, err := launch(ctx, callID, command, serviceOutput, nil, false, writable, host)
 	if err != nil {
 		return nil, err
 	}
@@ -321,12 +356,16 @@ wait:
 	result := map[string]any{"exit_code": cmd.ProcessState.ExitCode(), "duration_ms": time.Since(start).Milliseconds()}
 	if killed != "" {
 		result["killed"] = killed
-		result["note"] = "命令已被终止，沙箱里没有留下还在运行的进程；终止前已经执行的部分（比如写了一半的文件）可能已经生效，下面是终止前的输出"
+		if host {
+			result["note"] = "命令已被终止；终止前已经执行的部分（比如写了一半的文件）可能已经生效，下面是终止前的输出"
+		} else {
+			result["note"] = "命令已被终止，沙箱里没有留下还在运行的进程；终止前已经执行的部分（比如写了一半的文件）可能已经生效，下面是终止前的输出"
+		}
 	} else if status, ok := cmd.ProcessState.Sys().(syscall.WaitStatus); ok && status.Signaled() {
 		result["signal"] = status.Signal().String()
 		// 不是时限到、也不是被停止，却被信号结束：SIGKILL 与 SIGTERM 都多半是 systemd 按内存上限结束了整个 scope。
-		// macOS 上没有 cgroup（signalNote 为空），不加这句。
-		if (status.Signal() == syscall.SIGKILL || status.Signal() == syscall.SIGTERM) && signalNote != "" {
+		// macOS 上没有 cgroup（signalNote 为空），不加这句；宿主机路径没有 cgroup，同样不加。
+		if (status.Signal() == syscall.SIGKILL || status.Signal() == syscall.SIGTERM) && signalNote != "" && !host {
 			result["note"] = signalNote
 		}
 	} else if err != nil && cmd.ProcessState.ExitCode() == -1 {
@@ -383,7 +422,10 @@ type launchSpec struct {
 // macOS 上是 sandbox-exec。输出写到 out，标准输入接 stdin（nil 表示 /dev/null，前台命令就是这样）；
 // tty 时在沙箱里用 script 包一层，给命令一个伪终端。返回进程和 scope 名（没有 cgroup 时为空）；
 // 前台命令等它结束，后台命令交给 jobs.go 管。
-func launch(ctx context.Context, callID, command string, out io.Writer, stdin io.Reader, tty, writable bool) (*exec.Cmd, string, error) {
+func launch(ctx context.Context, callID, command string, out io.Writer, stdin io.Reader, tty, writable, host bool) (*exec.Cmd, string, error) {
+	if host {
+		return launchHost(callID, command, out, stdin, tty)
+	}
 	workspace, err := filepath.Abs(Dir)
 	if err == nil {
 		err = os.MkdirAll(workspace, 0o755)

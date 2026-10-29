@@ -36,25 +36,69 @@ export const ui = {
 // ---------- 小工具 ----------
 function load(key) { try { return localStorage.getItem(key); } catch { return null; } }
 export function save(key, value) { try { localStorage.setItem(key, value); } catch {} }
-// ---------- 未读与浏览器通知 ----------
-// 看过的状态只记在这个浏览器里（和 Codex 不同，不存 app-server）：主机|对话ID → 那次看到的最新 updated_at。
-// 列表里某条比它新，就在行尾标一个未读圆点（见 shell.js 的 runRow）；只留最近 500 条，免得越攒越大。
-const SEEN_KEY = "tern-seen", SEEN_MAX = 500, NOTIFY_KEY = "tern-notify";
+// ---------- 本浏览器、当前账号的阅读游标 ----------
 export const runKey = (alias, id) => `${alias}|${id}`;
-function seenMap() { try { return JSON.parse(load(SEEN_KEY) || "{}") || {}; } catch { return {}; } }
-export const seenAt = (alias, id) => seenMap()[runKey(alias, id)] || 0;
-export function markSeen(alias, id, updatedAt) {
-  if (!id || !updatedAt) return;
-  const map = seenMap(), key = runKey(alias, id);
-  if (map[key] === updatedAt) return;
-  map[key] = updatedAt;
-  const keys = Object.keys(map);
-  for (const k of keys.sort((a, b) => map[a] - map[b]).slice(0, Math.max(0, keys.length - SEEN_MAX))) delete map[k];
-  save(SEEN_KEY, JSON.stringify(map));
+export const readPrefix = () => `tern-read-v2:${encodeURIComponent(ui.account || "")}:`;
+const readKey = (alias, id) => readPrefix() + encodeURIComponent(runKey(alias, id));
+const versionOf = (task) => ({ at: task.updated_at || 0, seq: task.activity_seq || 0 });
+const later = (a, b) => a.at > b.at || (a.at === b.at && a.seq > b.seq);
+function readState(key) { return JSON.parse(localStorage.getItem(key) || "null") || { seen: { at: 0, seq: 0 }, manual: "" }; }
+// 权限下拉的常用档：完全访问落到协议时拆成 permission=full + sandbox=host；
+// 只读计划与无人值守（full + 沙箱）是设置页的高级项，不在主下拉里。
+export function permChoice(value) {
+  return value === "unrestricted" ? { permission: "full", sandbox: "host" } : { permission: value, sandbox: "sandbox" };
 }
-// 通知是浏览器的事，每台电脑各自决定，所以也不进 app-server 的设置（见 pages.js 的“通知”一节）。
-export const notifyOn = () => load(NOTIFY_KEY) === "on";
-export const setNotify = (on) => save(NOTIFY_KEY, on ? "on" : "");
+// 从对话记录反推下拉的值：老对话没有 sandbox 字段时按沙箱内处理。
+export function permValue(permission, sandbox) {
+  if (sandbox === "host") return "unrestricted";
+  return permission || "edit";
+}
+export const FULL_ACCESS_NOTE = "完全访问：可不受限制地访问互联网和这台电脑上的任何文件。只在信任这条对话时使用。";
+
+export function isUnread(alias, task) {
+  try { const state = readState(readKey(alias, task.id)); return !!state.manual || later(versionOf(task), state.seen); }
+  catch { return true; }
+}
+export function readingError(error) {
+  ui.readingError = error ? "浏览器未能保存阅读状态：" + error.message : "";
+  window.dispatchEvent(new Event("tern-reading-changed"));
+}
+export async function markSeen(alias, task, explicit = false) {
+  if (!ui.account || !task?.id) return;
+  const key = readKey(alias, task.id), version = versionOf(task);
+  let manual;
+  try { manual = explicit ? readState(key).manual : null; } catch (error) { readingError(error); return; }
+  const update = () => {
+    try {
+      const state = readState(key), before = JSON.stringify(state);
+      if (later(version, state.seen)) state.seen = version;
+      // 批量确认之后另一页新标的未读不能被旧操作抹掉。
+      if (explicit && state.manual === manual) state.manual = "";
+      if (JSON.stringify(state) === before) return;
+      localStorage.setItem(key, JSON.stringify(state)); readingError(null);
+    } catch (error) { readingError(error); }
+  };
+  try { if (navigator.locks) await navigator.locks.request(key, update); else update(); }
+  catch (error) { readingError(error); }
+}
+export async function markUnread(alias, task) {
+  if (!ui.account || !task?.id) return;
+  const key = readKey(alias, task.id);
+  const update = () => {
+    try { const state = readState(key); state.manual = crypto.randomUUID(); localStorage.setItem(key, JSON.stringify(state)); readingError(null); }
+    catch (error) { readingError(error); }
+  };
+  try { if (navigator.locks) await navigator.locks.request(key, update); else update(); }
+  catch (error) { readingError(error); }
+}
+export function notificationSettings() {
+  try { return JSON.parse(localStorage.getItem(`tern-notify-v2:${encodeURIComponent(ui.account || "")}`) || "{}"); }
+  catch { return {}; }
+}
+export function setNotification(kind, mode) {
+  try { const settings = notificationSettings(); settings[kind] = mode; localStorage.setItem(`tern-notify-v2:${encodeURIComponent(ui.account || "")}`, JSON.stringify(settings)); return true; }
+  catch (error) { readingError(error); return false; }
+}
 // 对话流里的小图标：内联 SVG 线条图标，不依赖系统字体里有没有这个符号。
 const ICONS = { think: '<circle cx="12" cy="12" r="3.5"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8"/>',
   caps: '<path d="M12 3l1.9 4.6 4.6 1.9-4.6 1.9L12 16l-1.9-4.6-4.6-1.9 4.6-1.9Z"/>', hook: '<path d="M5 21V4h12l-2.5 4 2.5 4H5"/>', mem: '<path d="M6 3h12v18l-6-4-6 4Z"/>',

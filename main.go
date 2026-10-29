@@ -251,10 +251,13 @@ func run() error {
 	retries := flag.Int("retries", 2, "工具失败后额外重试次数，0 到 5")
 	provider := flag.String("provider", "ark", "模型路由：ark（豆包，方舟）、deepseek、deepseekanthropic（DeepSeek 的 Anthropic 接口）或 coconut（本机 Responses 服务）；地址、模型与密钥见 README")
 	check := flag.String("check", "", "不请求模型，只在沙箱里跑这条校验命令（工作区只读挂载，同 verify_feature），输出 JSON 的退出码与输出后退出；须配合 -workspace 与 -bash")
+	flag.StringVar(&sandbox.ServicePorts, "service-ports", "", "专用沙箱服务导出的loopback端口，逗号分隔")
+	flag.BoolVar(&sandbox.ServiceLog, "service-log", false, "专用沙箱服务实时输出日志")
 	shell := flag.String("shell", "", "不请求模型，只在沙箱里跑这一条命令（工作区按 -permission-mode 决定能不能写，同网页端的 !命令），最后一行输出 JSON 的退出码与输出后退出；须配合 -bash，沙箱目录由 AGENT_SHELL_DIR 指定")
 	// 消融的开关：默认值就是现在的做法。
 	flag.StringVar(&llm.ToolFormat, "tool-format", "json", "消融：工具结果发给模型的格式，json（默认）或 text（只在发请求时换成纯文本，多行原样）")
 	flag.StringVar(&workspace.PromptVariant, "coding-prompt", "default", "消融：编码提示词，minimal（只说工作区）、default、extended（加并行读取、只用编辑工具改、该问就问、没验证不下结论）")
+	flag.BoolVar(&agent.TaskControls, "task-controls", false, "app-server主任务的计划与Goal控制工具")
 	flag.BoolVar(&agent.Todo, "todo", false, "消融：提供上下文内的 todo_write 清单工具（默认不提供）")
 	flag.BoolVar(&agent.ClearOldResults, "clear-old-results", false, "消融：续聊时把之前各轮的工具结果换成占位")
 	flag.BoolVar(&agent.AskUser, "ask-user", false, "提供 ask_user 工具，模型可以在运行中向用户提问（经协议的 user/requestInput）；只在界面上有人能当场回答时打开（终端客户端、网页端）")
@@ -299,12 +302,13 @@ func run() error {
 	flag.BoolVar(&websearch.Enabled, "ds-search", false, "增加 ds_search 与 ds_fetch，用 DeepSeek 的搜索与抓取 API 查资料（读取 DEEPSEEK_API_KEY）")
 	disallowedTools := flag.String("disallowed-tools", "", "从工具清单里去掉单个工具（与 Claude Code 的 --disallowed-tools 同名，只认工具名；按调用拦用 -deny），逗号分隔：浏览器的 web_search、open_page")
 	flag.BoolVar(&sandbox.Enabled, "bash", false, "增加 bash 与 request_network_access，在 bubblewrap 沙箱里执行命令（仅 Linux）")
+	flag.BoolVar(&sandbox.Host, "bash-host", false, "配合 -bash：命令直接在宿主机上跑（完全访问，没有沙箱）；默认关闭")
 	flag.BoolVar(&sandbox.ProjectRO, "bash-project-ro", false, "配合 -bash：把项目目录只读挂到 /project（.env、.data、.git 除外）")
 	var netAllow stringList
 	flag.Var(&netAllow, "net-allow", "配合 -bash：沙箱可经代理访问的域名（含子域名，可重复）；由用户批准后添加")
 	flag.BoolVar(&agent.PrivateInput, "private-input", false, "任务输入已含私有数据（父 agent 派出子任务时自动加上）：外发类工具执行前要用户确认")
 	flag.StringVar(&tenant.Current, "tenant", "", "多租户：本任务所属的租户；检查点、记忆、沙箱、浏览器画面与审计都放在 .data/tenants/<租户>/ 下。不给时是平台空间 .data/")
-	flag.StringVar(&permission.Mode, "permission-mode", permission.Mode, "权限模式 plan（只读）、ask（改动都问）、edit（工作区内编辑与沙箱 bash 直接执行）、full（不问，含高风险确认；deny、ask 规则照常）")
+	flag.StringVar(&permission.Mode, "permission-mode", permission.Mode, "权限模式 plan（只读）、ask（改动都问）、edit（工作区内编辑与沙箱 bash 直接执行）、full（不问，含高风险确认；命令是否在沙箱里由 -bash-host 决定）")
 	var allowRules, askRules, denyRules stringList
 	flag.Var(&allowRules, "allow", "允许规则，如 Bash(go build *)、Edit(internal/**)（可重复）")
 	flag.Var(&askRules, "ask", "询问规则，如 Edit(internal/agent/**)（可重复）")
@@ -379,6 +383,26 @@ func run() error {
 			case "turn/interrupt":
 				interrupt()
 				protocol.Client.Reply(*m.ID, nil, nil)
+			case "subagent/control":
+				go func() {
+					var p struct {
+						Task    string `json:"task_id"`
+						Call    string `json:"call_id"`
+						Action  string `json:"action"`
+						Text    string `json:"text"`
+						Request string `json:"request_id"`
+					}
+					if json.Unmarshal(m.Params, &p) != nil {
+						protocol.Client.Reply(*m.ID, nil, &protocol.Error{Code: 400, Message: "子任务参数无效"})
+						return
+					}
+					result, err := agent.ControlChild(p.Task, p.Call, p.Action, p.Text, p.Request)
+					if err != nil {
+						protocol.Client.Reply(*m.ID, nil, &protocol.Error{Code: 409, Message: err.Error()})
+						return
+					}
+					protocol.Client.Reply(*m.ID, result, nil)
+				}()
 			// 网页端看、停模型起的后台命令：job 表在 agent 进程里，界面只能经这两个方法。
 			// job/output 只看不消费，模型下次 bash_output 照常从上次的位置读到。
 			case "job/output", "job/kill":
@@ -396,20 +420,34 @@ func run() error {
 					return
 				}
 				protocol.Client.Reply(*m.ID, result, nil)
-			case "turn/steer": // 运行中插话，排进下一次模型请求；这一轮已经结束时如实拒绝，界面改作下一轮的问题
+			case "turn/steer/status":
+				var p struct {
+					IDs []string `json:"ids"`
+				}
+				if json.Unmarshal(m.Params, &p) != nil {
+					protocol.Client.Reply(*m.ID, nil, &protocol.Error{Code: -32602, Message: "ids 格式错误"})
+					return
+				}
+				protocol.Client.Reply(*m.ID, agent.SteerStatus(p.IDs), nil)
+			case "turn/steer":
 				var p struct {
 					Text     string `json:"text"`
-					ClientID string `json:"client_id"` // 可选：发它的页面用它认回执，见 agent.steerItem
+					ClientID string `json:"client_id"`
+					Managed  bool   `json:"managed"`
 				}
-				json.Unmarshal(m.Params, &p)
-				switch {
-				case strings.TrimSpace(p.Text) == "":
+				if json.Unmarshal(m.Params, &p) != nil || strings.TrimSpace(p.Text) == "" {
 					protocol.Client.Reply(*m.ID, nil, &protocol.Error{Code: -32602, Message: "turn/steer 需要非空的 text"})
-				case agent.Steer(strings.TrimSpace(p.Text), strings.TrimSpace(p.ClientID)):
-					protocol.Client.Reply(*m.ID, nil, nil)
-				default:
-					protocol.Client.Reply(*m.ID, nil, &protocol.Error{Code: -32000, Message: "这一轮已经结束"})
+					return
 				}
+				state, err := agent.Steer(strings.TrimSpace(p.Text), strings.TrimSpace(p.ClientID), p.Managed)
+				if err != nil {
+					protocol.Client.Reply(*m.ID, nil, &protocol.Error{Code: -32602, Message: err.Error()})
+				} else if state == "closed" {
+					protocol.Client.Reply(*m.ID, nil, &protocol.Error{Code: -32000, Message: "这一轮已经结束"})
+				} else {
+					protocol.Client.Reply(*m.ID, map[string]any{"state": state, "managed": p.Managed}, nil)
+				}
+
 			default:
 				if m.IsRequest() {
 					protocol.Client.Reply(*m.ID, nil, &protocol.Error{Code: -32601, Message: "未知方法 " + m.Method})
@@ -539,8 +577,12 @@ func run() error {
 	if (*taskID != "" || *subagents || browser.Enabled || websearch.Enabled || *timeout != 0) && (*searchQuery != "" || *memoryForget != "" || *memorySearch != "") {
 		return errors.New("task-id、subagents、browser、ds-search与timeout用于普通问答与续聊，不与search-docs、memory-search或memory-forget组合")
 	}
-	if *timeout < 0 || agent.ToolTimeout <= 0 || *bashTimeout <= 0 || *bashTimeout > 10*time.Minute || agent.SubagentSteps < 1 || agent.SubagentSteps > 20 {
-		return errors.New("timeout不能为负，tool-timeout须大于0，bash-timeout须大于0且不超过10m，subagent-steps范围为1到20")
+	bashLimit := 10 * time.Minute
+	if *shell != "" && sandbox.ServiceLog {
+		bashLimit = 24 * time.Hour
+	}
+	if *timeout < 0 || agent.ToolTimeout <= 0 || *bashTimeout <= 0 || *bashTimeout > bashLimit || agent.SubagentSteps < 1 || agent.SubagentSteps > 20 {
+		return errors.New("timeout不能为负，tool-timeout须大于0，bash-timeout须大于0且不超过当前模式上限（普通10m、专用服务24h），subagent-steps范围为1到20")
 	}
 	if *memoryEnabled && (*searchQuery != "" || *memoryForget != "" || *memorySearch != "") {
 		return errors.New("memory用于普通问答与续聊，不与search-docs、memory-search或memory-forget组合")
@@ -683,6 +725,9 @@ func run() error {
 	if (sandbox.ProjectRO || len(netAllow) > 0) && !sandbox.Enabled {
 		return errors.New("bash-project-ro与net-allow需要配合-bash")
 	}
+	if sandbox.Host && !sandbox.Enabled {
+		return errors.New("bash-host需要配合-bash")
+	}
 	for _, domain := range netAllow {
 		if !sandbox.ValidDomain(strings.ToLower(domain)) {
 			return fmt.Errorf("net-allow 需要是小写域名（不含协议、路径和 IP）：%s", domain)
@@ -737,13 +782,23 @@ func run() error {
 	// 能不能写（-check 一律只读），沙箱目录用那条对话的（app-server 经 AGENT_SHELL_DIR 给出），不另建。
 	// 路径参数的校验已经做完，这里直接跑，最后一行是 JSON。
 	if *shell != "" {
+		if sandbox.ServiceLog {
+			if dir := os.Getenv("AGENT_SERVICE_DIR"); dir != "" {
+				if err := appserver.ServiceWorkerStarted(dir); err != nil {
+					return err
+				}
+			}
+		}
+		if sandbox.ServicePorts != "" && (runtime.GOOS != "linux" || sandbox.Host) {
+			return errors.New("端口导出仅支持Linux沙箱服务")
+		}
 		if !sandbox.Enabled || *check != "" {
 			return errors.New("shell 须配合 -bash，不能与 check 同时用")
 		}
 		if sandbox.Dir = strings.TrimSpace(os.Getenv("AGENT_SHELL_DIR")); sandbox.Dir == "" {
 			return errors.New("shell 需要 AGENT_SHELL_DIR 指定沙箱目录")
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), *bashTimeout+time.Minute)
+		ctx, cancel := context.WithTimeout(ctx, *bashTimeout+time.Minute)
 		defer cancel()
 		result, err := sandbox.Shell(ctx, "shell", *shell)
 		if err != nil {
@@ -818,8 +873,11 @@ func run() error {
 		if thread == "" {
 			thread = turn
 		}
-		protocol.Notify("turn/started", map[string]any{"thread_id": thread, "turn_id": turn, "continues": agent.Continues, "resume": agent.Resume != nil,
+		protocol.Notify("turn/started", map[string]any{"subagent_control": true, "thread_id": thread, "turn_id": turn, "continues": agent.Continues, "resume": agent.Resume != nil,
 			"trace_id": root.SpanContext().TraceID().String(), "input_capacity": options.Capacity(), "provider": config.Provider, "model": config.Model, "pid": os.Getpid(), "sandbox": sandboxID})
+	}
+	if agent.TaskControls {
+		llm.Tools = append(llm.Tools, agent.TaskControlDefinitions...)
 	}
 	if skills.Enabled {
 		skills.Index = skills.Scan("skills", skillNames)
@@ -848,7 +906,7 @@ func run() error {
 		// 子 agent 继承工具开关和运行参数；不继承长期记忆（子 agent 的“用户”是父 agent，不是真人）、
 		// 不继承 -subagents（只允许一层）、不继承续聊与整次时限（由父进程的 ctx 管）。
 		share := map[string]bool{"parallel": true, "retries": true, "reasoning-effort": true, "context-window": true, "max-output-tokens": true,
-			"reasoning-reserve": true, "tool-output-tokens": true, "keep-groups": true, "rag": true, "embedding": true, "min-score": true, "skills": true, "tool-timeout": true, "bash-timeout": true, "browser": true, "ds-search": true, "disallowed-tools": true, "provider": true, "model": true, "verifier": true, "bash": true, "bash-project-ro": true, "workspace": true, "permission-mode": true, "hooks": true, "personal-instructions": true}
+			"reasoning-reserve": true, "tool-output-tokens": true, "keep-groups": true, "rag": true, "embedding": true, "min-score": true, "skills": true, "tool-timeout": true, "bash-timeout": true, "browser": true, "ds-search": true, "disallowed-tools": true, "provider": true, "model": true, "verifier": true, "bash": true, "bash-host": true, "bash-project-ro": true, "workspace": true, "permission-mode": true, "hooks": true, "personal-instructions": true, "ask-user": true}
 		agent.SubagentArgs = []string{}
 		flag.Visit(func(f *flag.Flag) {
 			if share[f.Name] {

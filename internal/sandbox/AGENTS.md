@@ -5,3 +5,4 @@
 - 工作区挂到 `/workspace`（plan 模式只读；`.git` 只读、`.env` 换空、`.data` 换空目录），本对话目录挂到 `/scratch`。环境变量全部清空。
 - 沙箱里的 `chrome` 命令是包装过的（`/opt/chrome-bin` 下的同名脚本，在 `PATH` 最前面），Chrome 自己的后台联网固定关掉；`network.go` 的 `backgroundHosts` 表里的 Chrome 后台域名直接拒绝、不问人。
 - 默认断网，只经 agent 进程里的白名单代理出去；白名单只能由用户添加（`-net-allow`、网页端设置 `net_allow` 或当场审批），full 模式由程序放行、写审计，端口、IP 与内网地址照常拒绝。浏览器与沙箱代理的出口判断共用 `internal/netguard`。
+- `-bash-host`（完全访问）时普通 bash 与 `!命令` 直接在宿主机上跑：不建 namespace、不装 seccomp、不经代理、不加 cgroup，继承宿主机环境但去掉 `AGENT_*` 运行时凭据；工作目录是有工作区时的真实路径。`Check()`（`-check`、`verify_feature`）始终进沙箱，不受它影响。`full` 权限不自动开它。

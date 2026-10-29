@@ -355,6 +355,10 @@ func pipe(dst io.WriteCloser, src io.Reader) {
 // Init 是沙箱里的第一个程序（go run . sandbox-init 命令 参数…）：在沙箱的回环接口上开 3128 端口，
 // 把连接转发到挂进来的代理 socket，然后运行真正的命令，原样返回它的退出码。
 func Init(args []string) int {
+	if err := serviceExports(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "sandbox-init 需要命令")
 		return 2

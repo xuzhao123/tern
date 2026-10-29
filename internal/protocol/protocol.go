@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sync"
 )
 
@@ -166,6 +167,7 @@ func (c *Conn) Call(ctx context.Context, method string, params any, result any) 
 	ch := make(chan Message, 1)
 	c.pending[id] = ch
 	c.mu.Unlock()
+	defer func() { c.mu.Lock(); delete(c.pending, id); c.mu.Unlock() }()
 	if err := c.write(Message{ID: &id, Method: method, Params: raw(params)}); err != nil {
 		return err
 	}
@@ -181,7 +183,16 @@ func (c *Conn) Call(ctx context.Context, method string, params any, result any) 
 	case <-ctx.Done():
 		c.mu.Lock()
 		delete(c.pending, id)
+		interactive := method == "user/requestInput" || method == "tool/requestApproval" || method == "network/requestApproval"
+		if interactive && c.session != nil {
+			delete(c.asked, id)
+			c.sent = slices.DeleteFunc(c.sent, func(m Message) bool { return m.IsRequest() && *m.ID == id })
+		}
 		c.mu.Unlock()
+		// 只撤下交互等待；普通命令响应丢失不代表可撤销已经发生的副作用。
+		if interactive {
+			c.Notify("request/cancelled", map[string]any{"id": id, "method": method})
+		}
 		return ctx.Err()
 	case <-c.closed:
 		return errors.New("界面连接已关闭")

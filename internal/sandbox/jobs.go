@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/xuzhao123/tern/internal/audit"
 	"github.com/xuzhao123/tern/internal/llm"
 	"github.com/xuzhao123/tern/internal/protocol"
 )
@@ -68,10 +69,18 @@ var (
 )
 
 func startJob(ctx context.Context, callID, command string, tty bool) (any, error) {
+	if Host {
+		// 后台命令同样没有沙箱兜底：先写审计，写不进去就不启动。
+		record := audit.Record{Actor: "model", CallID: callID, Event: "host_exec", Tool: "bash", Detail: "host"}
+		record.Args(command)
+		if err := audit.Write(ctx, record); err != nil {
+			return nil, llm.Permanent(errors.New("审计日志写入失败，没有执行命令：" + err.Error()))
+		}
+	}
 	if tty {
-		// script 要在沙箱里跑：宿主机上找不到它，沙箱里（只读挂的 /usr）也没有。
+		// 伪终端靠 script：沙箱里没有它（只读挂的 /usr），宿主机上没有也开不了。
 		if _, err := exec.LookPath("script"); err != nil {
-			return nil, llm.Permanent(errors.New("沙箱里没有 script，不能开伪终端；去掉 tty 再跑"))
+			return nil, llm.Permanent(errors.New("没有 script，不能开伪终端；去掉 tty 再跑"))
 		}
 	}
 	jobsMu.Lock()
@@ -98,7 +107,7 @@ func startJob(ctx context.Context, callID, command string, tty bool) (any, error
 	j.stdin = w
 	// 和前台命令一样在锁里启动（共用工作目录与代理的初始化），启动完就放锁，不占着它等命令结束。
 	mu.Lock()
-	cmd, unit, err := launch(ctx, callID, command, j, r, tty, ProjectWrite)
+	cmd, unit, err := launch(ctx, callID, command, j, r, tty, ProjectWrite, Host)
 	mu.Unlock()
 	r.Close()
 	if err != nil {
@@ -122,9 +131,13 @@ func startJob(ctx context.Context, callID, command string, tty bool) (any, error
 		fmt.Printf("Bash job [%s]: exited exit=%d after=%s\n", j.id, cmd.ProcessState.ExitCode(), time.Since(j.started).Round(time.Millisecond))
 	}()
 	fmt.Printf("Bash job [%s]: started call=%s\n", j.id, callID)
-	return map[string]any{"job_id": j.id, "status": "running",
-		"note": "命令在后台它自己的沙箱里运行：之后的命令看不到、也连不上它和它起的服务，所以不要用 ps、pgrep、pkill 或网络请求查它还在不在。" +
-			"用 bash_output 读输出、看结束没有（可以带 wait 等几秒），要回答它的提示用 bash_input 写输入，用 bash_kill 停掉；这一轮结束时还在跑的会被终止。" + serviceNoteShort}, nil
+	note := "命令在后台它自己的沙箱里运行：之后的命令看不到、也连不上它和它起的服务，所以不要用 ps、pgrep、pkill 或网络请求查它还在不在。" +
+		"用 bash_output 读输出、看结束没有（可以带 wait 等几秒），要回答它的提示用 bash_input 写输入，用 bash_kill 停掉；这一轮结束时还在跑的会被终止。" + serviceNoteShort
+	if Host {
+		note = "命令在后台直接在这台机器上运行（没有沙箱），能看到、也能连上本机的进程与服务。" +
+			"用 bash_output 读输出、看结束没有（可以带 wait 等几秒），要回答它的提示用 bash_input 写输入，用 bash_kill 停掉；这一轮结束时还在跑的会被终止。"
+	}
+	return map[string]any{"job_id": j.id, "status": "running", "note": note}, nil
 }
 
 func findJob(id string) (*job, error) {

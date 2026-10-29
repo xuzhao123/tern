@@ -64,8 +64,9 @@ type Checkpoint struct {
 // 以前前三项是检查点的几个顶层字段，环境与用量提醒则从视图里的提醒文字反推。
 // 子目录项目指令有没有进上下文仍按视图判断（见 workspace.Prime）：它描述的就是视图里有什么。
 type State struct {
-	Private []string `json:"private,omitempty"` // 已读入的私有数据来源；非空时外发类工具要用户确认
-	Granted []string `json:"granted,omitempty"` // 用户选了“本对话内都允许”的外发范围（如 ds_search、open_page · github.com）
+	ManagedSteers map[string]SteerReceipt `json:"managed_steers,omitempty"`
+	Private       []string                `json:"private,omitempty"` // 已读入的私有数据来源；非空时外发类工具要用户确认
+	Granted       []string                `json:"granted,omitempty"` // 用户选了“本对话内都允许”的外发范围（如 ds_search、open_page · github.com）
 	// “读过才能改”的账本（相对路径 → 读取时的内容哈希）。只恢复“读过”这个事实和当时的哈希，编辑前仍比对当前内容。
 	Seen map[string]string `json:"seen,omitempty"`
 	// 上一次告诉模型的环境，按字段（工作区、分支、未提交改动、日期、权限……）。续聊时只把变了的字段发出去；
@@ -83,8 +84,9 @@ type FinalCheck struct {
 
 // CheckpointVersion 是本程序写的检查点格式。字段的含义变了（不是单纯加一个可以缺省的字段）才加一；
 // 读到比它新的版本就拒绝续跑：旧程序会把不认识的字段悄悄丢掉，下一次写回时数据就没了。
+// 版本 3：可靠补充的采纳回执与有效上下文一起保存；旧版本默认为空。
 // 版本 2：私有来源、外发授权与读后才写账本收进 state；旧版本读的时候搬过去。
-const CheckpointVersion = 2
+const CheckpointVersion = 3
 
 // CheckVersion 判断这个程序能不能读写某个版本的检查点。0 是加版本号之前的格式，与 1 相同；1 与 2 的差别在 LoadCheckpointIn 里搬。
 func CheckVersion(id string, version int) error {

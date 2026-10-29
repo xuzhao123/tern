@@ -24,6 +24,9 @@ type Spec struct {
 }
 
 var specs = map[string]Spec{
+	"task_status":            {ReadOnly: true, Repeatable: true},
+	"report_goal":            {Serial: true},
+	"update_plan":            {Serial: true},
 	"search_docs":            {ReadOnly: true, Repeatable: true},
 	"load_skill":             {ReadOnly: true, Repeatable: true},
 	"read_output":            {ReadOnly: true, Repeatable: true},

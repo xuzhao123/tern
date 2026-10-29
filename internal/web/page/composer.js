@@ -1,40 +1,113 @@
+import { selectedSkills, restoreSkills } from "./skillrefs.js";
+import { managedSteerSection } from "./managed-steer.js";
+import { queueSection, hasQueueStatus, refreshQueueEditor } from "./queue.js";
 import { show } from "./follow.js";
 import { openSettings } from "./pages.js";
 import { autosize, loadRuns, loadWsSettings, modelVision, syncComposer } from "./shell.js";
-import { $, MAX_IMAGES, api, el, refURL, ui } from "./util.js";
-export async function start(url, body) {
+import { $, FULL_ACCESS_NOTE, HOST, MAX_IMAGES, api, el, permChoice, refURL, ui } from "./util.js";
+import { attachToDraft, captureDraft, currentDraftKey, finishDelivery, pendingDelivery, rememberDelivery, saveDraft, savePendingSteers } from "./drafts.js";
+export async function start(url, body, kind = "message") {
+  if (ui.sending) return;
+  if (pendingDelivery()) { await checkDelivery(); return; }
+  const token = captureDraft();
+  if (!token) return;
+  const id = crypto.randomUUID();
+  const request = { url, kind, body: { ...body, request_id: id, ...(kind === "steer" ? { client_id: id } : {}) } };
+  if (!rememberDelivery(token, request)) return;
   ui.sending = true; syncComposer();
   try {
-    const res = await fetch(api(url), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const res = await fetch(api(url), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request.body), signal: AbortSignal.timeout(15000) });
     if (!res.ok) {
       // 失败（比如服务端说这个模型不能看图）时保留已附的图：换一下模型就能再发。
       const text = await res.text();
-      if (attached.length) { ui.attachError = text; renderAttached(); }
-      return alert(text);
+      if (currentDraftKey() === token.key && attached.length) { ui.attachError = text; renderAttached(); }
+      await checkDelivery({ ...request, token }, text); return;
     }
-    $("query").value = "";
-    attached = []; ui.attachError = ""; renderAttached();
-    ui.page = "chat";
-    show((await res.json()).id);
+    acceptDelivery(token, await res.json(), kind);
   } catch (err) {
-    alert("启动失败：" + err.message);
+    await checkDelivery({ ...request, token }, "连接中断：" + err.message);
   } finally {
     ui.sending = false; syncComposer(); autosize();
   }
 }
+function acceptDelivery(token, response, kind = "message") {
+  const same = currentDraftKey() === token.key;
+  finishDelivery(token, true);
+  if (kind === "queue" || kind === "steer" || kind === "shell") { if (same) ui.hint = kind === "shell" ? "命令已执行，结果见命令记录" : kind === "steer" ? "补充已由服务端接收，采纳结果见待发区" : "已排到下一轮"; loadRuns(); }
+  else if (same) { ui.attachError = ""; ui.page = "chat"; show(response.id); }
+  else loadRuns();
+  renderDelivery();
+}
+async function checkDelivery(request = pendingDelivery(), failure = "") {
+  if (!request) return;
+  const same = () => currentDraftKey() === request.token.key;
+  try {
+    const response = await fetch(api(`/requests/${encodeURIComponent(request.body.request_id)}`), { signal: AbortSignal.timeout(8000) });
+    if (!response.ok) throw new Error("回执查询不可用");
+    const receipt = await response.json();
+    if (receipt.state === "accepted") return acceptDelivery(request.token, receipt.response, request.kind);
+    if (receipt.state === "rejected") {
+      finishDelivery(request.token, false);
+      if (same()) ui.hint = "未发送：" + (receipt.error?.message || failure);
+    } else if (same()) ui.hint = receipt.state === "not_found" ? "尚未查到发送回执，草稿已保留。可使用原请求重试。" : "请求已接收，结果仍待确认；不会重复发送。";
+    request.notFound = receipt.state === "not_found";
+    rememberDelivery(request.token, request);
+    if (receipt.state === "rejected") finishDelivery(request.token, false);
+  } catch { if (same()) ui.hint = (failure ? failure + "。" : "") + "发送结果未知，草稿已保留，请查询回执。"; }
+  if (same()) { renderDelivery(); syncComposer(); }
+}
+function renderDelivery() {
+  const box = $("delivery-notice"), request = pendingDelivery();
+  box.hidden = !request; box.replaceChildren();
+  if (!request) return;
+  box.append(document.createTextNode("有一条发送结果待确认。"));
+  const check = el("button", "link", "查询回执"); check.type = "button"; check.onclick = () => checkDelivery(); box.append(check);
+  if (request.notFound) {
+    const retry = el("button", "link", "用原请求重试"); retry.type = "button";
+    retry.onclick = async () => {
+      if (ui.sending) return;
+      ui.sending = true; syncComposer();
+      try {
+        const res = await fetch(api(request.url), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request.body), signal: AbortSignal.timeout(15000) });
+        if (res.ok) acceptDelivery(request.token, await res.json(), request.kind); else await checkDelivery(request);
+      } catch { await checkDelivery(request); }
+      finally { ui.sending = false; syncComposer(); }
+    };
+    box.append(retry);
+  }
+}
+document.addEventListener("tern:draft-changed", renderDelivery);
 // ---------- 附图 ----------
 // 图先 POST /attachments 换成附件引用，发送时只带引用；缩略图显示 /attachments/<名字> 的原图，缩放由 agent 做。
 let attached = [];
+export function readDraftInput() {
+  const picks = {};
+  for (const [key, id] of [["provider", "provider"], ["model", "model"], ["permission", "perm"], ["effort", "effort"]]) if (ui.picked?.[key]) picks[key] = $(id).value;
+  if (ui.picked?.copy) picks.copy = true;
+  return { skillRefs: selectedSkills(), compact: !!ui.compactNext, text: $("query").value, images: attached.map(({ ref, name }) => ({ ref, name })), picks };
+}
+export function writeDraftInput(value) {
+  ui.compactNext = value.compact === true;
+  restoreSkills(value.skillRefs);
+  $("query").value = typeof value.text === "string" ? value.text : "";
+  attached = Array.isArray(value.images) ? value.images.filter((i) => typeof i?.ref === "string" && typeof i?.name === "string") : [];
+  ui.picked = { workspace: ui.picked?.workspace };
+  if (value.picks?.provider) { ui.picked.provider = true; $("provider").value = value.picks.provider; syncComposer(); }
+  for (const [key, id] of [["provider", "provider"], ["model", "model"], ["permission", "perm"], ["effort", "effort"]]) if (value.picks?.[key]) { ui.picked[key] = true; $(id).value = value.picks[key]; }
+  ui.picked.copy = value.picks?.copy === true;
+  ui.attachError = ""; renderAttached(); autosize();
+}
 function renderAttached() {
   const strip = $("attach-strip"), pics = attached.map((img) => {
     const wrap = el("div", "pic"), thumb = el("img");
     thumb.src = refURL(img.ref);
     thumb.alt = img.name;
     thumb.title = img.name;
+    thumb.onerror = () => { ui.attachError = `附件 ${img.name} 无法读取，请移除或重新上传`; renderAttachmentError(); };
     const del = el("button", "del", "×");
     del.type = "button";
     del.title = "不附这张图";
-    del.onclick = () => { attached = attached.filter((x) => x !== img); renderAttached(); };
+    del.onclick = () => { attached = attached.filter((x) => x !== img); ui.attachError = ""; renderAttached(); saveDraft(); };
     wrap.append(thumb, del);
     return wrap;
   });
@@ -43,18 +116,27 @@ function renderAttached() {
   strip.hidden = !pics.length;
   syncComposer();
 }
+function renderAttachmentError() {
+  let note = $("attach-strip").querySelector(".attachment-error");
+  if (!note) { note = el("div", "err attachment-error"); $("attach-strip").append(note); }
+  note.textContent = ui.attachError;
+}
 // 上传失败的图不进列表，服务端说的话（只支持 PNG…、超过 20 MB…）原样显示在输入框里。
 async function addImages(files) {
+  const token = captureDraft();
+  if (!token) return;
   ui.attachError = "";
   for (const file of files) {
     if (attached.length >= MAX_IMAGES) { ui.attachError = `每条消息最多 ${MAX_IMAGES} 张图`; break; }
     try {
       const res = await fetch(api("/attachments?name=" + encodeURIComponent(file.name || "image")), { method: "POST", body: file });
       if (!res.ok) { ui.attachError = await res.text(); continue; }
-      attached.push(await res.json());
+      const image = await res.json();
+      if (!attachToDraft(token, image)) attached.push(image);
     } catch (err) { ui.attachError = "上传失败：" + err.message; }
   }
   renderAttached();
+  saveDraft();
 }
 $("attach").onclick = () => { if (!$("attach").disabled) $("attach-file").click(); };
 $("attach-file").onchange = () => {
@@ -82,6 +164,7 @@ dropZone.addEventListener("drop", (ev) => {
 });
 $("composer").onsubmit = (ev) => {
   ev.preventDefault();
+  if (ui.sending || ui.streamDisconnected || !ui.account) return;
   const query = $("query").value.trim();
   // 以 ! 开头是人在沙箱里跑一条命令（不进模型，见 runShell）：新对话要先开一个，运行中要等它结束。
   if (query.startsWith("!")) { runShell(query.slice(1).trim()); return; }
@@ -97,7 +180,9 @@ $("composer").onsubmit = (ev) => {
   }
   ui.chatFollow = true;
   const images = attached.map(({ ref, name }) => ({ ref, name }));
-  const body = ui.run ? { query, permission: $("perm").value, effort: $("effort").value } : { query, provider: $("provider").value, model: $("model").hidden ? "" : $("model").value, workspace: $("workspace").disabled ? "" : $("workspace").value, copy: $("copy").checked && !!$("workspace").value, permission: $("perm").value, effort: $("effort").value };
+  const perm = permChoice($("perm").value);
+  const body = ui.run ? { query, compact: !!ui.compactNext, permission: perm.permission, sandbox: perm.sandbox, effort: $("effort").value } : { query, provider: $("provider").value, model: $("model").hidden ? "" : $("model").value, workspace: $("workspace").disabled ? "" : $("workspace").value, copy: $("copy").checked && !!$("workspace").value, permission: perm.permission, sandbox: perm.sandbox, effort: $("effort").value };
+  body.skill_refs = selectedSkills();
   start(ui.run ? `/runs/${ui.run.id}/messages` : "/runs", images.length ? { ...body, images } : body);
 };
 // ! 命令：在这条对话的沙箱里跑一条（POST /runs/<id>/shell），和模型的 bash 同一个沙箱；卡片出现在对话里，
@@ -109,28 +194,32 @@ async function runShell(command) {
   if (!r.exit) { $("hint").textContent = "这一轮在跑，等它结束再跑命令"; return; }
   if (!command) { $("hint").textContent = "! 后面写要跑的命令"; return; }
   if (ui.shellBusy) return; // 上一条还没跑完：不排队，连按两次也不跑两遍
-  const typed = box.value;
-  ui.shellBusy = true; ui.sending = true; ui.hint = "正在跑：" + command;
-  syncComposer();
-  try {
-    const res = await fetch(api(`/runs/${encodeURIComponent(r.id)}/shell`), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ command }) });
-    if (!res.ok) { ui.hint = "没跑成：" + (await res.text()).trim(); return; }
-    // 结果同时作为 shell 事件推给这条对话的订阅者（页面照它画卡片）；这里只清空输入框里还没改过的命令。
-    ui.hint = "";
-    if (box.value === typed) box.value = "";
-    // 这条对话停下以后订阅已经收尾，推不到这里：刷新一次列表，loadRuns 按 summary.shells 重新加载这条对话。
-    loadRuns();
-  } catch (err) {
-    ui.hint = "没跑成：" + err.message;
-  } finally {
-    ui.shellBusy = false; ui.sending = false; autosize(); syncComposer();
-  }
+  if (attached.length || selectedSkills().length || ui.compactNext) { ui.hint="命令不发送附件、Skill或压缩选项。请保留这些内容在正常消息中发送。";syncComposer();return; }
+  ui.shellBusy=true;
+  try { await start(`/runs/${encodeURIComponent(r.id)}/shell`,{command,...permChoice($("perm").value)},"shell"); }
+  finally { ui.shellBusy=false;syncComposer(); }
+
 }
+document.addEventListener("tern:enable-bash",async()=>{
+ const r=ui.run;if(!r?.exit||ui.enablingBash)return;ui.enablingBash=true;syncComposer();
+ try{const res=await fetch(api(`/runs/${encodeURIComponent(r.id)}/enable-bash`),{method:"POST"});if(!res.ok)throw new Error(await res.text());if(ui.run!==r)return;r.bashEnabled=true;ui.hint="本任务已启用命令；后续消息会带上命令工具。执行位置仍按权限选择。";await loadRuns();}
+ catch(error){if(ui.run===r)ui.hint="命令未启用："+error.message;}
+ finally{ui.enablingBash=false;syncComposer();}
+});
 async function steer(text) {
+  if (selectedSkills().length) { ui.hint = "已选择 Skill，请等本轮结束后正常发送；引用仍在草稿中。"; $("hint").textContent = ui.hint; return; }
+  if (ui.compactNext) { ui.hint = "已准备压缩，请等本轮结束后发送，或在上下文面板取消压缩。"; $("hint").textContent = ui.hint; return; }
+  const current = ui.run;
+  if (!current || ui.sending) return;
+  if (attached.length) { ui.hint = "当前轮补充暂只支持文字，请保留附图在下一轮正常发送。"; syncComposer(); return; }
+  if (current.steerManaged === undefined) { ui.hint = "正在确认服务端的补充能力，请稍后再发送。"; syncComposer(); return; }
+  if (current.steerManaged) return start(`/runs/${encodeURIComponent(current.id)}/steer`, { text, managed: true, turn_seq: current.steerTurnSeq }, "steer");
   const r = ui.run, item = { id: crypto.randomUUID(), text };
   const q = (ui.steers[r.id] ??= { items: [], immediate: false });
   q.items.push(item);
+  if (!savePendingSteers(r.id, q)) { q.items.pop(); return; }
   $("query").value = "";
+  saveDraft();
   autosize(); syncComposer();
   try {
     const res = await fetch(api(`/runs/${encodeURIComponent(r.id)}/steer`), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, client_id: item.id }) });
@@ -139,6 +228,7 @@ async function steer(text) {
     if (!res.ok) throw new Error(await res.text());
   } catch (err) {
     q.items = q.items.filter((x) => x !== item);
+    savePendingSteers(r.id, q);
     backToInput(text);
     $("hint").textContent = "没发出去：" + err.message;
   }
@@ -151,91 +241,52 @@ async function steer(text) {
 export function renderSteers() {
   const strip = $("steer-strip"), items = (ui.run && ui.steers[ui.run.id]?.items) || [];
   const queue = (ui.run && ui.run.queue) || [];
+  refreshQueueEditor();
   // 流式渲染会一遍遍调到这里：内容没变就不重建，免得正要点“立即发送”时按钮被换掉。
   // 停下与否也进签名：这一轮结束时队列那一节要从“这一轮结束后发”换成“已停止…”。
-  const sig = [ui.run?.id, ui.run?.exit ? "stop" : "", items.map((it) => it.id + "\n" + it.text).join("\u0000"), queue.map((q) => q.id + "\n" + q.text).join("\u0000")].join("\u0000");
+  const restored = ui.run && ui.steers[ui.run.id]?.restored;
+  const sig = [JSON.stringify(ui.run?.managedSteers || []), ui.run?.steerError, ui.managedSteerBusy, ui.run?.queueVersion, ui.run?.queuePaused, ui.run?.queueClaim?.id, ui.run?.queueError, ui.queueBusy, ui.queueRevision, ui.run?.id, ui.run?.exit ? "stop" : "", !!restored, ui.historyReplaying, ui.streamDisconnected, items.map((it) => it.id + "\n" + it.text).join("\u0000"), queue.map((q) => q.id + "\n" + q.text).join("\u0000")].join("\u0000");
   if (strip.dataset.sig === sig) return;
   strip.dataset.sig = sig;
   const nodes = [];
-  if (items.length) {
+  if (ui.run?.steerManaged) nodes.push(...managedSteerSection(ui.run));
+  if (items.length && ui.run?.steerManaged) {
+    const head = el("div", "head", "旧版待确认补充，请先核对历史");
+    const restore = el("button", "", "恢复为输入草稿"); restore.type = "button";
+    restore.onclick = () => { const text = items.map((item) => item.text).join("\n\n"); ui.steers[ui.run.id] = { items: [], immediate: false }; savePendingSteers(ui.run.id, ui.steers[ui.run.id]); backToInput(text); renderSteers(); };
+    head.append(restore); nodes.push(head, ...items.map((item) => el("div", "item", item.text)));
+  } else if (items.length) {
     const head = el("div", "head"), now = el("button", "", "立即发送");
     now.type = "button";
+    now.disabled = !!ui.historyReplaying || !!ui.streamDisconnected;
+    if (restored) now.textContent = "核对后重新发送";
     now.title = "停下正在做的这一步，马上发出去";
     now.onclick = () => sendSteersNow();
-    head.append(el("span", "", "做完这一步后发给 agent"), now);
+    head.append(el("span", "", restored ? "上次的补充尚未确认采纳，请先核对对话记录" : "做完这一步后发给 agent"), now);
     nodes.push(head, ...items.map((it) => el("div", "item", it.text)));
   }
-  if (queue.length) nodes.push(...queueSection(queue));
+  if (hasQueueStatus(ui.run)) nodes.push(...queueSection(ui.run));
   strip.hidden = !nodes.length;
   strip.replaceChildren(...nodes);
 }
-// 排队的一节：运行中是“这一轮结束后发（N）”；这条对话停下、队列还有东西时（人点了停止）换成
-// “已停止，排着的 N 条没有发”，旁边一个“发第一条”按普通续聊发出去，并从队列里删掉。
-function queueSection(queue) {
-  const head = el("div", "head qhead");
-  if (ui.run.exit) {
-    const first = el("button", "", "发第一条");
-    first.type = "button";
-    first.title = "按普通续聊发出队列里的第一条，并从队列里删掉";
-    first.onclick = () => sendFirstQueued();
-    head.append(el("span", "", `已停止，排着的 ${queue.length} 条没有发`), first);
-  } else {
-    head.append(el("span", "", `这一轮结束后发（${queue.length}）`));
-  }
-  return [head, ...queue.map((q) => {
-    const row = el("div", "qitem"), del = el("button", "del", "×");
-    del.type = "button";
-    del.title = "不排这一条";
-    del.onclick = () => dropQueued(q);
-    row.append(el("span", "", q.text), del);
-    return row;
-  })];
-}
-// 排队：把输入框里的话排到这一轮结束之后，由 app-server 接着发（Tab 或“排队”按钮），不打断现在这一步。
-// 成功就清空输入框；失败时文字留在输入框，原因写在输入框下面。
 async function queueInput() {
+  if (selectedSkills().length) { ui.hint = "已选择 Skill，请等本轮结束后正常发送；引用仍在草稿中。"; $("hint").textContent = ui.hint; return; }
+  if (ui.compactNext) { ui.hint = "已准备压缩，请等本轮结束后发送，或在上下文面板取消压缩。"; $("hint").textContent = ui.hint; return; }
   const r = ui.run, text = $("query").value.trim();
-  if (!r || !text) return;
-  try {
-    const res = await fetch(api(`/runs/${encodeURIComponent(r.id)}/queue`), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
-    if (!res.ok) { $("hint").textContent = "没排上队：" + (await res.text()).trim(); return; }
-    // 服务端回排上的这一项，先画出来；别的页面靠 thread/status/changed 刷新列表，从 summary.queue 看到。
-    (r.queue ??= []).push(await res.json());
-    if (ui.run === r) { $("query").value = ""; autosize(); syncComposer(); }
-  } catch (err) { $("hint").textContent = "没排上队：" + err.message; }
+  if (!r || !text || ui.sending) return;
+  if (attached.length) { ui.hint = "队列当前只支持文字，请先移除附图或在本轮结束后正常发送。"; syncComposer(); return; }
+  await start(`/runs/${encodeURIComponent(r.id)}/queue`, { text }, "queue");
 }
-// 删掉排着的一项：队列在服务端，所有页面一起变（别的页面下次刷新列表时看到）。
-async function dropQueued(item) {
-  const r = ui.run;
-  if (!r) return;
-  try {
-    const res = await fetch(api(`/runs/${encodeURIComponent(r.id)}/queue/${encodeURIComponent(item.id)}`), { method: "DELETE" });
-    if (!res.ok) { $("hint").textContent = "没删掉：" + (await res.text()).trim(); return; }
-    if (ui.run === r) { r.queue = (r.queue || []).filter((q) => q.id !== item.id); renderSteers(); }
-  } catch (err) { $("hint").textContent = "没删掉：" + err.message; }
-}
-// 停下以后“发第一条”：按普通续聊发出去，再从队列里删掉（发出去了才删，删不掉也不丢话）。
-async function sendFirstQueued() {
-  const r = ui.run, item = r?.queue?.[0];
-  if (!item) return;
-  ui.chatFollow = true;
-  try {
-    const res = await fetch(api(`/runs/${encodeURIComponent(r.id)}/messages`), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: item.text, permission: $("perm").value, effort: $("effort").value }) });
-    if (!res.ok) { $("hint").textContent = "没发出去：" + (await res.text()).trim(); return; }
-    r.queue = r.queue.slice(1);
-    renderSteers();
-    await fetch(api(`/runs/${encodeURIComponent(r.id)}/queue/${encodeURIComponent(item.id)}`), { method: "DELETE" }).catch(() => {});
-    ui.page = "chat";
-    show((await res.json()).id);
-  } catch (err) { $("hint").textContent = "没发出去：" + err.message; }
-}
+document.addEventListener("tern:managed-steer-changed", () => { $("steer-strip").dataset.sig = ""; renderSteers(); });
+document.addEventListener("tern:queue-changed", () => { ui.queueRevision = (ui.queueRevision || 0) + 1; renderSteers(); });
 // 没送到、或者人点了停止时没发出去的，按顺序放回输入框，人自己决定发不发。
 export function backToInput(text) {
   const box = $("query");
   box.value = box.value.trim() ? box.value.replace(/\s+$/, "") + "\n\n" + text : text;
-  autosize(); syncComposer();
+  autosize(); syncComposer(); saveDraft();
 }
 async function stopRun() {
+  if (ui.streamDisconnected) return;
   const r = ui.run;
   if (!r) return;
   if (r.stopRequested && !confirm("agent 正在停止（回填结果、保存检查点）。确定强制结束？未保存的进度会丢失。")) return;
@@ -249,16 +300,22 @@ async function sendSteersNow() {
   const r = ui.run;
   if (!r || !ui.steers[r.id]?.items.length) return;
   ui.steers[r.id].immediate = true;
+  ui.steers[r.id].restored = false;
+  savePendingSteers(r.id, ui.steers[r.id]);
   renderSteers();
+  if (r.exit) { settleSteers(r); return; }
   await stopRun();
 }
 // 这一轮结束时（runs.js 收到 exit）处理剩下的：按顺序用空行拼成一条接着发；
 // 人点了停止按钮（不是“立即发送”）的，放回输入框由人决定。
 export function settleSteers(r) {
+  if (r.steerManaged !== false) return; // 新模式与能力尚未确认时都不由浏览器补发。
   const q = ui.steers[r.id];
+  if (ui.historyReplaying || q?.restored) return;
   if (!q?.items.length) return;
   const text = q.items.map((it) => it.text).join("\n\n"), now = q.immediate;
   q.items = []; q.immediate = false;
+  savePendingSteers(r.id, q);
   renderSteers();
   if (!now && r.stopRequested) return backToInput(text);
   sendMessage(r, text);
@@ -284,19 +341,23 @@ $("model").onchange = () => { ui.picked.model = true; syncComposer(); };
 $("workspace").onchange = () => { ui.picked.workspace = true; syncComposer(); loadWsSettings($("workspace").value, true); };
 // 副本：勾了就在这个工作区的副本里开对话（thread/start 的 copy），开完对话后不能再改（见 syncComposer）。
 $("copy").onchange = () => { ui.picked.copy = $("copy").checked; syncComposer(); };
-$("perm").onchange = () => { ui.picked.permission = true; syncComposer(); };
+// 权限下拉：选「完全访问」要确认一次，取消就退回上一档；确认后每轮请求带 sandbox=host。
+let permPrev = $("perm").value;
+$("perm").onchange = () => {
+  if ($("perm").value === "unrestricted" && !confirm(FULL_ACCESS_NOTE + (HOST ? `\n\n目标主机：${HOST}` : ""))) {
+    $("perm").value = permPrev;
+    return;
+  }
+  permPrev = $("perm").value;
+  ui.picked.permission = true;
+  syncComposer();
+};
 $("effort").onchange = () => { ui.picked.effort = true; syncComposer(); };
 $("settings").onclick = () => openSettings();
 // 输入法组合输入时的 Enter 用于选词，不能发送；@ 菜单开着时回车是插入，也不发送。
-// 运行中 Tab 是排队（这一轮结束后再发）；斜杠菜单、@ 菜单开着时 Tab 归菜单。
+// Tab 保留焦点导航（补全菜单打开时可选候选）；排队使用显式按钮。
 $("query").onkeydown = (ev) => {
   if (atKey(ev)) { ev.preventDefault(); return; }
-  if (ev.key === "Tab" && !ev.shiftKey && !ev.isComposing && $("slash").hidden && $("send").classList.contains("stop")) {
-    if (!$("query").value.trim()) return; // 输入框里没字：Tab 照常换焦点
-    ev.preventDefault();
-    queueInput();
-    return;
-  }
   if (ev.key === "Enter" && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); $("composer").requestSubmit(); }
 };
 $("queue").onclick = () => queueInput();
@@ -435,4 +496,5 @@ function insertAt(path) {
   box.focus();
   box.setSelectionRange(caret, caret);
   autosize(); syncComposer();
+  saveDraft();
 }

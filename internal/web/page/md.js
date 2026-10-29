@@ -1,5 +1,6 @@
 import { render } from "./render.js";
 import { $, el, esc, ui } from "./util.js";
+import { openProjectFile, projectReference } from "./projectfiles.js";
 // ---------- 对话流：从同一批模型请求还原用户消息、思考、工具和回答 ----------
 // 只渲染少量 Markdown：先转义再替换，模型输出不能注入 HTML。
 // visual 为真时（对话里的模型回答），visualization skill 的 ```echarts 与 ```html type="renderer" 块换成 vizSlot，由 renderChat 放入沙箱 iframe。
@@ -24,9 +25,13 @@ export function md(text, visual) {
   // 行内代码和公式先换成占位符：里面的地址不变成链接、* 不变成粗体，代码两边的 ** 仍能配成粗体。
   // 行内代码照 CommonMark：两边是一样长的一串反引号，里面可以有更短的反引号（`` `x` ``）；内容两头都是空格时各去掉一个。
   const inline = (s) => {
-    const codes = [], maths = [];
+    const codes = [], maths = [], files = [];
     s = String(s).replace(/(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)/g, (_, tick, code) => `${codes.push(/^ .*[^ ].* $/.test(code) ? code.slice(1, -1) : code) - 1}`)
-      .replace(MD_MATH, (_, a, b, c, d) => `\uE001${maths.push([a ?? b ?? c ?? d, b !== undefined || c !== undefined]) - 1}\uE001`);
+      .replace(MD_MATH, (_, a, b, c, d) => `\uE001${maths.push([a ?? b ?? c ?? d, b !== undefined || c !== undefined]) - 1}\uE001`)
+      .replace(/\[([^\]\n]+)\]\((?:<([^>\n]+)>|([^\s)]+))\)/g, (original, label, angled, plain) => {
+        const path = angled || plain;
+        return projectReference(path) ? `\uE002${files.push([label, path]) - 1}\uE002` : original;
+      });
     return esc(s)
       .replace(MD_LINK, (_, label, href, angled, bare) => {
         if (label) return mdAnchor(href, label);
@@ -36,6 +41,7 @@ export function md(text, visual) {
       })
       .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
       .replace(/(\d+)/g, (_, n) => `<code>${esc(codes[n])}</code>`)
+      .replace(/\uE002(\d+)\uE002/g, (original, n) => { if (!files[n]) return original; const [label, path] = files[n]; return `<a href="#" class="project-reference" data-project-reference="${encodeURIComponent(path)}">${esc(label)}</a>`; })
       .replace(/\uE001(\d+)\uE001/g, (_, n) => tex(...maths[n]));
   };
   const block = /^(```|#{1,6}\s|\s*([-*]|\d+\.)\s|\||\s*(\\\[|\$\$)|\s*(-{3,}|\*{3,}|_{3,})\s*$)/;
@@ -84,6 +90,7 @@ export function md(text, visual) {
   }
   const box = el("div", "md");
   box.innerHTML = out.join("");
+  box.addEventListener("click", (event) => { const link = event.target.closest("a[data-project-reference]"); if (link) { event.preventDefault(); openProjectFile(decodeURIComponent(link.dataset.projectReference)); } });
   return box;
 }
 // ---------- 可视化：模型写的 HTML 与 ECharts option 只在沙箱 iframe 里运行 ----------

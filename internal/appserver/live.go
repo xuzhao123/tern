@@ -60,6 +60,7 @@ func (s *Server) connect(r *run, token string, after int64, exited <-chan struct
 				note = ""
 			}
 			if conn.Attach(token, after) == nil {
+				go s.flushManagedSteers(r)
 				return conn
 			}
 			conn.Close()

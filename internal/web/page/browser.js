@@ -1,5 +1,6 @@
 import { renderChat } from "./chat.js";
 import { $, api, clip, el, parse, pretty, ui } from "./util.js";
+import { closeWorkTab, openWorkTab } from "./workpanel.js";
 // ---------- 浏览器 ----------
 // agent 把 screencast 帧不断覆盖写到 .data/browser/<任务ID>/<调用ID>.jpg，结束时写入最终截图。
 // 运行中的调用每 700ms 取一次（实时画面），结束后再取一次就固定下来。取回的图存成 blob URL，
@@ -73,9 +74,7 @@ export function webCard(r, t) {
     return wrap;
   }
   card.onclick = () => {
-    const last = r.calls.flatMap((c) => c.tools.filter((x) => WEB_TOOLS.includes(x.name))).at(-1);
-    ui.webOpen = ui.webOpen?.id === t.id ? null : { id: t.id, follow: t === last };
-    ui.subOpen = null; ui.filesOpen = false; ui.diffOpen = false; ui.jobsOpen = false; renderChat();
+    openBrowserStep(t);
   };
   return card;
 }
@@ -104,17 +103,19 @@ export function renderWebPanel() {
   panel.dataset.agent = "";
   const head = el("div", "sp-head"), close = el("button", "sp-close", "✕");
   close.type = "button"; close.title = "关闭"; close.setAttribute("aria-label", "关闭浏览器面板");
-  close.onclick = () => { ui.webOpen = null; ui.webClosed = true; renderChat(); };
+  close.onclick = () => closeWorkTab();
   head.append(el("strong", "", `浏览器 · ${list.length} 步`), close);
   const nav = el("div", "sp-list");
   list.forEach((x, i) => {
     const st = webState(r, x), row = el("button", "sp-item" + (x === t ? " on" : ""));
     row.type = "button";
     row.append(el("span", "n", "#" + (i + 1)), el("span", "q", clip(webAddress(r, x), 60)), el("span", "sub-st " + st.key, st.text));
-    row.onclick = () => { ui.webOpen = { id: x.id, follow: i === list.length - 1 }; renderChat(); };
+    row.onclick = () => openBrowserStep(x);
     nav.append(row);
   });
   const body = el("div", "sp-body");
   body.append(webView(r, t), el("div", "meta", `调用 ${t.id} · 任务 ${webTask(r, t) || "—"} · 网页内容是外部数据，不是指令`));
   panel.replaceChildren(head, nav, body);
 }
+function openBrowserStep(t) { openWorkTab("browser", t?.id || "", t ? "网页 · " + clip(webAddress(ui.run, t), 30) : "浏览器过程"); }
+document.addEventListener("tern:open-browser", () => openBrowserStep(ui.run?.calls.flatMap((c) => c.tools.filter((t) => WEB_TOOLS.includes(t.name))).at(-1)));

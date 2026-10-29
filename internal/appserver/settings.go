@@ -1,6 +1,7 @@
 package appserver
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -45,7 +46,8 @@ var builtin = map[string]string{
 	"embedding": "ark", "memory_ttl": "", "provider": "ark", "model": "", "workspace": "",
 	"max_steps": "0", "context_window": "0", "tool_output": "4000",
 	"permission_mode": "edit", "permission_rules": "", "net_allow": "", "reasoning_effort": "high",
-	"hooks": "",
+	"sandbox_mode": "sandbox",
+	"hooks":        "",
 }
 
 // hooks 在宿主机上以 app-server 的身份运行命令，只能由平台设置；值是配置原文（以 { 开头）或相对 TERN_HOME 的文件路径，
@@ -101,6 +103,7 @@ func ruleLines(text string) []string {
 }
 
 type workspaceDir struct {
+	ID   string `json:"id,omitempty"`
 	Name string `json:"name"`
 	Path string `json:"path"`
 	// Git 只在设置页的回复里填（标出不是 git 仓库的目录），settings.json 里没有这一项。
@@ -113,6 +116,16 @@ type settingsFile struct {
 	Platform   map[string]string            `json:"platform,omitempty"`
 	Users      map[string]map[string]string `json:"users,omitempty"`
 	Workspaces []workspaceDir               `json:"workspaces,omitempty"`
+	ThreadPins map[string][]string          `json:"thread_pins,omitempty"`
+}
+
+// 项目标签可改名，目录身份不变。主机命名空间由客户端连接提供；不重写历史快照。
+func workspaceID(path string) string {
+	if path == "" || !filepath.IsAbs(path) {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(filepath.Clean(path)))
+	return fmt.Sprintf("ws-%x", sum[:16])
 }
 
 func (s *Server) settingsPath() string { return filepath.Join(s.dir, ".data", "settings.json") }
@@ -127,7 +140,27 @@ func (s *Server) readSettings() (settingsFile, error) {
 	if err == nil {
 		err = json.Unmarshal(data, &f)
 	}
+	for i := range f.Workspaces {
+		f.Workspaces[i].ID = workspaceID(f.Workspaces[i].Path)
+	}
 	return f, err
+}
+
+func (c *conn) workspaceList(protocol.Message) (any, *protocol.Error) {
+	c.s.hubMu.Lock()
+	f, err := c.s.readSettings()
+	c.s.hubMu.Unlock()
+	if err != nil {
+		return nil, bad(500, "无法读取项目："+err.Error())
+	}
+	list := f.Workspaces
+	if list == nil {
+		list = []workspaceDir{}
+	}
+	for i := range list {
+		list[i].Git = isGitRepo(list[i].Path)
+	}
+	return list, nil
 }
 
 func (s *Server) writeSettings(f settingsFile) error {
@@ -180,6 +213,10 @@ func valid(key, value string, f settingsFile) error {
 		if !slices.Contains([]string{"plan", "ask", "edit", "full"}, value) {
 			return errors.New("permission_mode 取 plan、ask、edit 或 full")
 		}
+	case "sandbox_mode":
+		if value != "sandbox" && value != "host" {
+			return errors.New("sandbox_mode 取 sandbox 或 host")
+		}
 	case "permission_rules":
 		for _, line := range ruleLines(value) {
 			if !ruleLine.MatchString(line) {
@@ -213,9 +250,12 @@ func valid(key, value string, f settingsFile) error {
 }
 
 // unavailable 返回本机跑不了这个工具的原因；空串表示可用。只做便宜的检查（找可执行文件、看密钥在不在），不真的启动。
-func (s *Server) unavailable(key string, skills []string, servers []mcpServer) string {
+func (s *Server) unavailable(key, sandboxMode string, skills []string, servers []mcpServer) string {
 	switch key {
 	case "bash":
+		if sandboxMode == "host" {
+			return "" // 完全访问不需要 bwrap / sandbox-exec
+		}
 		switch runtime.GOOS {
 		case "linux":
 			if _, err := exec.LookPath("bwrap"); err != nil {
@@ -405,7 +445,7 @@ func (s *Server) effectiveFor(name, dir string) (effective, settingsFile, error)
 		e.Values["model"], e.Source["model"] = "", "builtin"
 	}
 	for _, key := range toolOrder {
-		if reason := s.unavailable(key, skills, servers); reason != "" {
+		if reason := s.unavailable(key, e.Values["sandbox_mode"], skills, servers); reason != "" {
 			e.Blocked[key] = reason
 		}
 	}
@@ -648,11 +688,11 @@ func (c *conn) workspaceAdd(m protocol.Message) (any, *protocol.Error) {
 	for i := 2; slices.ContainsFunc(f.Workspaces, func(w workspaceDir) bool { return w.Name == name }); i++ {
 		name = fmt.Sprintf("%s-%d", base, i)
 	}
-	f.Workspaces = append(f.Workspaces, workspaceDir{Name: name, Path: path})
+	f.Workspaces = append(f.Workspaces, workspaceDir{ID: workspaceID(path), Name: name, Path: path})
 	if err := s.writeSettings(f); err != nil {
 		return nil, bad(500, err.Error())
 	}
-	return workspaceDir{Name: name, Path: path}, nil
+	return workspaceDir{ID: workspaceID(path), Name: name, Path: path}, nil
 }
 
 // maxBrowseEntries 是选目录对话框一次最多列多少个子目录：家目录下偶尔有几千个，全列出来页面会卡。
@@ -912,7 +952,7 @@ func (c *conn) workspaceRename(m protocol.Message) (any, *protocol.Error) {
 	if err := s.writeSettings(f); err != nil {
 		return nil, bad(500, err.Error())
 	}
-	return workspaceDir{Name: newName, Path: f.Workspaces[i].Path}, nil
+	return f.Workspaces[i], nil
 }
 
 // command/list：斜杠命令列表，输入框打 / 时显示。内置的来自编进程序的 internal/commands/builtin/，

@@ -1,7 +1,7 @@
 import { show } from "./follow.js";
 import { md } from "./md.js";
 import { TOOL_INFO, loadModels, loadSettings, newChat, syncComposer } from "./shell.js";
-import { $, HOST, MEM_KIND, MEM_SOURCE, MEM_STATUS, api, el, fold, notifyOn, setNotify, ui } from "./util.js";
+import { $, HOST, MEM_KIND, MEM_SOURCE, MEM_STATUS, api, el, fold, notificationSettings, setNotification, ui } from "./util.js";
 $("memory").onclick = () => openMemory();
 // 审计日志只读。服务端每次从头校验哈希链；页面只展示，不提供修改或删除。
 const AUDIT_ACTOR = { user: "人", model: "模型", program: "程序" };
@@ -88,6 +88,7 @@ window.addEventListener("message", (ev) => {
 // 本机条件只会关掉工具。改动只影响之后的新对话。
 const SET_SOURCE = { builtin: "内置默认", platform: "平台", project: "项目", user: "你" };
 export async function openSettings() {
+  const pickedWs = ui.run?.workspace || $("workspace").value;
   const panel = await openHubPage("设置", "打开的工具在新对话里都会带上，模型自己决定用不用；每个对话只选模型和工作区。改动只影响之后的新对话，进行中的对话沿用开始时的快照。保存在 .data/settings.json。");
   if (!panel) return;
   // 两级下拉（供应商、具体模型）的选项都来自 /models：它由启动时的 loadModels 异步取回，没回来就先取一次，
@@ -95,7 +96,6 @@ export async function openSettings() {
   if (!ui.models) await loadModels();
   let data;
   // 项目层按页面上新对话下拉里选中的工作区算：没选工作区的对话读不到项目配置（服务端按登记解析目录）。
-  const pickedWs = ui.run ? "" : $("workspace").value;
   try { data = await (await hubCall("GET", "/settings?workspace=" + encodeURIComponent(pickedWs))).json(); }
   catch (err) { panel.lastChild.replaceWith(el("div", "err", "读取失败：" + err.message)); return; }
   if (!panel.isConnected) return;
@@ -226,7 +226,38 @@ export async function openSettings() {
   num("max_steps", "模型请求预算", "每轮最多多少次模型请求；0 表示不限，靠重复动作与无进展熔断、停止按钮收住");
   num("context_window", "上下文窗口", "token；0 表示按模型（取路由表里核对过的输入上限，不知道时 262144）。工具全开时每次请求要带全部工具定义，窗口小会很快压缩");
   num("tool_output", "工具输出上限", "单个工具结果写进上下文的 token 上限");
-  line("默认权限模式", select("permission_mode", [["plan", "只读计划：不能改文件，bash 里工作区只读"], ["ask", "改动都问：改文件、跑 bash、调 MCP 前确认"], ["edit", "自动编辑：工作区内编辑与沙箱 bash 直接做"], ["full", "全权：不再询问（含高风险确认），deny、ask 规则照常"]]), "permission_mode");
+  // 默认权限：三档常用组合。完全访问拆成 permission=full + sandbox_mode=host；只读计划与执行位置是高级项。
+  const permPick = el("select");
+  for (const [v, label] of [["ask", "请求批准：改文件、跑命令前确认"], ["edit", "帮我批准：工作区内直接做，越界与联网才问"], ["unrestricted", "完全访问：命令在这台机器上直接跑，不再询问"]]) permPick.append(new Option(label, v));
+  const currentPerm = values.sandbox_mode === "host" ? "unrestricted" : values.permission_mode;
+  permPick.value = ["ask", "edit", "unrestricted"].includes(currentPerm) ? currentPerm : "edit";
+  permPick.onchange = () => {
+    if (permPick.value === "unrestricted") { values.permission_mode = "full"; values.sandbox_mode = "host"; }
+    else { values.permission_mode = permPick.value; values.sandbox_mode = "sandbox"; }
+  };
+  line("默认权限", permPick, "permission_mode");
+  // 高级：只读计划与执行位置。它们和上面的三档是同一组内部值，改这里时上面回到对应档。
+  const planBox = el("input"); planBox.type = "checkbox"; planBox.checked = values.permission_mode === "plan";
+  planBox.onchange = () => {
+    if (planBox.checked) { values.permission_mode = "plan"; values.sandbox_mode = "sandbox"; permPick.value = "ask"; }
+    else if (values.permission_mode === "plan") { values.permission_mode = "edit"; permPick.value = "edit"; }
+  };
+  const planWrap = el("label", "set-row"); planWrap.append(planBox, el("span", "", "只读计划：不能改文件，bash 里工作区只读"));
+  grid.append(el("span", "meta", "高级"), planWrap);
+  const unattendedBox = el("input"); unattendedBox.type = "checkbox"; unattendedBox.checked = values.permission_mode === "full" && values.sandbox_mode !== "host";
+  unattendedBox.onchange = () => {
+    if (unattendedBox.checked) { values.permission_mode = "full"; values.sandbox_mode = "sandbox"; permPick.value = "edit"; }
+    else if (values.permission_mode === "full" && values.sandbox_mode !== "host") { values.permission_mode = "edit"; }
+  };
+  const unattendedWrap = el("label", "set-row"); unattendedWrap.append(unattendedBox, el("span", "", "无人值守（沙箱内）：不询问，但命令仍在沙箱里，越界直接失败"));
+  grid.append(el("span", "meta", ""), unattendedWrap);
+  const sandboxPick = select("sandbox_mode", [["sandbox", "沙箱内（默认）"], ["host", "宿主机（完全访问）"]]);
+  sandboxPick.value = values.sandbox_mode || "sandbox";
+  sandboxPick.onchange = () => {
+    values.sandbox_mode = sandboxPick.value;
+    permPick.value = values.sandbox_mode === "host" ? "unrestricted" : (["ask", "edit"].includes(values.permission_mode) ? values.permission_mode : "edit");
+  };
+  line("执行位置", sandboxPick, "sandbox_mode");
   line("默认推理强度", select("reasoning_effort", [["high", "高：默认，最仔细"], ["medium", "中"], ["low", "低"], ["minimal", "最低"]]), "reasoning_effort");
   const rules = el("textarea"); rules.rows = 4; rules.style.width = "100%"; rules.value = values.permission_rules;
   rules.placeholder = "一行一条，顺序 deny › ask › allow：\nallow: Bash(go build *)\nask: Edit(internal/agent/**)\ndeny: Bash(git push *)";
@@ -239,7 +270,7 @@ export async function openSettings() {
   nets.oninput = () => { values.net_allow = nets.value; };
   const netsWrap = el("span"); netsWrap.append(nets, tag("net_allow"));
   grid.append(el("span", "meta", "沙箱联网白名单"), netsWrap);
-  panel.append(grid, el("p", "meta", "沙箱里的命令只能经代理访问白名单里的域名；连到别的域名时代理当场问你，命令等你答复。审批时点“始终允许”会把域名加进你的个人设置。"), el("p", "meta","权限模式在每条对话的输入框旁边还能换（每轮生效）；规则在对话开始时拍进快照。高风险确认（删除记忆、破坏性 MCP、含私有数据后的外发、续跑重做）在全权以外的模式下都询问；全权模式同 Claude Code、Codex，不再询问，由程序放行并写审计（续跑重做不自动做，回填结果未知）。"));
+  panel.append(grid, el("p", "meta", "沙箱里的命令只能经代理访问白名单里的域名；连到别的域名时代理当场问你，命令等你答复。审批时点“始终允许”会把域名加进你的个人设置。"), el("p", "meta", "输入框旁的权限下拉有三档：请求批准（改文件、跑命令前确认）、帮我批准（工作区内直接做，越界与联网才问）、完全访问（命令在宿主机上直接跑，不询问、不受沙箱限制）。只读计划、无人值守（不询问但仍在沙箱里）与执行位置在设置页的高级项里；规则在对话开始时拍进快照。高风险确认（删除记忆、破坏性 MCP、含私有数据后的外发、续跑重做）在全权以外的模式下都询问；全权模式同 Claude Code、Codex，不再询问，由程序放行并写审计（续跑重做不自动做，回填结果未知）。"));
   // hooks 在本机以网页端的身份运行命令，不在沙箱里，所以只从平台设置读；个人设置里不生效。
   panel.append(el("h3", "", "Hooks"), el("p", "meta", "在固定时刻运行本机命令：用户提交（UserPromptSubmit）、工具执行前（PreToolUse）、工具成功后（PostToolUse）、模型准备结束（Stop）。格式同 Claude Code 的 hooks 段；填配置原文，或相对 agent 目录的文件路径（如 hooks/hooks.json）。对话开始时读成原文拍进快照。命令不在沙箱里运行，只有平台设置里的 hooks 生效。"));
   const hooksBox = el("textarea"); hooksBox.rows = 3; hooksBox.style.width = "100%"; hooksBox.value = values.hooks;
@@ -258,26 +289,79 @@ export async function openSettings() {
   actions.append(plat);
   actions.append(el("span", "meta", "只保存和上一层不同的项；标签显示每项来自哪一层"));
   panel.append(actions);
-  // 浏览器通知：只记在这个浏览器里（localStorage 的 tern-notify），不进 app-server 的设置——通知是这台电脑的事。
   panel.append(el("h3", "", "通知"));
-  const notifyRow = el("label", "set-row"), notifyText = el("span"), notifyBox = el("input"), notifyNote = el("div", "meta");
-  notifyBox.type = "checkbox";
-  notifyBox.checked = notifyOn();
-  notifyText.append(el("strong", "", "浏览器通知"), el("div", "meta", "页面不在前台时，对话跑完或在等你审批、回答时提醒"), notifyNote);
-  // 勾上时向浏览器要权限；被拒就把勾去掉，写一行原因（再去浏览器的站点设置里允许）。
-  notifyBox.onchange = async () => {
-    notifyNote.textContent = "";
-    const want = notifyBox.checked;
-    const granted = want && typeof Notification !== "undefined" && await Notification.requestPermission() === "granted";
-    notifyBox.checked = granted;
-    setNotify(granted);
-    if (want && !granted) notifyNote.textContent = "浏览器没有允许通知";
-  };
-  notifyRow.append(notifyText, el("span"), el("span"), notifyBox);
-  const notifyWrap = el("div", "set-box");
-  notifyWrap.append(notifyRow);
+  const notifyWrap = el("div", "set-box"), prefs = notificationSettings();
+  for (const [kind, label] of [["done", "本轮完成"], ["approval", "权限审批"], ["question", "用户提问"]]) {
+    const row = el("label", "set-row"), select = el("select"), note = el("span", "meta");
+    select.setAttribute("aria-label", label + "通知");
+    select.append(new Option("关闭", "off"), new Option("仅页面在后台", "background"), new Option("始终", "always"));
+    select.value = prefs[kind] || "off";
+    select.onchange = async () => {
+      const wanted = select.value;
+      if (wanted !== "off" && (typeof Notification === "undefined" || await Notification.requestPermission() !== "granted")) {
+        select.value = notificationSettings()[kind] || "off"; note.textContent = "浏览器未允许通知，请在站点设置中开启。"; return;
+      }
+      if (!setNotification(kind, wanted)) { select.value = notificationSettings()[kind] || "off"; note.textContent = "保存失败，请检查浏览器存储。"; return; }
+      note.textContent = wanted !== "off" && !navigator.locks ? "浏览器不支持多页面去重，系统通知暂停，请查看活动中心。" : "已保存";
+    };
+    row.append(el("strong", "", label), select, note); notifyWrap.append(row);
+  }
+  notifyWrap.append(el("p", "meta", "按当前账号、本浏览器保存。关闭所有网页后不保证收到通知；活动中心仍保留真实待处理状态。"));
   panel.append(notifyWrap);
+  organizeSettings(panel, grid, actions);
 }
+// 按用途移动原控件，保存逻辑与来源标签仍使用同一份 values。
+let settingsCategory = "常规";
+function organizeSettings(panel, grid, actions) {
+  const names = ["常规", "模型", "项目", "权限", "工具与集成", "连接", "高级", "关于"], sections = new Map(names.map((name) => [name, el("section", "settings-section")]));
+  const nav = el("nav", "settings-nav"); nav.setAttribute("aria-label", "设置分类");
+  const headingMap = { "工具": "工具与集成", "工作区": "项目", "默认值": "模型", "Hooks": "高级", "通知": "常规" };
+  let section;
+  for (const node of [...panel.children]) {
+    if (node.tagName === "H3") section = sections.get(headingMap[node.textContent]);
+    if (section && node !== actions && node !== grid) section.append(node);
+  }
+  const groups = new Map();
+  let last = "模型";
+  for (const node of [...grid.children]) {
+    if (node.classList.contains("meta")) {
+      const label = node.textContent;
+      last = label.includes("工作区") ? "项目" : ["默认权限", "高级", "执行位置", "权限规则", "沙箱联网白名单", ""].includes(label) ? "权限" : "模型";
+    }
+    if (!groups.has(last)) { const group = el("div", "set-box set-grid"); groups.set(last, group); sections.get(last).append(group); }
+    groups.get(last).append(node);
+  }
+  grid.remove();
+  const link = (name, action) => { const b = el("button", "ghost", name); b.type = "button"; b.onclick = action; return b; };
+  const tools = sections.get("工具与集成");
+  tools.prepend(el("p", "meta", `执行主机：${HOST || "当前主机"}。启用状态与实际加载/连接结果分别展示。`), link("Skills 中心", openSkills), link("MCP 连接与授权", openMCP));
+  const general = sections.get("常规"), theme = el("select");
+  theme.setAttribute("aria-label", "界面主题"); theme.append(new Option("跟随系统", "system"), new Option("浅色", "light"), new Option("深色", "dark")); theme.value = $("theme").value;
+  theme.onchange = () => { $("theme").value = theme.value; $("theme").dispatchEvent(new Event("change")); };
+  general.prepend(el("h3", "", "外观"), theme, el("p", "meta", "快捷键：Ctrl/⌘ Shift P 操作面板；Ctrl/⌘ Shift F 任务内查找；空输入 Alt ↑ 恢复上一条输入；Tab 移动焦点。"));
+  const connection = sections.get("连接"), about = sections.get("关于"), versions = el("div");
+  about.append(el("h3", "", "运行版本"), versions, el("p", "meta", "版本来自正在运行的进程。修改源码不会自动更新 Web；刷新网页也不会替换服务进程。+dirty 表示构建时有未提交改动。"));
+  async function refreshVersions() {
+    versions.textContent = "读取中…";
+    try {
+      const res = await fetch(api("/version")); if (!res.ok) throw new Error(await res.text()); const data = await res.json(); if (!panel.isConnected) return;
+      versions.replaceChildren(el("p", "", `Web：${data.web_version} · build ${data.web_build}`)); connection.replaceChildren(el("h3", "", "执行主机与连接"));
+      for (const h of data.connections.hosts) {
+        versions.append(el("p", "", `${h.alias || h.host || "本机"}：${h.version || "版本未知"} · build ${h.build || "未知"}${h.stale ? " · 与 Web 构建不同" : ""}`));
+        const row = el("div", "set-box"); row.append(el("strong", "", h.alias || h.host || "本机"), el("p", "meta", `${h.remote ? "SSH" : "本地 socket"} · ${h.state} · ${h.home || "运行目录未获取"}`));
+        if(h.error || h.hint)row.append(el("p", "err", [h.kind,h.hint || h.error].filter(Boolean).join(" · ")));
+        connection.append(row);
+      }
+      connection.append(el("p", "meta", "远程连接依次检查 SSH 认证、主机指纹、tern 程序和协议握手。通过执行主机菜单重试、安装或确认指纹；复制密钥须明确选择，不会自动同步。"), link("打开执行主机菜单",()=>$("host").click()), link("刷新状态",refreshVersions));
+    } catch(error) { versions.textContent = "版本读取失败："+error.message; connection.replaceChildren(el("p", "err", versions.textContent), link("打开执行主机菜单",()=>$("host").click()), link("重试",refreshVersions)); }
+  }
+  about.append(link("刷新版本",refreshVersions)); refreshVersions();
+  function choose(name) { settingsCategory=name; for(const [label,section] of sections)section.hidden=label!==name;for(const b of nav.children)b.setAttribute("aria-current",String(b.textContent===name)); }
+  for (const name of names)nav.append(link(name,()=>choose(name)));
+  panel.insertBefore(nav,panel.firstElementChild.nextSibling);
+  panel.append(...sections.values(),actions); actions.classList.add("settings-save"); choose(settingsCategory);
+}
+
 // 选工作区目录：浏览这台主机上的目录，把 git 仓库登记成工作区；返回登记好的名字，取消返回空。
 // 远端主机的页面带 /h/<别名>/ 前缀，api() 会补上，浏览的就是远端的目录。第一次从家目录开始，
 // 之后从上次停留的目录开始（只记在这个页面里，不写设置）。
@@ -398,7 +482,7 @@ function hubToggle(enabled, onchange) {
 export async function openHubPage(title, intro) {
   document.body.classList.remove("nav-open");
   if (ui.sending) return null;
-  newChat();
+  if (newChat() === false) return null;
   const panel = el("div", "mempanel hubpanel");
   $("thread").replaceChildren(panel);
   panel.append(el("h2", "", title), el("p", "meta", intro), el("div", "meta", "读取中…"));

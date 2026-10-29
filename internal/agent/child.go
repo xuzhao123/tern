@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -84,15 +86,41 @@ func RunChild(ctx context.Context, id, question string, args []string, child Chi
 	defer toChild.Close()
 	cmd.Stdout, cmd.Stdin, cmd.Stderr = childOut, childIn, child.Out
 	var conn *protocol.Conn
+	relayCtx, cancelRelays := context.WithCancel(ctx)
+	defer cancelRelays()
+	var requestMu sync.Mutex
+	requests := map[int64]context.CancelFunc{}
 	conn = protocol.NewConn(fromChild, toChild, func(m protocol.Message) {
 		if m.IsRequest() {
-			go relayRequest(ctx, conn, id, m)
+			requestCtx, cancel := context.WithCancel(relayCtx)
+			requestMu.Lock()
+			requests[*m.ID] = cancel
+			requestMu.Unlock()
+			go func() {
+				defer cancel()
+				defer func() { requestMu.Lock(); delete(requests, *m.ID); requestMu.Unlock() }()
+				relayRequest(requestCtx, conn, id, m)
+			}()
+			return
+		}
+		if m.Method == "request/cancelled" {
+			var p struct {
+				ID int64 `json:"id"`
+			}
+			if json.Unmarshal(m.Params, &p) == nil {
+				requestMu.Lock()
+				if cancel := requests[p.ID]; cancel != nil {
+					cancel()
+				}
+				requestMu.Unlock()
+			}
 			return
 		}
 		if child.Notify != nil {
 			child.Notify(m)
 		}
 	})
+	go func() { <-conn.Closed(); cancelRelays() }()
 	// TRACEPARENT 指向调用方当前的 span（spawn_agent 的 execute_tool，或队列的 queue_task），
 	// 子进程的 invoke_agent 就挂在它下面。同名变量以后面的为准，覆盖从父进程继承来的那个。
 	cmd.Env = append(append(os.Environ(), child.Env...), telemetry.Env(ctx)...)
@@ -162,18 +190,25 @@ func firstLine(s string) string {
 	return line
 }
 
-// 子 agent 发来的请求转给上级界面：联网审批与高风险操作确认。都只能由界面上的人回答；
+// 子 agent 发来的请求转给上级界面：联网审批、高风险操作确认与提问。都只能由界面上的人回答；
 // 父进程没有界面时如实回答 unavailable。联网批准后，父进程自己的白名单也加上这个域名。
 func relayRequest(ctx context.Context, conn *protocol.Conn, taskID string, m protocol.Message) {
-	if m.Method != "network/requestApproval" && m.Method != "tool/requestApproval" {
+	if m.Method != "network/requestApproval" && m.Method != "tool/requestApproval" && m.Method != "user/requestInput" {
 		conn.Reply(*m.ID, nil, &protocol.Error{Code: -32601, Message: "未知方法 " + m.Method})
 		return
 	}
 	params := map[string]any{}
 	json.Unmarshal(m.Params, &params)
 	params["task_id"] = taskID
+	if callID, ok := params["call_id"].(string); ok && callID != "" {
+		// 模型产生的调用 ID 只在自己的任务内唯一，转发键必须包含子任务身份。
+		sum := sha256.Sum256([]byte(taskID + "\x00" + callID))
+		params["original_call_id"] = callID
+		params["call_id"] = fmt.Sprintf("sub-%x", sum[:16])
+	}
 	var answer struct {
 		Decision string `json:"decision"`
+		Answer   string `json:"answer,omitempty"`
 	}
 	if err := protocol.Call(ctx, m.Method, params, &answer); err != nil {
 		answer.Decision = "unavailable"

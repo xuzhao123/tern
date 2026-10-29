@@ -571,3 +571,23 @@ func (c *conn) mcpLogout(m protocol.Message) (any, *protocol.Error) {
 	audit.Log(c.ctx, audit.Record{Actor: "user", User: userName(m), Event: "user_mcp_logout", Target: server.Name, Detail: c.clientName()})
 	return nil, nil
 }
+
+func (s *Server) resolveSkillRefs(refs []skills.Reference, allowed []string) ([]string, *protocol.Error) {
+	if len(refs) == 0 {
+		return nil, nil
+	}
+	enabled, _, err := s.enabledCapabilities()
+	if err != nil {
+		return nil, bad(500, "无法核对技能启用状态")
+	}
+	for _, ref := range refs {
+		if !slices.Contains(allowed, ref.Name) || !slices.Contains(enabled, ref.Name) {
+			return nil, bad(409, "Skill "+ref.Name+" 未在任务中启用，请移除引用或新开任务")
+		}
+	}
+	notes, err := skills.ResolveReferences(filepath.Join(s.dir, "skills"), refs)
+	if err != nil {
+		return nil, bad(409, err.Error())
+	}
+	return notes, nil
+}

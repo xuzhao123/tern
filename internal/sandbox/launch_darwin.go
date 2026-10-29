@@ -142,7 +142,7 @@ func sandboxCommand(ctx context.Context, workspace, command string, tty, writabl
 	spec.env = append(spec.env, telemetry.Env(ctx)...)
 	if tty {
 		// BSD 的 script 把命令当参数（没有 -c）：命令原样交给 /bin/bash -c，写法和前台一致。
-		spec.argv = append(spec.argv, "script", "-q", "/dev/null", "/bin/bash", "-c", command)
+		spec.argv = append(spec.argv, scriptCommand(command)...)
 	} else {
 		spec.argv = append(spec.argv, "/bin/bash", "-c", command)
 	}

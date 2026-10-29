@@ -121,20 +121,30 @@ func spawnAgent(ctx context.Context, call llm.ToolCall) (any, error) {
 			return nil, llm.Permanent(errors.New("当前对话还不能分叉"))
 		}
 	}
-	if args.Background {
-		return startBackground(call, id, task, history)
+	contextMode := "independent"
+	if history != nil {
+		contextMode = "inherited"
+	} else if args.TaskID != "" {
+		contextMode = "checkpoint"
 	}
-	return runSub(ctx, call.ID, id, task, history, nil)
+	if args.Background {
+		return startBackground(call, id, task, history, contextMode)
+	}
+	return runSub(ctx, call.ID, id, task, history, contextMode, nil)
 }
 
 // runSub 跑一个子 agent 直到结束，返回给模型的结果。前台调用直接用；后台的在自己的 goroutine 里用。
-func runSub(ctx context.Context, callID, id, task string, history *HistoryInput, started func(*protocol.Conn)) (any, error) {
+func runSub(ctx context.Context, callID, id, task string, history *HistoryInput, contextMode string, started func(*protocol.Conn)) (any, error) {
 	call := llm.ToolCall{ID: callID}
 	fmt.Printf("Subagent start [%s]: task_id=%s max_steps=%d fork=%t\n", call.ID, id, SubagentSteps, history != nil)
 	// 子任务ID记在 spawn_agent 的 execute_tool span 上；子进程的 invoke_agent 是它的子 span。
 	span := trace.SpanFromContext(ctx)
 	span.SetAttributes(attribute.String("agent.subagent.task_id", id))
-	protocol.Notify("subagent/started", map[string]string{"call_id": call.ID, "task_id": id, "task": task})
+	// 相同 task 文本也可能命中已有检查点；此时 RunChild 沿用旧上下文，不采用新传的 fork 历史。
+	if cp, err := LoadCheckpointIn(tenant.Current, id); err == nil && cp != nil {
+		contextMode = "checkpoint"
+	}
+	protocol.Notify("subagent/started", map[string]string{"call_id": call.ID, "task_id": id, "task": task, "context_mode": contextMode})
 	out := &prefixWriter{prefix: "  │ " + call.ID + " ", callID: call.ID, taskID: id}
 	relay := func(m protocol.Message) {
 		protocol.Notify("subagent/message", map[string]any{"call_id": call.ID, "task_id": id, "message": m})
@@ -144,7 +154,14 @@ func runSub(ctx context.Context, callID, id, task string, history *HistoryInput,
 		// task 是父 agent 写的，可能带着它读到的私有数据；子 agent 从一开始就按含私有数据处理，外发同样要确认。
 		childArgs = append(childArgs, "-private-input")
 	}
-	cp, replayed, err := RunChild(ctx, id, task, childArgs, ChildIO{Out: out, Notify: relay, Tenant: tenant.Current, History: history, Started: started})
+	connected := func(conn *protocol.Conn) {
+		registerChildControl(id, callID, conn)
+		if started != nil {
+			started(conn)
+		}
+	}
+	defer removeChildControl(id, callID)
+	cp, replayed, err := RunChild(ctx, id, task, childArgs, ChildIO{Out: out, Notify: relay, Tenant: tenant.Current, History: history, Started: connected})
 	out.flush()
 	if err != nil {
 		fmt.Printf("Subagent stop [%s]: %s\n", call.ID, err)
@@ -158,7 +175,7 @@ func runSub(ctx context.Context, callID, id, task string, history *HistoryInput,
 		return nil, fmt.Errorf("task_id=%s：%w", id, err)
 	}
 	fmt.Printf("Subagent done [%s]: model_calls=%d replayed=%t\n", call.ID, cp.Calls, replayed)
-	protocol.Notify("subagent/completed", map[string]any{"call_id": call.ID, "task_id": id, "state": "done", "model_calls": cp.Calls, "replayed": replayed})
+	protocol.Notify("subagent/completed", map[string]any{"call_id": call.ID, "task_id": id, "state": "done", "model_calls": cp.Calls, "replayed": replayed, "answer": cp.Answer})
 	span.SetAttributes(attribute.Bool("agent.subagent.replayed", replayed))
 	return map[string]any{"task_id": id, "answer": cp.Answer, "model_calls": cp.Calls, "replayed": replayed, "private": cp.State.Private}, nil
 }

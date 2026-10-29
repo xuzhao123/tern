@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -176,12 +177,76 @@ func Run(args []string, mcpHandler http.Handler) error {
 	mux.HandleFunc("GET /hosts/{alias}/keys", s.listLocalKeys)
 	mux.HandleFunc("POST /hosts/{alias}/keys", s.copyKeys)
 	mux.HandleFunc("GET /models", s.listModels)
+	mux.HandleFunc("GET /version", func(w http.ResponseWriter, req *http.Request) {
+		writeJSON(w, map[string]any{"web_version": appserver.Version(), "web_build": appserver.Build(), "connections": s.connection()})
+	})
 	mux.HandleFunc("POST /attachments", s.uploadAttachment)
 	mux.HandleFunc("GET /attachments/{name}", s.serveAttachment)
 	mux.HandleFunc("GET /runs", s.listRuns)
+	mux.HandleFunc("GET /requests/{id}", func(w http.ResponseWriter, req *http.Request) {
+		s.reply(w, req, "request/status", map[string]any{"request_id": req.PathValue("id")})
+	})
+	mux.HandleFunc("GET /workspaces", func(w http.ResponseWriter, req *http.Request) { s.reply(w, req, "workspace/list", nil) })
+	mux.HandleFunc("GET /runs/{id}/workspace/file", func(w http.ResponseWriter, req *http.Request) {
+		s.reply(w, req, "workspace/file/read", map[string]any{"threadId": req.PathValue("id"), "path": req.URL.Query().Get("path")})
+	})
+	mux.HandleFunc("GET /runs/{id}/workspace/tree", func(w http.ResponseWriter, req *http.Request) {
+		s.reply(w, req, "workspace/tree/list", map[string]any{"threadId": req.PathValue("id"), "path": req.URL.Query().Get("path"), "cursor": req.URL.Query().Get("cursor")})
+	})
+	mux.HandleFunc("PUT /runs/{id}/pin", func(w http.ResponseWriter, req *http.Request) {
+		s.reply(w, req, "thread/pin", map[string]any{"threadId": req.PathValue("id")})
+	})
 	// /runs/search 是固定的路径，和 /runs/{id}/… 不冲突：先把 search 当路径而不是对话 ID。
 	mux.HandleFunc("GET /runs/search", s.searchRuns)
+	mux.HandleFunc("GET /runs/{id}/find", func(w http.ResponseWriter, req *http.Request) {
+		after, err1 := strconv.Atoi("0" + req.URL.Query().Get("after"))
+		through, err2 := strconv.Atoi("0" + req.URL.Query().Get("through"))
+		if err1 != nil || err2 != nil {
+			http.Error(w, "查找分页参数无效", 400)
+			return
+		}
+		s.reply(w, req, "thread/find", map[string]any{"threadId": req.PathValue("id"), "query": req.URL.Query().Get("q"), "after": after, "through": through})
+	})
+	mux.HandleFunc("GET /runs/{id}/git", func(w http.ResponseWriter, req *http.Request) {
+		s.reply(w, req, "workspace/git/state", map[string]any{"threadId": req.PathValue("id")})
+	})
+	mux.HandleFunc("POST /runs/{id}/git", func(w http.ResponseWriter, req *http.Request) {
+		s.reply(w, req, "workspace/git/act", map[string]any{"threadId": req.PathValue("id")})
+	})
+	mux.HandleFunc("GET /runs/{id}/git/operation/{request}", func(w http.ResponseWriter, req *http.Request) {
+		s.reply(w, req, "workspace/git/operation", map[string]any{"threadId": req.PathValue("id"), "request_id": req.PathValue("request")})
+	})
+	mux.HandleFunc("GET /runs/{id}/operations", func(w http.ResponseWriter, req *http.Request) {
+		s.reply(w, req, "workspace/operations/list", map[string]any{"threadId": req.PathValue("id")})
+	})
+	mux.HandleFunc("POST /runs/{id}/operations", func(w http.ResponseWriter, req *http.Request) {
+		s.reply(w, req, "workspace/operations/start", map[string]any{"threadId": req.PathValue("id")})
+	})
+	mux.HandleFunc("GET /runs/{id}/operations/{operation}", func(w http.ResponseWriter, req *http.Request) {
+		s.reply(w, req, "workspace/operations/read", map[string]any{"threadId": req.PathValue("id"), "id": req.PathValue("operation")})
+	})
+	mux.HandleFunc("POST /runs/{id}/operations/{operation}/stop", func(w http.ResponseWriter, req *http.Request) {
+		s.reply(w, req, "workspace/operations/stop", map[string]any{"threadId": req.PathValue("id"), "id": req.PathValue("operation")})
+	})
+	mux.HandleFunc("GET /runs/{id}/continuous", func(w http.ResponseWriter, req *http.Request) {
+		s.reply(w, req, "thread/continuous/get", map[string]any{"threadId": req.PathValue("id")})
+	})
+	mux.HandleFunc("POST /runs/{id}/continuous", func(w http.ResponseWriter, req *http.Request) {
+		s.reply(w, req, "thread/continuous/update", map[string]any{"threadId": req.PathValue("id")})
+	})
+	mux.HandleFunc("GET /runs/{id}/plan", func(w http.ResponseWriter, req *http.Request) {
+		s.reply(w, req, "thread/plan/get", map[string]any{"threadId": req.PathValue("id")})
+	})
+	mux.HandleFunc("PUT /runs/{id}/plan", func(w http.ResponseWriter, req *http.Request) {
+		s.reply(w, req, "thread/plan/set", map[string]any{"threadId": req.PathValue("id")})
+	})
+	mux.HandleFunc("POST /runs/{id}/plan/approve", func(w http.ResponseWriter, req *http.Request) {
+		s.reply(w, req, "thread/plan/approve", map[string]any{"threadId": req.PathValue("id")})
+	})
 	mux.HandleFunc("POST /runs", s.startRun)
+	mux.HandleFunc("POST /runs/{id}/subagent/control", func(w http.ResponseWriter, req *http.Request) {
+		s.reply(w, req, "thread/subagent/control", map[string]any{"threadId": req.PathValue("id")})
+	})
 	mux.HandleFunc("POST /runs/import", s.importRun)
 	mux.HandleFunc("PUT /runs/{id}/name", s.renameRun)
 	mux.HandleFunc("PUT /runs/{id}/goal", s.setRunGoal)
@@ -195,9 +260,30 @@ func Run(args []string, mcpHandler http.Handler) error {
 	mux.HandleFunc("POST /runs/{id}/approval", s.decideTool)
 	mux.HandleFunc("POST /runs/{id}/answer", s.answerQuestion)
 	mux.HandleFunc("POST /runs/{id}/steer", s.steerRun)
+	mux.HandleFunc("POST /runs/{id}/steer/resolve", func(w http.ResponseWriter, req *http.Request) {
+		s.reply(w, req, "thread/steer/resolve", map[string]any{"threadId": req.PathValue("id")})
+	})
+	mux.HandleFunc("POST /runs/{id}/steer/refresh", func(w http.ResponseWriter, req *http.Request) {
+		s.reply(w, req, "thread/steer/refresh", map[string]any{"threadId": req.PathValue("id")})
+	})
 	mux.HandleFunc("POST /runs/{id}/shell", s.shellRun)
+	mux.HandleFunc("POST /runs/{id}/enable-bash", func(w http.ResponseWriter, req *http.Request) {
+		s.reply(w, req, "thread/bash/enable", map[string]any{"threadId": req.PathValue("id")})
+	})
 	mux.HandleFunc("POST /runs/{id}/queue", s.queueRun)
 	mux.HandleFunc("DELETE /runs/{id}/queue/{qid}", s.unqueueRun)
+	mux.HandleFunc("PUT /runs/{id}/queue/{qid}", func(w http.ResponseWriter, req *http.Request) {
+		s.reply(w, req, "thread/queue/update", map[string]any{"threadId": req.PathValue("id"), "id": req.PathValue("qid")})
+	})
+	mux.HandleFunc("PUT /runs/{id}/queue", func(w http.ResponseWriter, req *http.Request) {
+		s.reply(w, req, "thread/queue/reorder", map[string]any{"threadId": req.PathValue("id")})
+	})
+	mux.HandleFunc("POST /runs/{id}/queue/send", func(w http.ResponseWriter, req *http.Request) {
+		s.reply(w, req, "thread/queue/send", map[string]any{"threadId": req.PathValue("id")})
+	})
+	mux.HandleFunc("POST /runs/{id}/queue/recover", func(w http.ResponseWriter, req *http.Request) {
+		s.reply(w, req, "thread/queue/recover", map[string]any{"threadId": req.PathValue("id")})
+	})
 	mux.HandleFunc("POST /runs/{id}/rewind", s.rewindRun)
 	mux.HandleFunc("POST /runs/{id}/fork", s.forkRun)
 	mux.HandleFunc("GET /runs/{id}/files", s.listFiles)
@@ -391,6 +477,8 @@ const maxBody = 1 << 20
 // 已连上的远端另带 providers（那边配好密钥的供应商，空就是没配）、home 与 stale
 // （那边的 build 和本机不同：菜单里给“用本机的 tern 更新远端”）。
 type hostInfo struct {
+	Version   string   `json:"version,omitempty"`
+	Build     string   `json:"build,omitempty"`
 	Alias     string   `json:"alias"`  // ssh 别名；本机是空串
 	Host      string   `json:"host"`   // 显示名：本机用 initialize 报的主机名，远端用别名；没连上的本机没有名字
 	Remote    bool     `json:"remote"` // 是不是远端
@@ -589,6 +677,8 @@ func (s *server) connection() connections {
 	for _, alias := range s.order {
 		h := s.hosts[alias]
 		info := hostInfo{Alias: alias, Host: h.client.Host(), Remote: alias != "", State: string(h.state), Runs: h.runs.Load()}
+		srv := h.client.Info()
+		info.Version, info.Build, info.Home, info.Stale = srv.Version, srv.Build, srv.Home, srv.Build != appserver.Build()
 		if alias != "" {
 			// 远端的供应商、数据目录与 build 都来自 initialize：菜单据此提示没配密钥、程序要不要更新。
 			srv := h.client.Info()
@@ -1088,7 +1178,7 @@ func (s *server) stopRun(w http.ResponseWriter, req *http.Request) {
 }
 
 func (s *server) steerRun(w http.ResponseWriter, req *http.Request) {
-	s.replyNone(w, req, "turn/steer", map[string]any{"threadId": req.PathValue("id")})
+	s.reply(w, req, "turn/steer", map[string]any{"threadId": req.PathValue("id")})
 }
 
 // ! 命令：请求体是 {command}（去掉开头的 !），人自己的命令在这条对话的沙箱里跑一条（thread/shellCommand）。
@@ -1157,7 +1247,20 @@ func (s *server) streamEvents(w http.ResponseWriter, req *http.Request) {
 		fail(w, err)
 		return
 	}
-	sub, err := client.Subscribe(req.Context(), req.PathValue("id"), 0)
+	afterText := req.Header.Get("Last-Event-ID")
+	if afterText == "" {
+		afterText = req.URL.Query().Get("after")
+	}
+	var after int64
+	if afterText != "" {
+		var parseErr error
+		after, parseErr = strconv.ParseInt(afterText, 10, 64)
+		if parseErr != nil || after < 0 {
+			http.Error(w, "after 必须是非负事件序号", 400)
+			return
+		}
+	}
+	sub, err := client.Subscribe(req.Context(), req.PathValue("id"), after)
 	if err != nil {
 		fail(w, err)
 		return
@@ -1166,6 +1269,10 @@ func (s *server) streamEvents(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	flusher, _ := w.(http.Flusher)
+	fmt.Fprintf(w, "event: snapshot\ndata: {\"through\":%d}\n\n", sub.Seq())
+	if flusher != nil {
+		flusher.Flush()
+	}
 	end := func() {
 		// 只写 event: 不写 data: 的话浏览器不会派发这个事件（data 为空的事件被丢掉），所以照旧带一个空对象。
 		fmt.Fprint(w, "event: end\ndata: {}\n\n")
@@ -1182,6 +1289,12 @@ func (s *server) streamEvents(w http.ResponseWriter, req *http.Request) {
 		if e.End {
 			end()
 			return
+		}
+		var cursor struct {
+			Seq int64 `json:"seq"`
+		}
+		if json.Unmarshal(e.Data, &cursor) == nil && cursor.Seq > 0 {
+			fmt.Fprintf(w, "id: %d\n", cursor.Seq)
 		}
 		fmt.Fprintf(w, "data: %s\n\n", e.Data)
 		if flusher != nil {
@@ -1219,7 +1332,7 @@ func (s *server) listFiles(w http.ResponseWriter, req *http.Request) {
 
 // 改动面板：工作区相对 HEAD 的 diff，包括未跟踪的文件（app-server 里跑 git）。
 func (s *server) workspaceDiff(w http.ResponseWriter, req *http.Request) {
-	s.reply(w, req, "workspace/diff", map[string]any{"threadId": req.PathValue("id")})
+	s.reply(w, req, "workspace/diff", map[string]any{"threadId": req.PathValue("id"), "scope": req.URL.Query().Get("scope"), "base": req.URL.Query().Get("base")})
 }
 
 // 副本对话的“应用到”：把副本里的改动写回原工作区（不提交），回复改了哪些文件。

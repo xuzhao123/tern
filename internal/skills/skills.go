@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"crypto/sha256"
 	"embed"
 	"errors"
 	"fmt"
@@ -128,12 +129,59 @@ func List(dir string) map[string]any {
 	list, failures := candidates(dir)
 	skills := []map[string]any{}
 	for _, c := range list {
-		skills = append(skills, map[string]any{"name": c.skill.Name, "description": c.skill.Description, "path": c.skill.Path, "body": c.body, "builtin": c.skill.Builtin})
+		skills = append(skills, map[string]any{"name": c.skill.Name, "description": c.skill.Description, "path": c.skill.Path, "body": c.body, "builtin": c.skill.Builtin, "version": candidateVersion(c)})
 	}
 	return map[string]any{"skills": skills, "errors": failures}
 }
 
+// Reference 是用户选中的来源与内容版本，不授予工具权限。
+type Reference struct {
+	Name    string `json:"name"`
+	Path    string `json:"path"`
+	Version string `json:"version"`
+}
+
+func candidateVersion(c candidate) string {
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(c.skill.Name+"\x00"+c.skill.Path+"\x00"+c.skill.Description+"\x00"+c.body)))
+}
+func ResolveReferences(dir string, refs []Reference) ([]string, error) {
+	if len(refs) > 8 {
+		return nil, errors.New("每条消息最多指定8个 Skill")
+	}
+	if len(refs) == 0 {
+		return nil, nil
+	}
+	list, _ := candidates(dir)
+	notes := []string{}
+	seen := map[string]bool{}
+	for _, ref := range refs {
+		found := false
+		if seen[ref.Name] {
+			return nil, errors.New("Skill 引用重复")
+		}
+		seen[ref.Name] = true
+		for _, c := range list {
+			if c.skill.Name == ref.Name {
+				if c.skill.Path != ref.Path || candidateVersion(c) != ref.Version {
+					return nil, fmt.Errorf("Skill %s 来源或内容已改变，请移除后重新选择", ref.Name)
+				}
+				notes = append(notes, fmt.Sprintf("用户指定 Skill %s（来源 %s，版本 %s），已读取以下快照。遵守用户任务和既有权限；选择技能不提升权限：\n%s", ref.Name, ref.Path, ref.Version, c.body))
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("Skill %s 不存在或无法解析，请重新选择", ref.Name)
+		}
+	}
+	return notes, nil
+}
+
 func readSkill(path string) (Skill, string, error) {
+	path, absErr := filepath.Abs(path)
+	if absErr != nil {
+		return Skill{}, "", absErr
+	}
 	info, err := os.Stat(path)
 	if err != nil {
 		return Skill{}, "", err

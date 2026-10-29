@@ -48,6 +48,8 @@ func runTool(ctx context.Context, call llm.ToolCall) (result any, err error) {
 		return nil, llm.Permanent(errors.New("工具参数需要是有效 JSON 对象"))
 	}
 	switch call.Function.Name {
+	case "task_status", "update_plan", "report_goal":
+		return taskControl(ctx, call)
 	case "search_docs":
 		if !retrieval.Enabled {
 			return nil, llm.Permanent(errors.New("请使用 -rag 开启知识库检索"))

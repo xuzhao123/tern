@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,23 +25,87 @@ import (
 type steer struct {
 	text     string
 	clientID string
+	managed  bool
 }
 
 var steers struct {
 	sync.Mutex
-	queue  []steer
-	closed bool
+	queue    []steer
+	closed   bool
+	receipts map[string]SteerReceipt
 }
 
-// Steer 把一条插话排进下一次模型请求；这一轮已经结束时返回 false。
-func Steer(text, clientID string) bool {
+// SteerReceipt 不保留原文；managed 回执随有效上下文一起进入检查点。
+type SteerReceipt struct {
+	Hash    string `json:"hash"`
+	State   string `json:"state"`
+	Managed bool   `json:"managed,omitempty"`
+}
+
+func steerHash(text string) string { return fmt.Sprintf("%x", sha256.Sum256([]byte(text))) }
+
+func Steer(text, clientID string, managed bool) (string, error) {
 	steers.Lock()
 	defer steers.Unlock()
-	if steers.closed {
-		return false
+	if clientID != "" {
+		if previous, ok := steers.receipts[clientID]; ok {
+			if previous.Hash != steerHash(text) || previous.Managed != managed {
+				return "", errors.New("同一 client_id 不能用于不同的补充")
+			}
+			return previous.State, nil
+		}
 	}
-	steers.queue = append(steers.queue, steer{text: text, clientID: clientID})
-	return true
+	if steers.closed {
+		return "closed", nil
+	}
+	if managed && clientID == "" {
+		return "", errors.New("managed 补充需要 client_id")
+	}
+	if steers.receipts == nil {
+		steers.receipts = map[string]SteerReceipt{}
+	}
+	if clientID != "" {
+		steers.receipts[clientID] = SteerReceipt{Hash: steerHash(text), State: "pending", Managed: managed}
+	}
+	steers.queue = append(steers.queue, steer{text: text, clientID: clientID, managed: managed})
+	return "pending", nil
+}
+
+func SteerStatus(ids []string) any {
+	steers.Lock()
+	defer steers.Unlock()
+	items := map[string]SteerReceipt{}
+	for _, id := range ids {
+		if receipt, ok := steers.receipts[id]; ok {
+			items[id] = receipt
+		}
+	}
+	return map[string]any{"managed": true, "closed": steers.closed, "items": items}
+}
+func restoreSteerReceipts(receipts map[string]SteerReceipt) {
+	steers.Lock()
+	defer steers.Unlock()
+	if steers.receipts == nil {
+		steers.receipts = map[string]SteerReceipt{}
+	}
+	for id, receipt := range receipts {
+		steers.receipts[id] = receipt
+	}
+	kept := steers.queue[:0]
+	for _, item := range steers.queue {
+		if receipt, ok := receipts[item.clientID]; !ok || (receipt.State != "consumed" && receipt.State != "blocked") {
+			kept = append(kept, item)
+		}
+	}
+	steers.queue = kept
+}
+func completeSteer(item steer, state string) {
+	if item.clientID == "" {
+		return
+	}
+	steers.Lock()
+	defer steers.Unlock()
+	steers.receipts[item.clientID] = SteerReceipt{Hash: steerHash(item.text), State: state, Managed: item.managed}
 }
 
 func takeSteers() []steer {
@@ -53,17 +118,25 @@ func takeSteers() []steer {
 
 // closeSteers 在这一轮结束时调用：之后的插话不再接收，还没用上的交回去。
 // 只交文字：turn/completed 的 queued 格式不变，chat 接着把它当下一轮的问题。
-func closeSteers() []string {
+func closeSteers() ([]string, []string) {
 	steers.Lock()
 	defer steers.Unlock()
 	steers.closed = true
-	queue := steers.queue
-	steers.queue = nil
-	texts := make([]string, len(queue))
-	for i, s := range queue {
-		texts[i] = s.text
+	var texts, managed []string
+	for _, item := range steers.queue {
+		if item.managed {
+			managed = append(managed, item.clientID)
+		} else {
+			texts = append(texts, item.text)
+		}
+		if item.clientID != "" {
+			receipt := steers.receipts[item.clientID]
+			receipt.State = "unconsumed"
+			steers.receipts[item.clientID] = receipt
+		}
 	}
-	return texts
+	steers.queue = nil
+	return texts, managed
 }
 
 // steerItem 是插话在对话里的那条 userMessage：clientID 非空时带上，发它的页面据此把它从待发送区撤掉。
@@ -77,7 +150,7 @@ func steerItem(id, text, clientID string) protocol.Item {
 }
 
 // ---------- 模型向用户提问 ----------
-// ask_user 只在有人能当场回答的界面下提供（-ask-user：终端客户端与网页端打开；命令行、队列、评测与子 agent 不给）。
+// ask_user 只在有人能当场回答的界面下提供（-ask-user：终端客户端与网页端打开，子 agent 沿父任务开关继承；命令行、队列、评测默认不给）。
 // 问题经 user/requestInput 请求发给界面，agent 在这里等；没有界面或界面答不了，就告诉模型把问题写进最终回答。
 
 var AskUser bool

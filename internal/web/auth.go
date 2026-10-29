@@ -300,6 +300,11 @@ func (s *server) protect(next http.Handler) http.Handler {
 			http.Error(w, "只接受网页端页面发来的请求", http.StatusForbidden)
 			return
 		}
+		if expected := req.Header.Get("X-Tern-Account"); expected != "" && expected != u.Name {
+			w.Header().Set("X-Tern-Account-Changed", "1")
+			http.Error(w, "登录账号已改变，请刷新页面后继续", http.StatusConflict)
+			return
+		}
 		next.ServeHTTP(w, req.WithContext(context.WithValue(req.Context(), userKey{}, u)))
 	})
 }
