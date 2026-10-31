@@ -167,6 +167,11 @@ func Run(ctx context.Context, config llm.Config, question string, images []llm.I
 			state = prev.State
 		}
 	}
+	// 请求预算的档位：预算跨续跑累计，接着用检查点里的；续聊每轮从 0 重算，全新任务也是 0。
+	budget := 0
+	if resume != nil {
+		budget = resume.State.Budget
+	}
 	consumedSteers := map[string]SteerReceipt{}
 	for id, receipt := range state.ManagedSteers {
 		consumedSteers[id] = receipt
@@ -223,7 +228,7 @@ func Run(ctx context.Context, config llm.Config, question string, images []llm.I
 		}
 		cp.Step, cp.Calls, cp.Messages, cp.Summary, cp.Progress = completed, client.Calls, conversation.View, summary, loop
 		grantMu.Lock()
-		cp.State = State{ManagedSteers: consumedSteers, Private: privateSources, Granted: slices.Clone(granted), Seen: workspace.Seen(), Env: conversation.env, Announced: conversation.announced}
+		cp.State = State{ManagedSteers: consumedSteers, Private: privateSources, Granted: slices.Clone(granted), Seen: workspace.Seen(), Env: conversation.env, Budget: budget, Announced: conversation.announced}
 		grantMu.Unlock()
 		cp.Input, cp.Output, cp.Cached, cp.LogSeq = client.Input, client.Completion, client.Cached, journalSeq()
 		return cp.write()
@@ -341,6 +346,12 @@ func Run(ctx context.Context, config llm.Config, question string, images []llm.I
 			for _, text := range workspace.Reminders() {
 				conversation.Append(llm.Reminder(text))
 				fmt.Printf("Reminder: %s\n", firstLine(text))
+			}
+			// 请求预算用到一半、四分之三时各提醒一次：用满会直接停下，模型事先不知道还剩几次请求。
+			if level := budgetLevel(client.Calls, maxSteps, budget); level > budget {
+				budget = level
+				conversation.Append(llm.Reminder(fmt.Sprintf("[请求预算] 已用 %d / %d 次模型请求（含摘要）。用完会直接停下，没有机会再给最终回答。只做任务交给你的部分：任务或文档写明由别人做的检查，即使这里做得到也不要做；自己那部分做完就给最终回答，没做的列出来。", client.Calls, maxSteps)))
+				fmt.Printf("Budget reminder: level=%d calls=%d max=%d\n", level, client.Calls, maxSteps)
 			}
 			// 用户在这一轮进行中说的话，作为用户消息排在最后，和首问一样先过 UserPromptSubmit hook。
 			batch := takeSteers()

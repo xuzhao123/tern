@@ -74,6 +74,8 @@ type State struct {
 	Env map[string]string `json:"env,omitempty"`
 	// 已经提醒过的用量档位（50、75）。续聊时上下文是接着的，档位也接着；压缩后清零。
 	Announced int `json:"announced,omitempty"`
+	// 已经提醒过的请求预算档位（50、75）。预算跨续跑累计，续跑接着用；续聊每轮从 0 重算，压缩不变。
+	Budget int `json:"budget,omitempty"`
 }
 
 // FinalCheck 是收尾检查的结论：Passed 为 false 时 Detail 是 hook 给出的原因（比如编译错误）。

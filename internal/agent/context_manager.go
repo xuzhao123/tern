@@ -419,6 +419,22 @@ func (c *Context) remindUsage(used, capacity int) {
 	fmt.Printf("Context reminder: level=%d used=%d cap=%d\n", level, used, capacity)
 }
 
+// 请求预算（max_steps）用到一半、四分之三时各提醒一次，返回要提醒的档位；没有新档位时返回 announced。
+// 用满预算会直接停下，连最终回答都没有，模型却不知道还剩多少：事先告诉它，才会把剩下的请求留给自己那部分，
+// 不接着做任务或文档写明归别人的检查。一次越过两档（比如续跑时补了一句就过半）只发高的那一档。
+func budgetLevel(calls, maxSteps, announced int) int {
+	if maxSteps >= llm.Unlimited {
+		return announced
+	}
+	level := announced
+	for _, l := range []int{50, 75} {
+		if l > level && calls*100 >= maxSteps*l {
+			level = l
+		}
+	}
+	return level
+}
+
 // reminders 返回视图里 harness 追加的提醒原文（不是用户原话）。
 func (c *Context) reminders() []string {
 	var out []string
