@@ -151,7 +151,8 @@ func (c *conn) evalStart(m protocol.Message) (any, *protocol.Error) {
 
 func (c *conn) evalGet(m protocol.Message) (any, *protocol.Error) {
 	var input struct {
-		ID string `json:"id"`
+		ID       string `json:"id"`
+		Baseline string `json:"baseline"`
 	}
 	if ferr := decode(m, &input); ferr != nil {
 		return nil, ferr
@@ -162,9 +163,23 @@ func (c *conn) evalGet(m protocol.Message) (any, *protocol.Error) {
 		return nil, bad(404, err.Error())
 	}
 	rec := j.runner.Snapshot()
+	// 网页端可以换一份基线，或明确不对比（baseline=none）；空参数照旧用开评测时存的。
+	// 换的那份读不到要报错，免得页面把没比成的结果显示成“没有差异”。
+	baselineID := ""
 	var baseline *eval.Record
-	if rec.Baseline != "" {
-		baseline, _ = eval.Load(rec.Baseline)
+	switch input.Baseline {
+	case "none": // 明确不对比，即使记录里存了基线
+	case "":
+		if rec.Baseline != "" {
+			if b, err := eval.Load(rec.Baseline); err == nil {
+				baseline, baselineID = b, rec.Baseline
+			}
+		}
+	default:
+		if baseline, err = eval.Load(input.Baseline); err != nil {
+			return nil, bad(404, "基线 "+input.Baseline+" 读不到："+err.Error())
+		}
+		baselineID = input.Baseline
 	}
 	s.evals.mu.Lock()
 	busy := j.busy
@@ -178,7 +193,7 @@ func (c *conn) evalGet(m protocol.Message) (any, *protocol.Error) {
 		}
 		info[cs.ID] = map[string]any{"question": cs.Question, "reference": cs.Reference, "group": cs.Group, "suite": cs.Suite, "holdout": cs.Holdout, "args": cs.Args, "ablation": cs.Ablation, "graders": graders}
 	}
-	return map[string]any{"record": rec, "busy": busy, "summary": eval.Summarize(rec, cases, baseline), "cards": eval.Cards(rec, cases), "cases": info}, nil
+	return map[string]any{"record": rec, "busy": busy, "summary": eval.Summarize(rec, cases, baseline), "baseline_id": baselineID, "cards": eval.Cards(rec, cases), "cases": info}, nil
 }
 
 // eval/action：stop、resume、regrade、replay、note 五个动作，参数与原来一样。

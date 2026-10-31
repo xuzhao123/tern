@@ -50,6 +50,7 @@ type Score struct {
 	Tokens     float64 `json:"tokens_per_trial"`
 	TokensPass float64 `json:"tokens_per_pass"`            // 每答对一次花的 token（答错的花费也算进去）
 	Cached     float64 `json:"cached_per_trial,omitempty"` // 每试次 tokens 里命中缓存的输入
+	Calls      float64 `json:"calls_per_trial"`            // 每试次模型请求次数
 	Seconds    float64 `json:"p50_seconds"`
 }
 
@@ -65,6 +66,11 @@ type CaseScore struct {
 	Pass1    float64 `json:"pass1"`
 	AllPass  bool    `json:"all_pass"`
 	Flaky    bool    `json:"flaky"` // 有过有不过：偶发失败，和稳定失败分开看
+	// 成本按计分的试次取平均：k=3 时中位数只是中间那一次，平均才能和总花费对上。
+	Calls    float64 `json:"calls_per_trial"`
+	Tokens   float64 `json:"tokens_per_trial"`
+	Uncached float64 `json:"uncached_per_trial"`
+	Seconds  float64 `json:"seconds_per_trial"`
 }
 
 type Delta struct {
@@ -84,6 +90,23 @@ type Compare struct {
 	Regressed []string `json:"regressed"` // 基线 k 次全过，这次没有全过
 	Fixed     []string `json:"fixed"`     // 基线一次都没过，这次全过
 	Changed   []string `json:"changed"`   // 其余有变化的题
+	Cost      CostDiff `json:"cost"`      // 共同题上的成本差，和通过率一样逐题配对
+}
+
+// CostDiff 是共同题上每试次的成本差；Base 是基线在这些题上的平均，用来算百分比。
+type CostDiff struct {
+	Calls    float64  `json:"calls"`
+	Tokens   float64  `json:"tokens"`
+	Uncached float64  `json:"uncached"`
+	Seconds  float64  `json:"seconds"`
+	Base     CaseCost `json:"base"`
+}
+
+type CaseCost struct {
+	Calls    float64 `json:"calls"`
+	Tokens   float64 `json:"tokens"`
+	Uncached float64 `json:"uncached"`
+	Seconds  float64 `json:"seconds"`
 }
 
 type Count struct {
@@ -192,6 +215,10 @@ func caseScores(trials []*Trial, info map[string]Case, keep func(*Trial) bool) [
 		if t.Pass {
 			cs.Passed++
 		}
+		cs.Calls += float64(t.Calls)
+		cs.Tokens += float64(t.Tokens)
+		cs.Uncached += float64(t.Tokens - t.Cached)
+		cs.Seconds += t.Seconds
 	}
 	list := []CaseScore{}
 	for _, id := range order {
@@ -199,6 +226,11 @@ func caseScores(trials []*Trial, info map[string]Case, keep func(*Trial) bool) [
 		cs.Pass1 = float64(cs.Passed) / float64(cs.Trials)
 		cs.AllPass = cs.Passed == cs.Trials
 		cs.Flaky = cs.Passed > 0 && !cs.AllPass
+		n := float64(max(1, cs.Trials))
+		cs.Calls /= n
+		cs.Tokens /= n
+		cs.Uncached /= n
+		cs.Seconds /= n
 		list = append(list, *cs)
 	}
 	return list
@@ -226,7 +258,7 @@ func score(name string, rec *Record, cases []CaseScore, keep func(CaseScore) boo
 	}
 	sc.Pass1, sc.SE = meanSE(rates)
 	sc.PassK /= float64(sc.Cases)
-	done, tokens, cached := 0, 0, 0
+	done, tokens, cached, calls := 0, 0, 0, 0
 	var seconds []float64
 	for _, t := range rec.Trials {
 		if t.Arm != "with" || !ids[t.Case] || !scored(t) {
@@ -234,6 +266,7 @@ func score(name string, rec *Record, cases []CaseScore, keep func(CaseScore) boo
 		}
 		tokens += t.Tokens
 		cached += t.Cached
+		calls += t.Calls
 		seconds = append(seconds, t.Seconds)
 		if t.Status == "done" {
 			done++
@@ -242,6 +275,7 @@ func score(name string, rec *Record, cases []CaseScore, keep func(CaseScore) boo
 	sc.Completion = float64(done) / float64(max(1, sc.Trials))
 	sc.Tokens = float64(tokens) / float64(max(1, sc.Trials))
 	sc.Cached = float64(cached) / float64(max(1, sc.Trials))
+	sc.Calls = float64(calls) / float64(max(1, sc.Trials))
 	if sc.Passed > 0 {
 		sc.TokensPass = float64(tokens) / float64(sc.Passed)
 	}
@@ -343,7 +377,25 @@ func compare(baseline *Record, current []CaseScore, info map[string]Case) *Compa
 		case b.Pass1 != c.Pass1:
 			cmp.Changed = append(cmp.Changed, c.ID)
 		}
+		// 成本差和通过率一样逐题配对：先在题内取平均（caseScores 已经做了），再对题取差。
+		cmp.Cost.Calls += c.Calls - b.Calls
+		cmp.Cost.Tokens += c.Tokens - b.Tokens
+		cmp.Cost.Uncached += c.Uncached - b.Uncached
+		cmp.Cost.Seconds += c.Seconds - b.Seconds
+		cmp.Cost.Base.Calls += b.Calls
+		cmp.Cost.Base.Tokens += b.Tokens
+		cmp.Cost.Base.Uncached += b.Uncached
+		cmp.Cost.Base.Seconds += b.Seconds
 	}
 	cmp.MeanDiff, cmp.SE = meanSE(diffs)
+	n := float64(max(1, cmp.Common))
+	cmp.Cost.Calls /= n
+	cmp.Cost.Tokens /= n
+	cmp.Cost.Uncached /= n
+	cmp.Cost.Seconds /= n
+	cmp.Cost.Base.Calls /= n
+	cmp.Cost.Base.Tokens /= n
+	cmp.Cost.Base.Uncached /= n
+	cmp.Cost.Base.Seconds /= n
 	return cmp
 }

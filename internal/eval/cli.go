@@ -161,8 +161,8 @@ func report(r *Runner, baselineID string) error {
 		if sc.Cached > 0 {
 			cache = fmt.Sprintf("（缓存命中 %s，其余 %.0f）", pct(sc.Cached/sc.Tokens), sc.Tokens-sc.Cached)
 		}
-		fmt.Printf("  %-8s %2d 题 × k=%d：pass@1 %s ± %s（95%% 区间 ±1.96 SE）  pass^%d %s  完成率 %s  每试次 %.0f tokens%s  每次答对 %.0f tokens  P50 %.1fs\n",
-			sc.Name, sc.Cases, sc.K, pct(sc.Pass1), pct(1.96*sc.SE), sc.K, pct(sc.PassK), pct(sc.Completion), sc.Tokens, cache, sc.TokensPass, sc.Seconds)
+		fmt.Printf("  %-8s %2d 题 × k=%d：pass@1 %s ± %s（95%% 区间 ±1.96 SE）  pass^%d %s  完成率 %s  每试次 %.1f 次请求  每试次 %.0f tokens%s  每次答对 %.0f tokens  P50 %.1fs\n",
+			sc.Name, sc.Cases, sc.K, pct(sc.Pass1), pct(1.96*sc.SE), sc.K, pct(sc.PassK), pct(sc.Completion), sc.Calls, sc.Tokens, cache, sc.TokensPass, sc.Seconds)
 	}
 	line(s.Main)
 	for _, sc := range s.Suites {
@@ -180,7 +180,7 @@ func report(r *Runner, baselineID string) error {
 				mark = "~"
 			}
 		}
-		fmt.Printf("  %s %-18s %-8s %d/%d  %s\n", mark, c.ID, c.Group, c.Passed, c.Trials, clip(c.Question, 50))
+		fmt.Printf("  %s %-18s %-8s %d/%d  %s  %.0f 次请求 · 未命中 %.0fk · %.0fs\n", mark, c.ID, c.Group, c.Passed, c.Trials, clip(c.Question, 50), c.Calls, c.Uncached/1000, c.Seconds)
 	}
 	if cd := s.Coding; cd != nil {
 		fmt.Printf("\n编码题：%d 个试次，模型自称完成 %d 次，校验全部通过 %d 次；自称完成但校验没过（误报）%d 次，没正常结束但校验通过 %d 次，被逼收尾 %d 次\n",
@@ -195,6 +195,23 @@ func report(r *Runner, baselineID string) error {
 	if c := s.Compare; c != nil {
 		fmt.Printf("\n与基线 %s 配对比较（%d 道共同的题）：平均差 %+.1f 个百分点 ± %.1f（1.96 SE）\n  回归：%v\n  修复：%v\n  其他变化：%v\n",
 			c.Baseline, c.Common, c.MeanDiff*100, 1.96*c.SE*100, c.Regressed, c.Fixed, c.Changed)
+		// 百分比以基线在共同题上的平均为分母；基线为 0 时没有百分比可比。
+		pctOf := func(diff, base float64) string {
+			if base == 0 {
+				return ""
+			}
+			return fmt.Sprintf("（%+.0f%%）", diff/base*100)
+		}
+		tokensStr := func(v float64) string {
+			if v >= 1e6 || v <= -1e6 {
+				return fmt.Sprintf("%+.1fM", v/1e6)
+			}
+			return fmt.Sprintf("%+.0fk", v/1000)
+		}
+		cd := c.Cost
+		fmt.Printf("成本（共同题逐题平均差）：请求 %+.1f 次%s · tokens %s%s · 未命中 %+.0fk%s · 耗时 %+.0fs%s\n",
+			cd.Calls, pctOf(cd.Calls, cd.Base.Calls), tokensStr(cd.Tokens), pctOf(cd.Tokens, cd.Base.Tokens),
+			cd.Uncached/1000, pctOf(cd.Uncached, cd.Base.Uncached), cd.Seconds, pctOf(cd.Seconds, cd.Base.Seconds))
 	}
 	if len(s.Infra) > 0 {
 		fmt.Printf("\n上游限流、额度或故障没跑完 %d 个试次，不计入上面的分数；额度恢复后用 -case %s 重跑\n", len(s.Infra), strings.Join(slices.Compact(slices.Sorted(slices.Values(s.Infra))), ","))

@@ -278,7 +278,7 @@ tern -question '计算 1231+23123'
 | `go run . mcp-server [-remote 别名]` | 把 tern 当 MCP server（stdio）：名字 `tern`，版本是程序的版本。别的 agent 客户端（Claude Code、Codex）把一件事交给 tern 做，tern 经 app-server 开对话（和网页端、chat 一样，所以对话进列表、审批在网页端答），等这一轮结束再返回 `{thread_id, outcome, answer}`。三个工具：`tern_start`（`prompt`，可选 `workspace`、`provider`、`model`、`permission`）、`tern_reply`（`thread_id`、`prompt`，可选 `permission`）、`tern_threads`（`limit`，默认 20）。等的时候每 10 秒发一次进度通知（第几次模型请求；在等审批时写“去网页端答复”），调用方取消这次调用就发 `turn/interrupt` 停这一轮。`-remote` 经 ssh 连远端的 app-server（同 `tern web -remote`）。怎么配进客户端见下面“把 tern 当 MCP server” |
 | `go run . queue` | 任务队列：按 `queue/tasks.jsonl` 逐个执行，每个任务一个 agent 子进程，同一个 id 只执行一次；用仓库里的 `queue/tasks.jsonl` 要 `TERN_HOME=$PWD` |
 | `go run . metrics [-since 168h] [-prefix ID前缀] [-tenant 租户] [-json]` | 统计完成率、耗时、成本等核心指标，只读 `.data/` |
-| `go run . eval` / `go run . eval -cases eval/coding-cases.jsonl` | 评测：通用评测集（每题 k 次、DeepSeek 评审，需要 `DEEPSEEK_API_KEY`）或编码任务评测（每个试次一份新的仓库拷贝，校验命令在沙箱里只读运行）；`eval triage`、`eval replay` 做失败归因与回放；网页端左侧“评测与归因”是同一功能的页面；用仓库里的 `eval/*.jsonl` 要 `TERN_HOME=$PWD` |
+| `go run . eval` / `go run . eval -cases eval/coding-cases.jsonl` | 评测：通用评测集（每题 k 次、DeepSeek 评审，需要 `DEEPSEEK_API_KEY`）或编码任务评测（每个试次一份新的仓库拷贝，校验命令在沙箱里只读运行）；报告有逐题的请求次数、未命中 tokens、耗时，和基线比时（`-baseline`）另有成本差；`eval triage`、`eval replay` 做失败归因与回放；网页端左侧“评测与归因”是同一功能的页面，详情页可以换基线；用仓库里的 `eval/*.jsonl` 要 `TERN_HOME=$PWD` |
 | `go run . audit [-tenant 租户] [-task ID] [-verify]` | 列出并校验审计日志（只追加、哈希链）；网页端左侧“审计日志”是只读页面 |
 | `go run . rewind [-tenant 租户] [-dry-run] [-mode both\|files\|chat] <轮次ID>` | 撤销这一轮及之后各轮用编码工具改过的文件，对话退回上一轮；`-mode files` 只退文件、`chat` 只退对话；网页端每轮问题下的“撤销”对话框（三种选法）和 chat 的 `/rewind <轮> [both\|files\|chat]` 是同一功能 |
 

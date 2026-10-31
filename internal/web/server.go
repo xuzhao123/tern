@@ -1612,7 +1612,7 @@ func (s *server) evalCases(w http.ResponseWriter, req *http.Request) {
 }
 
 func (s *server) getEval(w http.ResponseWriter, req *http.Request) {
-	s.reply(w, req, "eval/get", map[string]any{"id": req.PathValue("id")})
+	s.reply(w, req, "eval/get", map[string]any{"id": req.PathValue("id"), "baseline": req.URL.Query().Get("baseline")})
 }
 
 func (s *server) startEval(w http.ResponseWriter, req *http.Request) {

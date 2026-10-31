@@ -24,6 +24,7 @@ export async function openEvals(id, updateURL = true) {
   if (!panel) return;
   panel.classList.add("evalpanel");
   if (updateURL) evalURL(id);
+  if (ui.evalOpen !== id) ui.evalBaseline = undefined; // 换了评测，之前选的对比基线不再适用
   ui.evalOpen = id;
   if (id) return evalDetail(panel, id);
   panel.querySelector("p.meta").textContent = "评测集 eval/cases.jsonl：固定题目、参考答案和打分器（先确定性检查，开放题由 DeepSeek 三票评审）。每道题跑 k 次，每次是一个新的 agent 任务；报告 pass@1（含按题聚类的标准误）与 pass^k，答对率和完成率分开。命令行 go run . eval 读写同一份记录。";
@@ -129,9 +130,17 @@ function trialChip(t, onclick) {
   return b;
 }
 async function evalDetail(panel, id) {
-  let data;
-  try { const res = await fetch(api("/evals/" + encodeURIComponent(id))); if (!res.ok) throw new Error(await res.text()); data = await res.json(); }
+  let data, list = [];
+  // ui.evalBaseline：没换过（undefined）就用记录里存的那份；"" 表示明确不对比；其余是评测 ID。
+  const want = ui.evalBaseline;
+  try {
+    const base = want === undefined ? "" : "?baseline=" + encodeURIComponent(want || "none");
+    const res = await fetch(api("/evals/" + encodeURIComponent(id) + base));
+    if (!res.ok) throw new Error(await res.text());
+    data = await res.json();
+  }
   catch (err) { panel.lastChild.replaceWith(el("div", "err", "读取失败：" + err.message)); return; }
+  try { list = await (await fetch(api("/evals"))).json(); } catch { list = []; }
   if (!panel.isConnected || ui.evalOpen !== id) return;
   const { record: rec, summary: sum, cards, cases, busy } = data;
   const running = !!busy;
@@ -151,6 +160,14 @@ async function evalDetail(panel, id) {
     if (rec.kind !== "attribution" && rec.trials.some((t) => t.status === "interrupted" || t.status === "running")) action("继续未完成的试次", "resume");
     action("重新打分", "regrade", "用当前的打分器和评审模型重新打分（会请求 DeepSeek，不重跑 agent）。继续？");
   }
+  // 对比基线：默认是记录里存的那份（baseline_id），可以在这里换成别的记录或不比。
+  const baseSel = el("select", "eval-baseline");
+  baseSel.title = "与哪份记录逐题对比";
+  baseSel.append(new Option("不对比", ""));
+  for (const r of list) if (r.id !== id) baseSel.append(new Option(`${r.id} · commit ${r.commit} · ${r.model || "模型未知"}`, r.id));
+  baseSel.value = want !== undefined ? want : (data.baseline_id || "");
+  baseSel.onchange = () => { ui.evalBaseline = baseSel.value; evalDetail(panel, id); };
+  bar.append(baseSel);
   body.append(bar);
   if (rec.kind === "attribution") {
     intro.textContent = `对话归因 · ${evalStatus(rec.status, busy)} · commit ${rec.commit}`;
@@ -169,13 +186,19 @@ async function evalDetail(panel, id) {
   const parts = attr ? [] : [...sum.suites, ...(sum.network ? [sum.network] : [])];
   if (parts.length) {
     const t = el("table", "eval-table");
-    t.innerHTML = `<tr><th>范围</th><th>题</th><th>pass@1</th><th>pass^${rec.k}</th><th>完成率</th><th>每试次 tokens</th></tr>`;
-    for (const p of parts) { const tr = el("tr"); tr.append(el("td", "", p.name), el("td", "num", p.cases), el("td", "num", `${pctf(p.pass1)} ± ${pctf(1.96 * p.se)}`), el("td", "num", pctf(p.passk)), el("td", "num", pctf(p.completion)), el("td", "num", Math.round(p.tokens_per_trial))); t.append(tr); }
+    t.innerHTML = `<tr><th>范围</th><th>题</th><th>pass@1</th><th>pass^${rec.k}</th><th>完成率</th><th>每试次请求</th><th>每试次 tokens</th></tr>`;
+    for (const p of parts) { const tr = el("tr"); tr.append(el("td", "", p.name), el("td", "num", p.cases), el("td", "num", `${pctf(p.pass1)} ± ${pctf(1.96 * p.se)}`), el("td", "num", pctf(p.passk)), el("td", "num", pctf(p.completion)), el("td", "num", p.calls_per_trial.toFixed(1)), el("td", "num", Math.round(p.tokens_per_trial))); t.append(tr); }
     body.append(t);
   }
   if (sum.compare) {
     const c = sum.compare;
     body.append(el("h3", "", "与基线逐题对比"), el("div", "sub", `基线 ${c.baseline} · ${c.common} 道共同的题 · 配对平均差 ${(c.mean_diff * 100).toFixed(1)} 个百分点 ± ${(1.96 * c.se * 100).toFixed(1)}`));
+    // 成本差与通过率同一批题：逐题（题内平均后）求差，再对题取平均；百分比以基线为分母。
+    const sg = (v, n = 0) => (v >= 0 ? "+" : "") + v.toFixed(n);
+    const pctOf = (d, b) => (b ? `（${sg((d / b) * 100)}%）` : "");
+    const tokens = (v) => (Math.abs(v) >= 1e6 ? sg(v / 1e6, 1) + "M" : sg(v / 1000) + "k");
+    const ct = c.cost;
+    if (ct) body.append(el("div", "sub", `成本（共同题逐题平均差）：请求 ${sg(ct.calls, 1)} 次${pctOf(ct.calls, ct.base.calls)} · tokens ${tokens(ct.tokens)}${pctOf(ct.tokens, ct.base.tokens)} · 未命中 ${sg(ct.uncached / 1000)}k${pctOf(ct.uncached, ct.base.uncached)} · 耗时 ${sg(ct.seconds)}s${pctOf(ct.seconds, ct.base.seconds)}`));
     for (const [label, ids, cls] of [["回归（基线全对，这次没有全对）", c.regressed, "err"], ["修复（基线全错，这次全对）", c.fixed, "meta"], ["其他变化", c.changed, "meta"]])
       body.append(el("div", cls, `${label}：${ids.length ? ids.join("、") : "无"}`));
   }
@@ -194,19 +217,24 @@ async function evalDetail(panel, id) {
   // 逐题：每个方块是一次尝试（✓ 通过 ✗ 未通过 … 运行中 · 排队）；点开看答案、检查与工具序列。
   body.append(el("h3", "", attr ? "原对话按诊断写出的标准评判" : "逐题"), el("div", "sub", "每个方块是一次尝试，点开看答案、每项检查和工具序列；“轨迹”打开这次尝试的完整对话与调用链"));
   const table = el("table", "eval-table");
-  table.innerHTML = "<tr><th>用例</th><th>分组</th><th>尝试</th><th>通过</th><th>题目</th></tr>";
+  table.innerHTML = "<tr><th>用例</th><th>分组</th><th>尝试</th><th>通过</th><th>请求</th><th>未命中</th><th>耗时</th><th>题目</th></tr>";
   const byCase = new Map();
   for (const t of rec.trials) { if (!byCase.has(t.case)) byCase.set(t.case, []); byCase.get(t.case).push(t); }
+  // 逐题成本取汇总里的平均值；还没有计分试次的题没有这一行，留空。
+  const costOf = new Map((sum.cases || []).map((c) => [c.id, c]));
   const all = [...rec.trials, ...(rec.replays || []).flatMap((r) => r.trials)];
   for (const [cid, trials] of byCase) {
     const info = cases[cid] || {}, tr = el("tr"), idCell = el("td", "mono", cid), chips = el("td");
     idCell.append(...caseTags({ ...info, network: false }));
     for (const t of trials) chips.append(trialChip(t, () => { ui.evalTrial = ui.evalTrial === t.task_id ? null : t.task_id; evalDetail(panel, id); }));
     const done = trials.filter((t) => t.arm === "with" && (t.status === "done" || t.status === "failed"));
-    tr.append(idCell, el("td", "", info.group || ""), chips, el("td", "num", done.length ? `${done.filter((t) => t.pass).length}/${done.length}` : "—"), el("td", "", clip(info.question || "", 46)));
+    const cs = costOf.get(cid);
+    tr.append(idCell, el("td", "", info.group || ""), chips, el("td", "num", done.length ? `${done.filter((t) => t.pass).length}/${done.length}` : "—"),
+      el("td", "num", cs ? Math.round(cs.calls_per_trial) : "—"), el("td", "num", cs ? kfmt(Math.round(cs.uncached_per_trial)) : "—"),
+      el("td", "num", cs ? Math.round(cs.seconds_per_trial) + " s" : "—"), el("td", "", clip(info.question || "", 46)));
     table.append(tr);
     const open = trials.find((t) => t.task_id === ui.evalTrial);
-    if (open) { const row = el("tr"), cell = el("td"); cell.colSpan = 5; cell.append(trialView(open, info)); row.append(cell); table.append(row); }
+    if (open) { const row = el("tr"), cell = el("td"); cell.colSpan = 8; cell.append(trialView(open, info)); row.append(cell); table.append(row); }
   }
   const scroll = el("div", "eval-scroll"); scroll.append(table); body.append(scroll);
   // 归因卡片 → 人工开放编码（只记第一个上游错误）→ 归类计数 → 回放验证。
