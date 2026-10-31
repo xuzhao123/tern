@@ -28,7 +28,7 @@ def call(method, path, body=None):
     try: data = json.loads(text)
     except json.JSONDecodeError: data = text
     return res.status, data
-assert call('POST', '/login', {'name': config.get('OBSERVER_TEST_USER', 'qa'), 'password': config['OBSERVER_TEST_PASSWORD'].strip('"\'')})[0] == 200
+assert call('POST', '/login', {'name': config.get('TERN_QA_USER', config.get('OBSERVER_TEST_USER', 'qa')), 'password': (config.get('TERN_QA_PASSWORD') or config['OBSERVER_TEST_PASSWORD']).strip('"\'')})[0] == 200
 def read(path): return call('GET', f'/runs/{task}/workspace/file?' + urllib.parse.urlencode({'path': str(path)}))
 def events(): return [json.loads(x) for x in (home / '.data/runs' / f'{task}.jsonl').read_bytes().split(b'\n')[:-1] if x]
 before = len([e for e in events() if e['kind'] == 'request'])

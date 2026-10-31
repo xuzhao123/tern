@@ -35,7 +35,7 @@ def call(method, path, body=None):
         data = res.read().decode()
         return json.loads(data) if data else None
 
-call('POST', '/login', {'name': config.get('OBSERVER_TEST_USER', 'qa'), 'password': config['OBSERVER_TEST_PASSWORD'].strip('"\'')})
+call('POST', '/login', {'name': config.get('TERN_QA_USER', config.get('OBSERVER_TEST_USER', 'qa')), 'password': (config.get('TERN_QA_PASSWORD') or config['OBSERVER_TEST_PASSWORD']).strip('"\'')})
 repo = home / 'panel-fixtures' / str(uuid.uuid4()) / 'panel-repo'
 repo.mkdir(parents=True)
 subprocess.run(['git', 'init', '-q', str(repo)], check=True)

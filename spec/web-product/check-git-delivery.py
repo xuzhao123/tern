@@ -13,7 +13,7 @@ def call(method,path,body=None):
  try:data=json.loads(data)
  except json.JSONDecodeError:pass
  return res.status,data
-assert call('POST','/login',{'name':config.get('OBSERVER_TEST_USER','qa'),'password':config['OBSERVER_TEST_PASSWORD'].strip('\"\'')})[0]==200
+assert call('POST','/login',{'name':config.get('TERN_QA_USER', config.get('OBSERVER_TEST_USER', 'qa')),'password':(config.get('TERN_QA_PASSWORD') or config['OBSERVER_TEST_PASSWORD']).strip('\"\'')})[0]==200
 repo=home/'git-delivery-fixtures'/uuid.uuid4().hex;repo.mkdir(parents=True)
 def git(*args):return subprocess.check_output(['git',*args],cwd=repo,text=True).strip()
 git('init','-b','main');git('config','user.name','Tern QA');git('config','user.email','tern-qa@example.invalid');git('config','commit.gpgSign','false');git('config','core.hooksPath',str(repo/'.git/hooks'));git('config','core.autocrlf','false')

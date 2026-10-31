@@ -22,7 +22,7 @@ def call(method, path, body=None):
     try: value = json.loads(text)
     except json.JSONDecodeError: value = text
     return res.status, value
-assert call('POST','/login',{'name':cfg.get('OBSERVER_TEST_USER','qa'),'password':cfg['OBSERVER_TEST_PASSWORD'].strip('\"\'')})[0] == 200
+assert call('POST','/login',{'name':cfg.get('TERN_QA_USER', cfg.get('OBSERVER_TEST_USER', 'qa')),'password':(cfg.get('TERN_QA_PASSWORD') or cfg['OBSERVER_TEST_PASSWORD']).strip('\"\'')})[0] == 200
 record = home / 'subresume-results.json'
 def events(task): return [json.loads(line) for line in (home / '.data/runs' / (task + '.jsonl')).read_text().splitlines()]
 def wait(task, predicate):

@@ -13,7 +13,7 @@ def call(method,path,body=None):
  try:data=json.loads(data)
  except json.JSONDecodeError:pass
  return res.status,data
-assert call('POST','/login',{'name':config.get('OBSERVER_TEST_USER','qa'),'password':config['OBSERVER_TEST_PASSWORD'].strip('\"\'')})[0]==200
+assert call('POST','/login',{'name':config.get('TERN_QA_USER', config.get('OBSERVER_TEST_USER', 'qa')),'password':(config.get('TERN_QA_PASSWORD') or config['OBSERVER_TEST_PASSWORD']).strip('\"\'')})[0]==200
 report={'checks':[]};out=home/'goal-arbitration.json'
 def save():out.write_text(json.dumps(report,ensure_ascii=False,indent=2))
 def get():return next(r for r in call('GET','/runs')[1] if r['id']==task)

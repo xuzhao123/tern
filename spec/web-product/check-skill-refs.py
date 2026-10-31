@@ -13,7 +13,7 @@ def call(method,path,body=None):
  try:data=json.loads(data)
  except json.JSONDecodeError:pass
  return res.status,data
-assert call('POST','/login',{'name':config.get('OBSERVER_TEST_USER','qa'),'password':config['OBSERVER_TEST_PASSWORD'].strip('\"\'')})[0]==200
+assert call('POST','/login',{'name':config.get('TERN_QA_USER', config.get('OBSERVER_TEST_USER', 'qa')),'password':(config.get('TERN_QA_PASSWORD') or config['OBSERVER_TEST_PASSWORD']).strip('\"\'')})[0]==200
 name='closeout-qa-'+uuid.uuid4().hex[:8];folder=home/'skills'/name;folder.mkdir(parents=True);file=folder/'SKILL.md'
 source=f'---\nname: {name}\ndescription: Isolated QA text response skill\n---\nWhen explicitly selected, reply PINNED_SKILL_OK. Do not call tools or write memory.\n';file.write_text(source)
 try:

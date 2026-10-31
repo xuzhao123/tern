@@ -25,7 +25,7 @@ def client():
         try:value=json.loads(text)
         except json.JSONDecodeError:value=text
         return response.status,value
-    assert call('POST','/login',{'name':cfg.get('OBSERVER_TEST_USER','qa'),'password':cfg['OBSERVER_TEST_PASSWORD'].strip('\"\'')})[0]==200
+    assert call('POST','/login',{'name':cfg.get('TERN_QA_USER', cfg.get('OBSERVER_TEST_USER', 'qa')),'password':(cfg.get('TERN_QA_PASSWORD') or cfg['OBSERVER_TEST_PASSWORD']).strip('\"\'')})[0]==200
     return call
 call,other=client(),client()
 report={'scenario':a.scenario};report_path=home/f'managed-steer-{a.scenario}.json'

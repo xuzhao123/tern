@@ -25,9 +25,9 @@ tern 是用 Go 实现的 agent harness，由 learning-agent 演变而来。启�
 
 ## 验证
 
-- gofmt、`go vet`、`go build`，改了页面脚本再 `node --check`；然后用真实模型实际运行。不写 mock、脚本模型，不写死模型的工具决策与答案。目前不写 `*_test.go`，要引入先问用户。
+- gofmt、`go vet`、`go build`，改了页面脚本再 `node --check`；然后用真实模型实际运行。不写 mock、脚本模型，不写死模型的工具决策与答案。例外（用户 2026-10-31 同意）：编码评测题的校验脚本（`eval/coding/checks/`）在没有模型的沙箱里跑，可以用本地假的模型接口、假的 OAuth 或 ssh 来检查代码行为；它校验的是实现，不替代真实模型的验收。目前不写 `*_test.go`，要引入先问用户。
 - 回归门槛：改到 agent 主循环（`internal/agent`）、`internal/llm`、`internal/eval`、工具（`internal/tools`、`internal/sandbox`、`internal/workspace`、`internal/mcp`）的合并，合并前跑编码评测和通用评测，用 `-baseline` 和当前基线比（`TERN_HOME=$PWD go run . eval -cases eval/coding-cases.jsonl -k 3 -baseline <ID> -- -provider deepseek`；通用评测加 `-judge ark`）。pass@1 下降或出现回归题，先查清原因写进 spec 再合。只改网页、文档的不跑。当前基线记在 `spec/harness-next-phase.md` 的进度里。
-- 会改仓库内容的验证在临时 clone 里做，用完删除；运行 clone 编出的程序时把 `TERN_HOME` 设成 clone 或临时目录，不碰 `~/.tern`。网页端的验证用常驻账号 `qa`（账号名与密码在 `.env` 的 `OBSERVER_TEST_USER`、`OBSERVER_TEST_PASSWORD`，不写进提交的文件）。
+- 会改仓库内容的验证在临时 clone 里做，用完删除；运行 clone 编出的程序时把 `TERN_HOME` 设成 clone 或临时目录，不碰 `~/.tern`。网页端的验证用常驻账号 `qa`（账号名与密码在 `.env` 的 `TERN_QA_USER`、`TERN_QA_PASSWORD`；还没改名的 `.env` 里是旧名字 `OBSERVER_TEST_USER`、`OBSERVER_TEST_PASSWORD`，验收脚本两个都认；不写进提交的文件）。
 - 验证不在长期记忆里留下不是用户原话的事实；测试写进去的，用 `-memory-forget` 删掉。
 
 ## 数据与密钥

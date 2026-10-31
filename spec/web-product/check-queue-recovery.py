@@ -18,7 +18,7 @@ web_pid=(home/'web.pid').read_text().strip()
 binary=Path(Path('/proc',web_pid,'cmdline').read_bytes().split(b'\0')[0].decode()).resolve();assert binary.parent==home
 report=json.loads((home/'queue-results.json').read_text());task=report['task'];assert report['verified']
 config=dict(x.split('=',1) for x in (home/'.env').read_text().splitlines() if '=' in x and not x.startswith('#'))
-user=config.get('OBSERVER_TEST_USER','qa')
+user=config.get('TERN_QA_USER', config.get('OBSERVER_TEST_USER', 'qa'))
 def client():
     end=time.monotonic()+20
     o=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
@@ -32,7 +32,7 @@ def client():
         return r.status,data
     while True:
         try:
-            if call('POST','/login',{'name':user,'password':config['OBSERVER_TEST_PASSWORD'].strip('\"\'')})[0]==200:return call
+            if call('POST','/login',{'name':user,'password':(config.get('TERN_QA_PASSWORD') or config['OBSERVER_TEST_PASSWORD']).strip('\"\'')})[0]==200:return call
         except urllib.error.URLError:pass
         assert time.monotonic()<end,'QA login unavailable';time.sleep(.2)
 def state(call):

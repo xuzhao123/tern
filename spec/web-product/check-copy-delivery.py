@@ -13,7 +13,7 @@ def call(method,path,body=None):
  try:data=json.loads(data)
  except json.JSONDecodeError:pass
  return res.status,data
-assert call('POST','/login',{'name':config.get('OBSERVER_TEST_USER','qa'),'password':config['OBSERVER_TEST_PASSWORD'].strip('\"\'')})[0]==200
+assert call('POST','/login',{'name':config.get('TERN_QA_USER', config.get('OBSERVER_TEST_USER', 'qa')),'password':(config.get('TERN_QA_PASSWORD') or config['OBSERVER_TEST_PASSWORD']).strip('\"\'')})[0]==200
 repo=home/'copy-delivery-fixtures'/uuid.uuid4().hex;repo.mkdir(parents=True)
 def git(*args):return subprocess.check_output(['git',*args],cwd=repo,text=True).strip()
 git('init','-b','main');git('config','user.name','QA');git('config','user.email','qa@example.invalid');git('config','commit.gpgSign','false');(repo/'file.txt').write_text('baseline\n');git('add','file.txt');git('commit','-qm','fixture baseline');head=git('rev-parse','HEAD');(repo/'file.txt').write_text('existing user edit\n')

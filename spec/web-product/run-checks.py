@@ -106,7 +106,7 @@ def main():
     binary = str(home / "tern")
     shutil.copy2(Path(a.binary).resolve(), binary)
     password = secrets.token_urlsafe(18)
-    (home / ".env").write_text(f"DEEPSEEK_API_KEY={os.environ['DEEPSEEK_API_KEY']}\nOBSERVER_TEST_USER=qa\nOBSERVER_TEST_PASSWORD={password}\n")
+    (home / ".env").write_text(f"DEEPSEEK_API_KEY={os.environ['DEEPSEEK_API_KEY']}\nTERN_QA_USER=qa\nTERN_QA_PASSWORD={password}\n")
     os.chmod(home / ".env", 0o600)
     env = dict(os.environ, TERN_HOME=str(home))
     for user in ("qa", "qa-secondary"):

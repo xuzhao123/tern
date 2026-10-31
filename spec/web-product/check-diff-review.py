@@ -65,7 +65,7 @@ def main():
     assert 1 <= args.port <= 65535
     config = dict(line.split('=', 1) for line in (home / '.env').read_text().splitlines()
                   if '=' in line and not line.startswith('#'))
-    account = config.get('OBSERVER_TEST_USER', 'qa').strip('\"\'')
+    account = config.get('TERN_QA_USER', config.get('OBSERVER_TEST_USER', 'qa')).strip('\"\'')
     opener = urllib.request.build_opener(
         urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
     url = f'http://127.0.0.1:{args.port}'
@@ -87,7 +87,7 @@ def main():
 
     assert call('GET', '/login')[0] == 200, '请先由主任务确认 QA 服务与新 binary 就绪'
     assert call('POST', '/login', {'name': account,
-        'password': config['OBSERVER_TEST_PASSWORD'].strip('\"\'')})[0] == 200, 'QA 登录失败'
+        'password': (config.get('TERN_QA_PASSWORD') or config['OBSERVER_TEST_PASSWORD']).strip('\"\'')})[0] == 200, 'QA 登录失败'
     if args.resume:
         report_path = args.resume.resolve()
         report = json.loads(report_path.read_text())

@@ -47,10 +47,10 @@ def main():
     if args.setup_from and not (home / '.env').exists():
         source = args.setup_from.resolve()
         lines = [line for line in (source / '.env').read_text().splitlines()
-                 if line.startswith(('DEEPSEEK_', 'OBSERVER_TEST_'))]
+                 if line.startswith(('DEEPSEEK_', 'TERN_QA_', 'OBSERVER_TEST_'))]
         (home / '.env').write_text('\n'.join(lines) + '\n')
         config = dict(line.split('=', 1) for line in lines)
-        name = config.get('OBSERVER_TEST_USER', 'qa').strip('\"\'')
+        name = config.get('TERN_QA_USER', config.get('OBSERVER_TEST_USER', 'qa')).strip('\"\'')
         users = json.loads((source / '.data/users.json').read_text())
         (data_dir / 'users.json').write_text(json.dumps({
             'users': [user for user in users['users'] if user['name'] == name]}))
@@ -58,7 +58,7 @@ def main():
     (data_dir / 'users.json').chmod(0o600)
     config = dict(line.split('=', 1) for line in (home / '.env').read_text().splitlines()
                   if '=' in line and not line.startswith('#'))
-    account = config.get('OBSERVER_TEST_USER', 'qa').strip('\"\'')
+    account = config.get('TERN_QA_USER', config.get('OBSERVER_TEST_USER', 'qa')).strip('\"\'')
 
     def owned(pid):
         try:
@@ -158,7 +158,7 @@ def main():
                                    cwd=home, env=env, stdin=subprocess.DEVNULL,
                                    stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         wait(lambda: call('POST', '/login', {'name': account,
-             'password': config['OBSERVER_TEST_PASSWORD'].strip('\"\'')})[0] == 200,
+             'password': (config.get('TERN_QA_PASSWORD') or config['OBSERVER_TEST_PASSWORD']).strip('\"\'')})[0] == 200,
              'QA 登录', 20)
         original_platform = call('GET', '/settings')[1]['platform'] or {}
         hook = home / 'managed-recovery-hook.py'

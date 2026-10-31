@@ -45,11 +45,11 @@ def client(user):
         except json.JSONDecodeError:
             value = text
         return res.status, value
-    assert request("POST", "/login", {"name": user, "password": config["OBSERVER_TEST_PASSWORD"].strip("\"'")})[0] == 200
+    assert request("POST", "/login", {"name": user, "password": (config.get("TERN_QA_PASSWORD") or config["OBSERVER_TEST_PASSWORD"]).strip("\"'")})[0] == 200
     return request
 
 
-call = client(config.get("OBSERVER_TEST_USER", "qa"))
+call = client(config.get("TERN_QA_USER", config.get("OBSERVER_TEST_USER", "qa")))
 other = client("qa-secondary")
 report_path = home / "delivery-results.json"
 if args.verify_existing:
@@ -74,7 +74,7 @@ task_id = receipt["response"]["id"]
 assert call("POST", "/runs", {**body, "query": "different"})[0] == 409
 assert other("GET", "/requests/" + body["request_id"])[1]["state"] == "not_found"
 stale = {**body, "request_id": str(uuid.uuid4())}
-assert other("POST", "/runs", stale, {"X-Tern-Account": config.get("OBSERVER_TEST_USER", "qa")})[0] == 409
+assert other("POST", "/runs", stale, {"X-Tern-Account": config.get("TERN_QA_USER", config.get("OBSERVER_TEST_USER", "qa"))})[0] == 409
 assert other("GET", "/requests/" + stale["request_id"])[1]["state"] == "not_found"
 bad = {"query": "", "request_id": str(uuid.uuid4())}
 assert call("POST", "/runs", bad)[0] == 400

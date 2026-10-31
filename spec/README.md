@@ -67,7 +67,6 @@
 | `tern web` 从源码编译并自动替换占用端口的旧网页端 | 方案讨论，未排期 | 本轮会话提出，尚无独立 spec 或实现；现有 [app-server 自动替换](app-server-auto-replace.md)只处理后端，不监听源码，也不替换旧网页端进程 |
 | Go 只读模块缓存的 stat cache 警告 | 2026-10-29 复现，待处理（编码评测的校验命令在沙箱里 `go test`、`go build` 时出现） | `go: writing stat cache … read-only file system` 曾不影响结果但反复产生解释。当前模块缓存仍只读挂载；“缓存目录不存在导致启动失败”已另行修复，不代表这条警告也已解决 |
 | 知识库中的旧名称和过时说明 | 未整理 | `retrieval/corpus.md` 仍有“观测台”，检索提示词仍提 learning-agent；需一起核对资料与提示词，不只改标题 |
-| 验证账号变量改名 | 未迁移 | 约定仍使用 `OBSERVER_TEST_USER`、`OBSERVER_TEST_PASSWORD`；需要同步文档、使用方与用户本机配置。本次不读取或修改密钥 |
 | 删除对话后的子 agent 检查点清理 | 历史问题，待专项回归 | 原记录指出子 agent 的检查点可能不在 `run.turnIDs()` 的删除范围。当前删除仍按轮次列表清理；需验证子任务和分叉共享场景，尚无这项的关闭证据 |
 
 ## 已修复的旧待办

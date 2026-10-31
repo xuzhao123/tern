@@ -31,7 +31,7 @@ def client():
         except json.JSONDecodeError:
             data = text
         return res.status, data
-    assert request('POST', '/login', {'name': cfg.get('OBSERVER_TEST_USER', 'qa'), 'password': cfg['OBSERVER_TEST_PASSWORD'].strip('\"\'')})[0] == 200
+    assert request('POST', '/login', {'name': cfg.get('TERN_QA_USER', cfg.get('OBSERVER_TEST_USER', 'qa')), 'password': (cfg.get('TERN_QA_PASSWORD') or cfg['OBSERVER_TEST_PASSWORD']).strip('\"\'')})[0] == 200
     return request
 call, other = client(), client()
 def task(task_id):

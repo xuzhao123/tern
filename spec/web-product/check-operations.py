@@ -13,7 +13,7 @@ def call(method,path,body=None):
  try:data=json.loads(data)
  except json.JSONDecodeError:pass
  return res.status,data
-assert call('POST','/login',{'name':config.get('OBSERVER_TEST_USER','qa'),'password':config['OBSERVER_TEST_PASSWORD'].strip('\"\'')})[0]==200
+assert call('POST','/login',{'name':config.get('TERN_QA_USER', config.get('OBSERVER_TEST_USER', 'qa')),'password':(config.get('TERN_QA_PASSWORD') or config['OBSERVER_TEST_PASSWORD']).strip('\"\'')})[0]==200
 fixture=json.loads((home/'workpanel-results.json').read_text());task=fixture['task'];repo=Path(fixture['path']);assert repo.is_relative_to(home/'panel-fixtures')
 (repo/'.agents').mkdir(exist_ok=True);path=repo/'.agents/actions.json'
 source={'version':1,'actions':[{'name':'qa-dev','command':'python3 -u -m http.server 18080 --bind 127.0.0.1','platforms':['linux'],'background':True,'ports':[18080]},{'name':'qa-fail','command':"printf 'EXPECTED_FAILURE\\n'; exit 7",'platforms':['linux']},{'name':'qa-init','command':"printf 'COPY_INIT_PARTIAL' > qa-init-partial.txt; exit 9",'initialize':True,'platforms':['linux']}]};

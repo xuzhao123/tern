@@ -17,7 +17,7 @@ args = p.parse_args()
 home = Path(args.home).resolve()
 assert home.name.startswith((".tern-web-product-qa","tern-qa-")), "只允许专用 QA 目录"
 config = dict(line.split("=", 1) for line in (home / ".env").read_text().splitlines() if "=" in line and not line.startswith("#"))
-password = config["OBSERVER_TEST_PASSWORD"].strip("\"'")
+password = (config.get("TERN_QA_PASSWORD") or config["OBSERVER_TEST_PASSWORD"]).strip("\"'")
 
 # 重启后先等只读登录页就绪，不重试创建任务等有副作用请求。
 ready_deadline = time.monotonic() + 15
@@ -52,7 +52,7 @@ def client(user):
     return call
 
 
-qa = client(config.get("OBSERVER_TEST_USER", "qa"))
+qa = client(config.get("TERN_QA_USER", config.get("OBSERVER_TEST_USER", "qa")))
 other = client("qa-secondary")
 if args.verify_existing:
     report = json.loads((home / "navigation-results.json").read_text())

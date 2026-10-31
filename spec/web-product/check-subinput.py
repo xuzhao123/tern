@@ -28,7 +28,7 @@ def call(method, path, body=None):
     try: data = json.loads(text)
     except json.JSONDecodeError: data = text
     return response.status, data
-assert call('POST', '/login', {'name': config.get('OBSERVER_TEST_USER', 'qa'), 'password': config['OBSERVER_TEST_PASSWORD'].strip('\"\'')})[0] == 200
+assert call('POST', '/login', {'name': config.get('TERN_QA_USER', config.get('OBSERVER_TEST_USER', 'qa')), 'password': (config.get('TERN_QA_PASSWORD') or config['OBSERVER_TEST_PASSWORD']).strip('\"\'')})[0] == 200
 record = home / 'subinput-results.json'
 def get(task):
     code, rows = call('GET', '/runs')

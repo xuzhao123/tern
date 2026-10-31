@@ -14,7 +14,7 @@ def call(method,path,body=None):
  try: data=json.loads(data)
  except json.JSONDecodeError: pass
  return res.status,data
-assert call('POST','/login',{'name':config.get('OBSERVER_TEST_USER','qa'),'password':config['OBSERVER_TEST_PASSWORD'].strip('\"\'')})[0]==200
+assert call('POST','/login',{'name':config.get('TERN_QA_USER', config.get('OBSERVER_TEST_USER', 'qa')),'password':(config.get('TERN_QA_PASSWORD') or config['OBSERVER_TEST_PASSWORD']).strip('\"\'')})[0]==200
 fixture=json.loads((home/'workpanel-results.json').read_text()); task=fixture['task']; repo=Path(fixture['path']); assert repo.is_relative_to(home/'panel-fixtures')
 folder=repo/'closeout-fixture'; folder.mkdir(exist_ok=True)
 (folder/'syntax.js').write_text('const 中文 = "<script>window.UNSAFE=true</script>";\n// preserved & < >\nconsole.log(中文);\n')
