@@ -433,6 +433,14 @@ func launch(ctx context.Context, callID, command string, out io.Writer, stdin io
 	if err != nil {
 		return nil, "", llm.Permanent(fmt.Errorf("无法创建工作目录：%w", err))
 	}
+	// Go 的遥测开关是配置目录里的 mode 文件，不认 GOTELEMETRY：沙箱里的 HOME 就是这个目录，
+	// 不预先写 off 的话，Go 会把计数文件写进任务产物（.config/go/telemetry/local/*）。
+	// 已有的 mode 不动（用户或 agent 自己设的）；写不进去就算了，遥测文件只是噪声，不能挡住命令。
+	mode := filepath.Join(workspace, ".config", "go", "telemetry", "mode")
+	if _, err := os.Stat(mode); errors.Is(err, os.ErrNotExist) {
+		os.MkdirAll(filepath.Dir(mode), 0o755)
+		os.WriteFile(mode, []byte("off"), 0o644)
+	}
 	if err := startProxy(); err != nil {
 		return nil, "", llm.Permanent(fmt.Errorf("无法启动沙箱网络代理：%w", err))
 	}

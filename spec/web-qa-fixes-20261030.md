@@ -1,6 +1,6 @@
 # 网页端点验修复（2026-10-30）
 
-状态：2.1–2.4 已实现并验收（2026-10-31）。tern 用 Coconut flash 实现，49 次请求。网页端平台设置关了 bash，tern 跑不了 `node --check`，`git-delivery.js` 多写了一个 `}`；Claude Code 在沙箱外查出来后让它补改。沙箱外的三条验收都用无头 Chrome 跑通：计划面板不刷新就能批准，批准后开始实施；提交后说明为空，刷新后仍为空；插话、排队的提示在两轮都结束后消失。第 6 节没做，等用户选方案。
+状态：2.1–2.4 已实现并验收（2026-10-31）。tern 用 Coconut flash 实现，49 次请求。网页端平台设置关了 bash，tern 跑不了 `node --check`，`git-delivery.js` 多写了一个 `}`；Claude Code 在沙箱外查出来后让它补改。沙箱外的三条验收都用无头 Chrome 跑通：计划面板不刷新就能批准，批准后开始实施；提交后说明为空，刷新后仍为空；插话、排队的提示在两轮都结束后消失。第 6 节用户选了 a + c，作为第 7 节第二批由 tern 实现，2026-10-31 已验收：跑过 `go run .` 的对话，任务产物默认是"0 项，另有 4 个隐藏项"，展开后只有 `.config/go/telemetry/mode`（内容 `off`），没有计数文件；换对话再回来，列表回到收起状态。这一批 tern 没有 shell，曾想用 `open_page` 去探本机地址做验证，被 Claude Code 拒绝后自己收尾。
 
 ## 1. 为什么要改
 
@@ -61,7 +61,7 @@
 
 - 图标在虚拟机里显示成方框：是虚拟机缺字体，不是页面问题。
 - `/favicon.ico` 返回 404：只在控制台留一条错误，不影响使用。
-- 任务产物里出现 `.config/go/telemetry/...`：见第 6 节，确认之前不改。
+- 任务产物里出现 `.config/go/telemetry/...`：第一批不做，第二批见第 7 节。
 - 视觉对齐（web-product/18）、跨主机 SSH、EXT-06。
 
 ## 5. 验收
@@ -86,3 +86,47 @@
    - c. 任务产物列表默认收起以点开头的目录。
 
    建议 a + c；c 也能挡住别的工具留下的隐藏目录。
+
+   **用户已选 a + c（2026-10-31）**，见第 7 节。
+
+## 7. 第二批：任务产物里的 Go 遥测文件（a + c）
+
+### 7.1 改什么
+
+**a. 沙箱里关掉 Go 遥测。** Go 的遥测开关是 `<用户配置目录>/go/telemetry/mode` 文件（`off` 表示不写计数文件），不认 `GOTELEMETRY` 环境变量。沙箱里的 `HOME` 在宿主机上就是本对话的沙箱目录（`launch()` 里的 `workspace`）：Linux 挂到 `/scratch`（有工作区时）或 `/workspace`（没有时），macOS 直接用真实路径。所以在 `internal/sandbox/sandbox.go` 的 `launch()` 里、`os.MkdirAll(workspace, …)` 之后、`sandboxCommand` 之前，如果 `workspace/.config/go/telemetry/mode` 不存在，就建好目录、写入 `off`。已存在就不动，不覆盖用户或 agent 自己设的。写失败不挡 bash 运行，跳过即可（遥测文件只是噪声）。
+
+- 只改 `launch()`（模型的 bash、`!命令`）。`-bash-host`（`launchHost`）在宿主机上用宿主机的 HOME，不写。
+- `launch_linux.go` 里现有的 `GOTELEMETRY=off` 保留，不改。
+
+**c. 任务产物列表默认收起隐藏项。** `internal/web/page/files.js` 的 `renderFilesPanel`：路径里任一段以 `.` 开头的条目（例如 `.config`、`.config/go/telemetry/mode`、`node_modules/.bin`）默认不列出。列表末尾加一个按钮"显示隐藏项（N）"，N 是收起的条数；点了展开，按钮变成"收起隐藏项"。展开状态放在 `ui.files` 上，换对话时回到收起（和 `list`、`sel` 一起重置），不存 localStorage。标题里的"N 项"改成列出的条数，有收起的就写"N 项，另有 M 个隐藏项"。
+
+- 打开某个隐藏文件的标签（`resource` 是隐藏路径）照常能预览，不受收起影响。
+- 没有隐藏项时不显示按钮。
+
+### 7.2 按文件的改动
+
+| 文件 | 改动 |
+| --- | --- |
+| `internal/sandbox/sandbox.go` | a：`launch()` 里写 mode 文件，注释说明为什么（Go 不认 `GOTELEMETRY`，计数文件会进任务产物） |
+| `internal/sandbox/AGENTS.md` | 讲 `HOME` 的那条后面补一句：沙箱目录里预先写 `.config/go/telemetry/mode` 为 `off` |
+| `internal/web/page/files.js` | c |
+| `README.md` | 讲任务产物的地方（第 304 行附近"任务产物"）补一句：以点开头的隐藏项默认收起，可以展开 |
+
+不要改：`launch_linux.go`、`launch_darwin.go`、`internal/appserver`、其他页面脚本。
+
+### 7.3 这一批不做
+
+- 不设 `XDG_CONFIG_HOME`（做法 b）。
+- 不清理已经存在的旧对话沙箱目录里的遥测文件；c 已经把它们收起来了。
+
+### 7.4 验收
+
+**tern 自己做（沙箱里）**
+
+1. `gofmt -l .` 无输出；`go vet ./...`、`go build ./...` 通过；`node --check internal/web/page/files.js` 通过。
+2. 读代码报告：mode 文件在哪一步写、已存在时怎么处理、写失败时怎么处理；c 的判断规则和展开状态什么时候重置。
+
+**Claude Code 在沙箱外做（真实模型，临时 `TERN_HOME`，无头 Chrome）**
+
+1. 新对话里让模型在工作区跑一次 `go run .`，再打开任务产物：默认列表里没有 `.config`，有"显示隐藏项（N）"；展开后能看到 `.config/go/telemetry/mode`，内容是 `off`，没有 `.config/go/telemetry/local/` 下的计数文件。
+2. 换一条对话再回来，列表回到收起状态。

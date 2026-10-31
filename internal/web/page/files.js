@@ -66,19 +66,23 @@ export function renderFilesPanel() {
   const panel = $("subpanel"), r = ui.run, f = ui.files, tab = workTab(), resource = tab?.kind === "file" ? tab.resource : "";
   if (!r?.sandbox || ui.page !== "chat") { ui.filesOpen = false; panel.hidden = true; panel.replaceChildren(); return; }
   // 换了对话就重新读；一轮结束（exit 变化）后也重新读，看到 agent 新写的文件。
-  if (f.run !== r.id || f.exit !== r.exit) { Object.assign(f, f.run !== r.id ? { list: null, sel: null, preview: null, notice: "" } : {}, { run: r.id, exit: r.exit }); loadFiles(); }
+  if (f.run !== r.id || f.exit !== r.exit) { Object.assign(f, f.run !== r.id ? { list: null, sel: null, preview: null, notice: "", hiddenOpen: false } : {}, { run: r.id, exit: r.exit }); loadFiles(); }
   if (resource && f.list && f.sel !== resource) {
     const file = f.list.find((item) => item.path === resource);
     if (file) { previewFile(r, file); return; }
   }
   panel.hidden = false;
   panel.dataset.agent = "";
+  // 以点开头的段（.config、node_modules/.bin）默认收起：Go 遥测、各种工具的配置都会落到任务目录里，不是任务产物。
+  // 展开状态只放在 ui.files 上，换对话时回到收起；打开隐藏文件的标签照常预览，不受收起影响。
+  const all = f.list || [], hiddenOf = (x) => x.path.split("/").some((seg) => seg.startsWith("."));
+  const hidden = all.filter(hiddenOf), listed = f.hiddenOpen ? all : all.filter((x) => !hiddenOf(x));
   const head = el("div", "sp-head"), refresh = el("button", "sp-close", "↻"), close = el("button", "sp-close", "✕");
   refresh.type = close.type = "button"; refresh.title = "刷新"; close.title = "关闭";
   close.setAttribute("aria-label", "关闭沙箱文件面板");
   refresh.onclick = () => loadFiles();
   close.onclick = () => closeWorkTab();
-  head.append(el("strong", "", `任务产物 · 临时目录${f.list ? ` · ${f.list.length} 项` : ""}`), refresh, close);
+  head.append(el("strong", "", `任务产物 · 临时目录${f.list ? ` · ${listed.length} 项${hidden.length ? `，另有 ${hidden.length} 个隐藏项` : ""}` : ""}`), refresh, close);
   const tools = el("div", "fp-tools"), pick = el("input"), up = el("button", "ghost", f.uploading ? "上传中…" : "上传文件");
   pick.type = "file"; pick.multiple = true;
   pick.onchange = () => { if (pick.files.length) uploadFiles(r, [...pick.files]); };
@@ -88,14 +92,20 @@ export function renderFilesPanel() {
   const nav = el("div", "sp-list");
   if (f.err) nav.append(el("div", "meta err", f.err));
   else if (!f.list) nav.append(el("div", "meta", "读取中…"));
-  else if (!f.list.length) nav.append(el("div", "meta", "还没有文件"));
-  for (const x of f.list || []) {
+  else if (!all.length) nav.append(el("div", "meta", "还没有文件"));
+  for (const x of listed) {
     const row = el("button", "sp-item" + (x.path === f.sel ? " on" : ""));
     row.type = "button";
     row.append(el("span", "n", { dir: "▸", link: "↪", file: "·" }[x.kind] || "?"), el("span", "q", x.path), el("span", "sz", x.kind === "file" ? fmtSize(x.size) : x.kind === "link" ? "链接" : x.kind === "dir" ? "" : "其他"));
     row.title = x.time ? new Date(x.time).toLocaleString() : "";
     row.onclick = () => openWorkTab("file", x.path, x.path);
     nav.append(row);
+  }
+  if (hidden.length) {
+    const toggle = el("button", "ghost", f.hiddenOpen ? "收起隐藏项" : `显示隐藏项（${hidden.length}）`);
+    toggle.type = "button";
+    toggle.onclick = () => { f.hiddenOpen = !f.hiddenOpen; renderChat(); };
+    nav.append(toggle);
   }
   if (f.truncated) nav.append(el("div", "meta", "只列出前 1000 项"));
   const body = el("div", "sp-body");
