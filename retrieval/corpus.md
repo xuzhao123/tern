@@ -67,15 +67,15 @@ Transcript 保存本次进程收到的原文，View 是真正发送给模型的�
 
 本项目摘要请求在携带工具定义时设置 tool_choice=none，禁止摘要模型执行工具。摘要失败时保留旧 View；摘要请求也计入 max-steps，不会获得额外免费预算。
 
-## D14 | 观测台如何续聊
-来源：internal/observer/server.go；internal/agent/context_manager.go
+## D14 | 网页端如何续聊
+来源：internal/appserver/server.go；internal/agent/context_manager.go；internal/web/page/runs.js
 
-观测台续聊恢复最后一次有效请求的 View 加最后的 assistant 回答，并非重新加载全部原始记录。每个新提问重置模型请求预算；页面 Turn 编号在同一条对话中继续递增。
+网页端续聊恢复最后一次有效请求的 View 加最后的 assistant 回答，并非重新加载全部原始记录。每个新提问重置模型请求预算；页面 Turn 编号在同一条对话中继续递增。
 
 ## D15 | history 与本轮输入
-来源：internal/observer/web/runs.js
+来源：internal/web/page/runs.js；internal/web/page/observe.js
 
-观测台 history 只展示这次实际发送的历史消息，system 单列，本轮提问在 user 中。新对话 Turn 1 没有历史。message 详情可查看完整请求，包括 system、历史和本轮输入。
+网页端 history 只展示这次实际发送的历史消息，system 单列，本轮提问在 user 中。新对话 Turn 1 没有历史。message 详情可查看完整请求，包括 system、历史和本轮输入。
 
 ## D16 | RAG 放在工具层
 来源：docs/day-01/day-01-notes.md；https://manus.im/blog/Context-Engineering-for-AI-Agents-Lessons-from-Building-Manus

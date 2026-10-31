@@ -558,6 +558,9 @@ func (s *Server) drop(r *run, turns []string) error {
 			failure = os.RemoveAll(path)
 		}
 	}
+	// 子 agent 的检查点ID是父任务ID接 -sub-（见 internal/agent/subagent.go），子 agent 再开的也一样，
+	// 都落在这个目录里、名字以父任务ID打头：列一次按前缀删，不用通配拼路径。
+	entries, _ := os.ReadDir(s.abs(tenant.Path("", "checkpoints")))
 	for _, id := range turns {
 		if shared[id] {
 			continue
@@ -565,6 +568,12 @@ func (s *Server) drop(r *run, turns []string) error {
 		del(s.abs(tenant.Path("", "checkpoints", id+".json")))
 		del(s.abs(tenant.Path("", "checkpoints", id+".lock")))
 		delAll(s.abs(tenant.Path("", "checkpoints", id+".files")))
+		delAll(s.abs(tenant.Path("", "checkpoints", id+".calls")))
+		for _, entry := range entries {
+			if strings.HasPrefix(entry.Name(), id+"-sub-") {
+				delAll(s.abs(tenant.Path("", "checkpoints", entry.Name())))
+			}
+		}
 		delAll(s.abs(tenant.Path("", "browser", id)))
 	}
 	// 沙箱目录、工具输出与会话记录按对话第一轮存，所以共用第一轮的对话还在时都留着。

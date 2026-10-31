@@ -337,7 +337,10 @@ func bwrapArgs(ctx context.Context, workspace string, selfMount []string, comman
 			path = "/opt/go/bin:" + path
 			extraEnv = []string{"GOROOT=/opt/go", "GOMODCACHE=/opt/gomod", "GOCACHE=/opt/gocache",
 				// 沙箱只有 1 个 CPU（CPUQuota=100%），并行编译只会多占内存，一次编一个包。
-				"GOTMPDIR=/opt/gocache/tmp", "GOPROXY=off", "GOTOOLCHAIN=local", "GOTELEMETRY=off", "GOFLAGS=-mod=readonly -p=1"}
+				"GOTMPDIR=/opt/gocache/tmp", "GOPROXY=off", "GOTOOLCHAIN=local", "GOTELEMETRY=off",
+				// 沙箱里编出的程序不需要 VCS 信息：有 git 仓库时 Go 会按它给主模块算伪版本，还想写进
+				// 只读挂载的模块缓存，报 "go: writing stat cache: read-only file system"。
+				"GOFLAGS=-mod=readonly -p=1 -buildvcs=false"}
 		}
 	} else {
 		args = append(args, "--bind", workspace, "/workspace", "--chdir", "/workspace")

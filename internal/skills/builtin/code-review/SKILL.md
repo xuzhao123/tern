@@ -3,7 +3,7 @@ name: code-review
 description: 按“先构建、再看逻辑”的固定顺序评审 Go 代码，输出分级问题清单。用于用户请求代码评审、review、检查一段 Go 代码或补丁有没有问题、能不能合并时；不用于解释概念或写新功能。
 license: MIT
 metadata:
-  origin: learning-agent procedural memory
+  origin: tern procedural memory
 ---
 
 # Go 代码评审
