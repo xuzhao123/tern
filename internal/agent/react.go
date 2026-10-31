@@ -134,6 +134,9 @@ func Run(ctx context.Context, config llm.Config, question string, images []llm.I
 		if cp.FinalCheck != nil {
 			completed["final_check"] = cp.FinalCheck
 		}
+		if cp.ForcedFinal {
+			completed["forced_final"] = true
+		}
 		// 还没用上的插话交回界面，由它当作下一轮的问题。
 		queued, managed := closeSteers()
 		if len(queued) > 0 {
@@ -157,6 +160,8 @@ func Run(ctx context.Context, config llm.Config, question string, images []llm.I
 		// 预算跨续跑累计：否则“崩溃 → 续跑”就能绕过 max_steps 无限循环。用量同样累计，成本才是整个任务的。
 		client.Calls, client.Input, client.Completion, client.Cached = resume.Calls, resume.Input, resume.Output, resume.Cached
 		cp.Status, cp.Reason, cp.Error = "running", "", ""
+		// 上一轮的被逼收尾不是这一轮的；这一轮真被逼收尾时再置位。
+		cp.ForcedFinal = false
 		fmt.Printf("Resume: id=%s completed_rounds=%d model_calls=%d/%s pending_calls=%d\n", cp.ID, completed, client.Calls, llm.LimitText(maxSteps), pendingCount(pending))
 	}
 	// 影响下一步的状态（私有来源、外发授权、读后才写账本、上次告诉模型的环境、用量提醒档位）跨进程接上：
@@ -323,10 +328,11 @@ func Run(ctx context.Context, config llm.Config, question string, images []llm.I
 		if err := ctx.Err(); err != nil {
 			return stopRun(ctxReason(ctx), err.Error(), summary)
 		}
-		// 本轮的模型请求与工具 span 都带 agent.step。
+		// 本轮的模型请求与工具 span 都带 agent.step；final 表示这一轮被逼收尾，退出记录里要能看出来。
 		ctx := telemetry.WithStep(ctx, step)
 		var calls []llm.ToolCall
 		replay := pending != nil
+		final := false
 		if replay {
 			// 上个进程死在执行这批工具的途中：模型的决定已经落盘，不再请求模型，直接补齐这批调用的结果。
 			fmt.Printf("\nRound %d (resume)\n", step)
@@ -348,9 +354,14 @@ func Run(ctx context.Context, config llm.Config, question string, images []llm.I
 				fmt.Printf("Reminder: %s\n", firstLine(text))
 			}
 			// 请求预算用到一半、四分之三时各提醒一次：用满会直接停下，模型事先不知道还剩几次请求。
+			// 75% 那档改成逐项核对：只说原则对弱模型不管用，让它对着任务列出验收项和状态，做完就收尾。
 			if level := budgetLevel(client.Calls, maxSteps, budget); level > budget {
 				budget = level
-				conversation.Append(llm.Reminder(fmt.Sprintf("[请求预算] 已用 %d / %d 次模型请求（含摘要）。用完会直接停下，没有机会再给最终回答。只做任务交给你的部分：任务或文档写明由别人做的检查，即使这里做得到也不要做；自己那部分做完就给最终回答，没做的列出来。", client.Calls, maxSteps)))
+				text := fmt.Sprintf("[请求预算] 已用 %d / %d 次模型请求（含摘要）。用完会直接停下，没有机会再给最终回答。只做任务交给你的部分：任务或文档写明由别人做的检查，即使这里做得到也不要做；自己那部分做完就给最终回答，没做的列出来。", client.Calls, maxSteps)
+				if level >= 75 {
+					text = fmt.Sprintf("[收尾检查] 已用 %d / %d 次模型请求（含摘要）。先对照任务原文，列出交给你自己做的验收项，逐项写它现在的状态（做了、结果是什么）。写明由别人做的验收不算你的，即使这里做得到也不要做。如果交给你的都已经做完，现在就给最终回答（改了什么、你的验收结果、没做的项），不要再调用任何工具；还有没做完的，只做那几项。", client.Calls, maxSteps)
+				}
+				conversation.Append(llm.Reminder(text))
 				fmt.Printf("Budget reminder: level=%d calls=%d max=%d\n", level, client.Calls, maxSteps)
 			}
 			// 用户在这一轮进行中说的话，作为用户消息排在最后，和首问一样先过 UserPromptSubmit hook。
@@ -393,7 +404,14 @@ func Run(ctx context.Context, config llm.Config, question string, images []llm.I
 				protocol.ItemCompleted(CheckpointID, receipts[i])
 			}
 
-			response, err := conversation.Next(ctx, client)
+			// 最后一次请求只让模型给最终回答：用满上限时没有最终回答，做对的也记失败，人也看不到它做了什么。
+			// 这次仍带工具定义（Messages 协议的历史里有 tool_use 时必须带），只是 tool_choice=none。
+			final = client.Calls == maxSteps-1
+			if final {
+				conversation.Append(llm.Reminder(fmt.Sprintf("[最后一次请求] 这是 %d 次模型请求里的最后一次，这次不能再调用工具。现在给最终回答：改了什么、做了哪些验收、结果如何，没做完或没验收的逐项列出来。", maxSteps)))
+				fmt.Printf("Final request: tools disabled calls=%d max=%d\n", client.Calls, maxSteps)
+			}
+			response, err := conversation.Next(ctx, client, final)
 			if err != nil {
 				reason := "model_error"
 				if errors.Is(err, errContextPrepare) {
@@ -436,6 +454,7 @@ func Run(ctx context.Context, config llm.Config, question string, images []llm.I
 			}
 			if len(reply.ToolCalls) == 0 {
 				completed, cp.Answer = step, reply.Content
+				cp.ForcedFinal = final
 				announce(reply, "final_answer")
 				fmt.Println("Termination: no_tool_calls")
 				return nil

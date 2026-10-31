@@ -269,7 +269,8 @@ func (t *tern) wait(ctx context.Context, token sdk.ProgressToken, threadID strin
 			}
 			switch ev.Kind {
 			case "request":
-				if ev.Purpose == "main" && !ev.Sub {
+				// 最后一次请求（final）也是主请求，照样算一次请求。
+				if (ev.Purpose == "main" || ev.Purpose == "final") && !ev.Sub {
 					calls++
 				}
 			case "approval":

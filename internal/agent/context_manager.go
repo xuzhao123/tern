@@ -199,7 +199,12 @@ func (c *Context) used() (int, string) {
 }
 
 // 一次普通决策最多因服务端超窗而重试一次；摘要请求不会递归进入Prepare。
-func (c *Context) Next(ctx context.Context, client *llm.Client) (llm.Reply, error) {
+// final 表示这是预算里的最后一次主请求：这次禁止调用工具，只让模型给最终回答。
+func (c *Context) Next(ctx context.Context, client *llm.Client, final bool) (llm.Reply, error) {
+	purpose := "main"
+	if final {
+		purpose = "final"
+	}
 	for attempt := 0; attempt < 2; attempt++ {
 		if client.Calls >= client.Limit {
 			return llm.Reply{}, llm.ErrModelBudget
@@ -207,7 +212,7 @@ func (c *Context) Next(ctx context.Context, client *llm.Client) (llm.Reply, erro
 		if err := c.Prepare(ctx, client); err != nil {
 			return llm.Reply{}, fmt.Errorf("%w: %w", errContextPrepare, err)
 		}
-		reply, err := client.Call(ctx, c.View, c.withTools, "main")
+		reply, err := client.Call(ctx, c.View, c.withTools, purpose)
 		if !errors.Is(err, llm.ErrContextLength) {
 			return reply, err
 		}

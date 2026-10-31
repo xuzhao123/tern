@@ -91,7 +91,7 @@ func LimitText(limit int) string {
 	return strconv.Itoa(limit)
 }
 
-// 普通请求和摘要共享模型、工具定义和推理配置；摘要额外通过tool_choice禁用工具。
+// 普通请求和摘要共享模型、工具定义和推理配置；摘要与最后一次请求（final）额外通过tool_choice禁用工具。
 // 请求一律流式，onDelta 收到每一段正文与推理增量（可以为 nil）；返回的仍是拼好的完整回复，
 // 是否截断、有没有回答等检查都等流结束后对完整回复做，和非流式时一样。
 func callModel(ctx context.Context, config Config, history []Message, withTools bool, output int, purpose string, onDelta func(content, reasoning string)) (Reply, error) {
@@ -114,7 +114,9 @@ func callModel(ctx context.Context, config Config, history []Message, withTools 
 	if withTools {
 		body["tools"], body["parallel_tool_calls"] = FunctionTools(), true
 		// tool_choice只在提供工具时有意义；不少兼容接口会拒绝没有tools的tool_choice。
-		if purpose == "compact" {
+		// compact 是摘要，final 是预算的最后一次请求：两者都只让模型出文字，不允许再调用工具。
+		// 仍然带 tools：Messages 协议的历史里有 tool_use、tool_result 时必须带。
+		if purpose == "compact" || purpose == "final" {
 			body["tool_choice"] = "none"
 		}
 	}
@@ -244,8 +246,15 @@ func callModel(ctx context.Context, config Config, history []Message, withTools 
 	if len(reply.Message.ToolCalls) == 0 && (strings.TrimSpace(reply.Message.Content) == "" || stream.FinishReason == "tool_calls") {
 		return reply, errors.New("模型没有返回回答或工具调用")
 	}
-	if !withTools && len(reply.Message.ToolCalls) > 0 {
-		return reply, errors.New("未提供工具的请求意外返回工具调用")
+	// 最后一次请求带 tools 但 tool_choice=none：个别兼容接口不遵守，仍返回工具调用。
+	// 和没给工具时一样按意外工具调用报错，这一轮停下，结局照现有规则；不另外重试。
+	if len(reply.Message.ToolCalls) > 0 {
+		if !withTools {
+			return reply, errors.New("未提供工具的请求意外返回工具调用")
+		}
+		if purpose == "final" {
+			return reply, errors.New("禁止调用工具的最后一次请求意外返回工具调用")
+		}
 	}
 	reply.Message.Role = "assistant"
 	return reply, nil
@@ -313,11 +322,11 @@ func (c *Client) CallKeeping(ctx context.Context, history []Message, withTools b
 	// 一次模型调用是一个 modelCall Item。完整的请求与响应原文仍由 app-server 的代理记录，这里只给结构化摘要。
 	item := protocol.Item{ID: fmt.Sprintf("model-%d", n), Type: "modelCall", Data: map[string]any{"purpose": purpose, "number": n, "input_estimate": ContextTokens(history, withTools)}}
 	protocol.ItemStarted(TaskID, item)
-	// 主任务与摘要的增量实时发给界面（item/delta，只用于显示，权威结果仍是 item/completed 与检查点）；
-	// 主任务的正文同时边收边打印到终端。记忆辅助、评审这类调用的输出是给程序读的，不发增量。
+	// 主任务、最后一次请求与摘要的增量实时发给界面（item/delta，只用于显示，权威结果仍是 item/completed 与检查点）；
+	// 主任务与最后一次请求的正文同时边收边打印到终端。记忆辅助、评审这类调用的输出是给程序读的，不发增量。
 	var onDelta func(content, reasoning string)
 	printed := false
-	if purpose == "main" || purpose == "compact" {
+	if purpose == "main" || purpose == "final" || purpose == "compact" {
 		onDelta = func(content, reasoning string) {
 			if reasoning != "" {
 				protocol.Notify("item/delta", map[string]any{"turn_id": TaskID, "item_id": item.ID, "purpose": purpose, "field": "reasoning", "delta": reasoning})
@@ -325,7 +334,7 @@ func (c *Client) CallKeeping(ctx context.Context, history []Message, withTools b
 			if content != "" {
 				protocol.Notify("item/delta", map[string]any{"turn_id": TaskID, "item_id": item.ID, "purpose": purpose, "field": "content", "delta": content})
 			}
-			if purpose == "main" && content != "" {
+			if (purpose == "main" || purpose == "final") && content != "" {
 				fmt.Print(content)
 				printed = true
 			}

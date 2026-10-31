@@ -30,6 +30,9 @@ type Coding struct {
 	Verified      int `json:"verified"`       // 校验全部通过
 	FalseClaims   int `json:"false_claims"`   // 自称完成，校验没过
 	SilentSuccess int `json:"silent_success"` // 没有正常结束（预算用完等），校验却通过了
+	// 被逼收尾的次数：最后一次请求禁止调用工具，结局照旧是 no_tool_calls。与 SilentSuccess 并列，
+	// 免得通过率的提高被误读成模型变强了。
+	ForcedFinal int `json:"forced_final"`
 }
 
 // Score：pass@1 是逐题通过率的平均；SE 按题聚类（同一道题的几次尝试不独立，先在题内平均再算方差）；
@@ -134,6 +137,9 @@ func Summarize(rec *Record, cases []Case, baseline *Record) Summary {
 		}
 		verified := !slices.ContainsFunc(t.Commands, func(r CommandResult) bool { return r.ExitCode != 0 })
 		s.Coding.Trials++
+		if t.ForcedFinal {
+			s.Coding.ForcedFinal++
+		}
 		switch {
 		case t.Claimed && verified:
 			s.Coding.Claimed++

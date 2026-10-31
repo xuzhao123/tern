@@ -399,7 +399,8 @@ func (r *run) trajectory(task string) eval.Source {
 	header := false
 	bodies := requestBodies(r.events) // 存档里的请求可能是增量，先还原成整份
 	for k, e := range r.events[from:] {
-		main := !e.Sub && (e.Purpose == "" || e.Purpose == "main")
+		// 最后一次请求（final）也是主请求：它带着最终回答，快照要取它。
+		main := !e.Sub && (e.Purpose == "" || e.Purpose == "main" || e.Purpose == "final")
 		body := bodies[from+k]
 		if e.Kind == "request" && !e.Sub {
 			requests++

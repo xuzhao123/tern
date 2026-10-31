@@ -41,6 +41,9 @@ type Trial struct {
 	Claimed  bool            `json:"claimed,omitempty"`
 	Commands []CommandResult `json:"commands,omitempty"`
 	Diff     string          `json:"diff,omitempty"`
+	// 被逼收尾：最后一次请求禁止调用工具，模型据此给了最终回答（检查点的 forced_final）。
+	// 结局仍是 no_tool_calls，算不算通过照旧看校验；单独计数，免得把通过率的提高误读成模型变强了。
+	ForcedFinal bool `json:"forced_final,omitempty"`
 }
 
 // infraError 是重试之后仍然失败的上游错误里，不能算 agent 做错的那些：限流与额度（429）、上游自身故障（5xx）。

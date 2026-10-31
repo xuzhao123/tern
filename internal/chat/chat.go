@@ -983,7 +983,7 @@ func (v *view) show(m protocol.Message) {
 	case "item/delta":
 		field, _ := p["field"].(string)
 		delta, _ := p["delta"].(string)
-		if p["purpose"] != "main" {
+		if p["purpose"] != "main" && p["purpose"] != "final" {
 			return
 		}
 		if field == "reset" {

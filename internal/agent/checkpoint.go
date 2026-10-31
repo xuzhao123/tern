@@ -54,6 +54,8 @@ type Checkpoint struct {
 	OldSeen    map[string]string `json:"seen,omitempty"`
 	// 不正常结束时 harness 自己跑的收尾检查（复用 Stop hook 的命令）；正常结束或没配 Stop hook 时为空。
 	FinalCheck *FinalCheck `json:"final_check,omitempty"`
+	// 这一轮是被逼收尾的：最后一次请求禁止调用工具，模型据此给出最终回答。结局仍是 no_tool_calls。
+	ForcedFinal bool `json:"forced_final,omitempty"`
 	// 写这份检查点时会话记录写到了第几条：检查点是“记录到第 N 条时的状态快照”（见 journal.go）。
 	LogSeq    int64     `json:"log_seq,omitempty"`
 	UpdatedAt time.Time `json:"updated_at"`

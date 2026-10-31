@@ -363,6 +363,7 @@ func (r *Runner) execute(ctx context.Context, t *Trial, common []string) {
 	}
 	if err == nil {
 		t.Outcome, t.Answer, t.Calls, t.Tokens, t.Cached, t.Traces = cp.Reason, cp.Answer, cp.Calls, cp.Input+cp.Output, cp.Cached, cp.Traces
+		t.ForcedFinal = cp.ForcedFinal
 		if cp.Status == "running" {
 			t.Outcome = "vanished"
 		}
@@ -620,7 +621,7 @@ func (c *capture) add(task string, m protocol.Message) {
 	switch {
 	case m.Method == "turn/started" && p.TurnID == task:
 		c.model = p.Model
-	case m.Method == "item/completed" && p.TurnID == task && p.Item.Type == "modelCall" && p.Item.Data.Purpose == "main":
+	case m.Method == "item/completed" && p.TurnID == task && p.Item.Type == "modelCall" && (p.Item.Data.Purpose == "main" || p.Item.Data.Purpose == "final"):
 		c.round++
 	case m.Method == "item/completed" && p.TurnID == task && p.Item.Type == "toolCall" && p.Item.Data.Observation != nil:
 		o := p.Item.Data.Observation

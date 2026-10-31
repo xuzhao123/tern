@@ -170,7 +170,7 @@ tern -question '计算 1231+23123'
 | `-image` | 空 | 随问题附带的图片（PNG、JPEG、GIF、WebP），可写多次，每条消息最多 8 张；网页端输入框可附图 |
 | `-provider` | ark | 选择方舟或 DeepSeek |
 | `-model` | 空 | 这家下面的具体模型（如 `kimi-k3`）；空时用 `LLM_MODEL` / `DEEPSEEK_MODEL` 或路由表默认值；网页端是输入框旁的第二个下拉 |
-| `-max-steps` | 0 | 模型请求预算，含摘要与辅助调用；0 表示不限（靠重复动作/无进展熔断与 Ctrl-C 收住）；队列与评测任务没给预算时补 10 |
+| `-max-steps` | 0 | 模型请求预算，含摘要与辅助调用；0 表示不限（靠重复动作/无进展熔断与 Ctrl-C 收住）；队列与评测任务没给预算时补 10。设了上限时，最后一次请求不能调用工具，用来给最终回答 |
 | `-parallel` | 4 | 独立工具并发上限 |
 | `-rag` / `-memory` | false | 按需启用知识检索或长期记忆 |
 | `-resume` | 空 | 按检查点 ID 续跑，配置沿用检查点 |
@@ -186,7 +186,7 @@ tern -question '计算 1231+23123'
 | `-continues` | 空 | 续聊时上一轮的检查点ID：本轮用新ID并记下续接关系，子 agent 可按 task_id 引用之前各轮的子任务；网页端自动处理 |
 | `-agent-server` | false | 以结构化协议与界面通信（JSON-RPC，一行一条）：stdout 只走协议，日志改走 stderr；app-server 与父 agent 启动子进程时使用。app-server 另给环境变量 `AGENT_APP_SOCKET`，协议与日志改走这个 Unix socket，app-server 重启后能接管 |
 | `-parallel` | 4 | 工具执行并发，1到16 |
-| `-max-steps` | 0 | 模型请求总预算，包含最终回答与上下文摘要；0 表示不限 |
+| `-max-steps` | 0 | 模型请求总预算，包含最终回答与上下文摘要；0 表示不限。设了上限时，最后一次请求不能调用工具，用来给最终回答 |
 | `-retries` | 2 | 工具额外重试次数，0到5 |
 | `-context-window` | 0 | 总窗口；0 表示按模型取路由表里核对过的输入上限（取不到时 262144），显式给值时才用给的值 |
 | `-max-output-tokens` | 0 | 0省略API输出上限；大于0才传max_completion_tokens（含推理） |
