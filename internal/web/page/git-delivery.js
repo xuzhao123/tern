@@ -21,12 +21,14 @@ export function renderGitDelivery(){
   function readPending(){for(let i=0;i<localStorage.length;i++){const name=localStorage.key(i);if(name?.startsWith(key+":pending:")){const value=JSON.parse(localStorage.getItem(name));if(value?.request_id)return value;}}return null;}
   function drawReceipt(){receipt.replaceChildren();if(!pending)return;receipt.append(el("p","meta",`${labels[pending.action]||"Git操作"}的结果待核对。保留原请求，不自动重做。`),button("查询原操作",query));}
   function clearPending(){if(pending)localStorage.removeItem(key+":pending:"+pending.request_id);pending=readPending();drawReceipt();}
+  // 提交成功后说明已经用过一次了，留着下次容易误用；失败或结果未知时保留，人可以照着原说明重试。
+  function clearMessage(){message.value="";try{localStorage.removeItem(key+":message");}catch{note.textContent="提交说明已清空，但浏览器存储删除失败。";}}
   async function query(){
     if(!pending)return;const original=pending;
     try{const res=await fetch(api(`/runs/${r.id}/git/operation/${original.request_id}`));if(!res.ok)throw new Error(await res.text());let result=await res.json();
       if(result.state==="not_found"){const check=await fetch(api(`/requests/${original.request_id}`));if(check.ok){const req=await check.json();if(req.state==="rejected")result={state:"rejected",reason:req.error?.message};}}
       if(!valid())return;
-      if(["completed","rejected"].includes(result.state)){clearPending();await load();note.textContent=result.state==="completed"?"原操作已完成"+(result.commit?" · "+result.commit:""):"原操作未执行："+(result.reason||"");}
+      if(["completed","rejected"].includes(result.state)){clearPending();await load();note.textContent=result.state==="completed"?"原操作已完成"+(result.commit?" · "+result.commit:""):"原操作未执行："+(result.reason||"");if(result.state==="completed"&&original.action==="commit")clearMessage();}
       else note.textContent="原操作结果仍无法确定，请核对Git状态和日志；不要再次提交相同修改。";
     }catch(error){if(valid())note.textContent="查询失败："+error.message;}
   }
@@ -49,7 +51,7 @@ export function renderGitDelivery(){
       const payload={action,version,paths:action==="commit"?[]:paths,message:action==="commit"?text:"",confirmed:true,request_id:crypto.randomUUID()};
       try{localStorage.setItem(key+":pending:"+payload.request_id,JSON.stringify(payload));pending=payload;}catch{status.textContent="无法保存操作回执，本次不执行。";return;}
       run.disabled=true;busy=true;drawReceipt();status.textContent="正在执行…";
-      try{const res=await fetch(api(`/runs/${r.id}/git`),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload),signal:AbortSignal.timeout(60000)});if(!res.ok)throw new Error(await res.text());const result=await res.json();if(result.state!=="completed")throw new Error(result.reason||"结果待确认");clearPending();dialog.close();busy=false;if(valid()){await load();note.textContent=labels[action]+"完成"+(result.commit?" · "+result.commit:"");}}
+      try{const res=await fetch(api(`/runs/${r.id}/git`),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload),signal:AbortSignal.timeout(60000)});if(!res.ok)throw new Error(await res.text());const result=await res.json();if(result.state!=="completed")throw new Error(result.reason||"结果待确认");clearPending();dialog.close();busy=false;if(valid()){await load();note.textContent=labels[action]+"完成"+(result.commit?" · "+result.commit:"");}if(action==="commit")clearMessage();}
       catch(error){status.textContent="操作结果需核对："+error.message+"。草稿与原请求已保留。";}finally{busy=false;}
     });
     dialog.setAttribute("aria-label",labels[action]+"确认");dialog.append(el("h2","",labels[action]),el("p","",`${data.directory}\n${data.branch}\n${data.author}`),el("pre","",paths.join("\n")));

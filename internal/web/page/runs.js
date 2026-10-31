@@ -1,6 +1,6 @@
 import { endLabel } from "./analysis.js";
 import { memFields } from "./chat.js";
-import { renderSteers, settleSteers } from "./composer.js";
+import { HINTS, renderSteers, settleSteers } from "./composer.js";
 import { savePendingSteers } from "./drafts.js";
 import { compact, incomingUsers, parse, textOf, toolText, ui } from "./util.js";
 // ---------- 事件 → 运行模型：只依赖 Chat Completions 协议字段 ----------
@@ -147,6 +147,9 @@ export function apply(r, e) {
     refreshNetworkWaiting(r);
     // 这一轮结束了：待发送区里还剩的接着作为下一条消息发（点了停止的放回输入框）。回放与对比里的运行不是当前这条，不动输入框。
     if (r === ui.run) settleSteers(r);
+    // 这一轮结束、排的那条也发出去了，输入框下面“已排到下一轮”“补充已由服务端接收…”就不再成立；
+    // 命令那一条是当场执行完的结果，与轮次无关，留着。
+    if (r === ui.run && (ui.hint === HINTS.queue || ui.hint === HINTS.steer)) ui.hint = "";
   }
 }
 

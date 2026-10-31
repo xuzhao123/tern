@@ -8,8 +8,12 @@ function button(label,fn){const b=el("button","ghost",label);b.type="button";b.o
 export function renderPlan(){
   const tab=workTab(),r=ui.run,s=tab.state,panel=$("subpanel"),account=ui.account;
   if(s.owner!==r){s.node=null;s.owner=r;}
-  if(s.node){if(r.plan?.revision!==s.loadedRevision&&!s.refreshing){s.refreshing=true;s.refresh?.().finally(()=>s.refreshing=false);}panel.hidden=false;if(panel.firstElementChild!==s.node)panel.replaceChildren(s.node);return;}
+  // 批准按钮还要看这一轮有没有结束、是不是评测/来源对话：计划常在轮中间保存，版本号不变，
+  // 只看版本号就不会重绘，按钮一直灰着，要刷新页面才恢复。这两个条件变了直接重画，不必重新请求。
+  if(s.node){if(r.plan?.revision!==s.loadedRevision&&!s.refreshing){s.refreshing=true;s.refresh?.().finally(()=>s.refreshing=false);}else if(s.drawnExit!==!!r.exit||s.drawnSource!==!!r.source)s.draw?.();panel.hidden=false;if(panel.firstElementChild!==s.node)panel.replaceChildren(s.node);return;}
   const key=`tern-plan-v1:${encodeURIComponent(account)}:${encodeURIComponent(HOST)}:${r.id}`;
+  // 上次画批准按钮时看到的两个条件，缓存分支据此判断要不要重画（见上）。
+  s.drawnExit=!!r.exit;s.drawnSource=!!r.source;
   s.node=el("div","plan-view");const head=el("div","sp-head"),body=el("div","sp-body"),note=el("p","meta"),list=el("div"),editor=el("textarea"),actions=el("div","activity-actions"),permission=el("select");
   editor.rows=7;editor.hidden=true;editor.setAttribute("aria-label","计划编辑草稿");permission.setAttribute("aria-label","开始实施的权限");permission.append(new Option("请求批准","ask"),new Option("工作区自动编辑","edit"));
   const valid=()=>ui.run===r&&ui.account===account&&!s.closed;
@@ -19,6 +23,7 @@ export function renderPlan(){
   s.node.append(head,body);body.append(note,list,editor,actions);panel.hidden=false;panel.replaceChildren(s.node);
   async function load(){note.textContent="读取计划中…";try{const res=await fetch(api(`/runs/${r.id}/plan`));if(!res.ok)throw new Error(await res.text());const data=await res.json();if(!valid())return;s.plan=data.plan;s.loadedRevision=data.plan?.revision||0;note.textContent=s.plan?`版本 ${s.plan.revision} · ${s.plan.approved===s.plan.revision?"该版本已批准":"尚未批准实施"}`:"还没有结构化计划。";draw();}catch(error){if(valid())note.textContent="无法读取计划："+error.message;}}
   function draw(){
+    s.drawnExit=!!r.exit;s.drawnSource=!!r.source;
     list.replaceChildren();const p=s.plan;
     for(const [i,step] of (p?.steps||[]).entries())list.append(el("p","",`${i+1}. ${labels[step.status]} · ${step.content}`));
     if(p?.previous?.length){const history=el("details"),summary=el("summary","",`历史版本 · ${p.previous.length}`);history.append(summary);for(const old of [...p.previous].reverse())history.append(el("pre","",`版本 ${old.revision}\n`+old.steps.map(x=>`${labels[x.status]} · ${x.content}`).join("\n")));list.append(history);}
@@ -36,5 +41,5 @@ export function renderPlan(){
   }
   async function approvePlan(){if(!valid()||!s.plan||!r.exit||s.pending)return;s.pending={request_id:crypto.randomUUID(),revision:s.plan.revision,permission:permission.value};if(!saveLocal()){s.pending=null;return;}draw();try{const res=await fetch(api(`/runs/${r.id}/plan/approve`),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(s.pending),signal:AbortSignal.timeout(15000)});if(res.ok){s.pending=null;saveLocal();if(valid())show(r.id);}else await checkReceipt();}catch{if(valid())note.textContent="实施结果未知，原请求已保留，请查询回执。";}}
   async function checkReceipt(){if(!s.pending||!valid())return;try{const res=await fetch(api(`/requests/${s.pending.request_id}`));if(!res.ok)throw new Error(await res.text());const receipt=await res.json();if(!valid())return;if(receipt.state==="accepted"){s.pending=null;saveLocal();show(r.id);}else if(receipt.state==="rejected"){s.pending=null;saveLocal();draw();note.textContent="未开始实施："+(receipt.error?.message||"");}else note.textContent="实施请求仍待核对，不会自动重发。";}catch(error){note.textContent="回执查询失败："+error.message;}}
-  s.refresh=load;editor.oninput=()=>{s.editText=editor.value;saveLocal();};load();
+  s.refresh=load;s.draw=draw;editor.oninput=()=>{s.editText=editor.value;saveLocal();};load();
 }

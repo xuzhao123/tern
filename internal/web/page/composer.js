@@ -6,6 +6,8 @@ import { openSettings } from "./pages.js";
 import { autosize, loadRuns, loadWsSettings, modelVision, syncComposer } from "./shell.js";
 import { $, FULL_ACCESS_NOTE, HOST, MAX_IMAGES, api, el, permChoice, refURL, ui } from "./util.js";
 import { attachToDraft, captureDraft, currentDraftKey, finishDelivery, pendingDelivery, rememberDelivery, saveDraft, savePendingSteers } from "./drafts.js";
+// 插话、排队、! 命令被服务端接受后显示在输入框下面的提示；runs.js 在这一轮结束时据此清掉已经过时的两条。
+export const HINTS = { queue: "已排到下一轮", steer: "补充已由服务端接收，采纳结果见待发区", shell: "命令已执行，结果见命令记录" };
 export async function start(url, body, kind = "message") {
   if (ui.sending) return;
   if (pendingDelivery()) { await checkDelivery(); return; }
@@ -33,7 +35,7 @@ export async function start(url, body, kind = "message") {
 function acceptDelivery(token, response, kind = "message") {
   const same = currentDraftKey() === token.key;
   finishDelivery(token, true);
-  if (kind === "queue" || kind === "steer" || kind === "shell") { if (same) ui.hint = kind === "shell" ? "命令已执行，结果见命令记录" : kind === "steer" ? "补充已由服务端接收，采纳结果见待发区" : "已排到下一轮"; loadRuns(); }
+  if (kind === "queue" || kind === "steer" || kind === "shell") { if (same) ui.hint = HINTS[kind]; loadRuns(); }
   else if (same) { ui.attachError = ""; ui.page = "chat"; show(response.id); }
   else loadRuns();
   renderDelivery();
@@ -237,7 +239,8 @@ async function steer(text) {
 // 运行中发出去的话先排在这里，不要等 agent 取走（下一次请求模型时才取，中间可能正跑着一条 bash）。
 // agent 取走时发回带同一个 client_id 的 userMessage，runs.js 据此把它从这里挪进对话；
 // 没赶上这一轮的，这一轮结束（exit）时由 runs.js 交给 settleSteers 接着发。
-// 另一节是服务端队列（thread/queue/add，Tab 或“排队”）：排到这一轮结束后由 app-server 接着发，所有页面看得到。
+// 另一节是服务端队列（thread/queue/add，“排队”按钮）：排到这一轮结束后由 app-server 接着发，所有页面看得到。
+// Tab 是焦点导航（补全菜单打开时选候选），不排队。
 export function renderSteers() {
   const strip = $("steer-strip"), items = (ui.run && ui.steers[ui.run.id]?.items) || [];
   const queue = (ui.run && ui.run.queue) || [];
