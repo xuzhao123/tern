@@ -1,7 +1,7 @@
 import { disposeArtifact } from "./artifact-preview.js";
 import { $, HOST, el, ui } from "./util.js";
 
-const sessions = new Map(), kinds = new Set(["diff", "files", "file", "project-files", "project-file", "jobs", "browser", "agent", "plan", "goal", "operations", "git"]);
+const sessions = new Map(), kinds = new Set(["diff", "files", "file", "project-files", "project-file", "jobs", "browser", "preview", "agent", "plan", "goal", "operations", "git"]);
 let shown = null, error = "";
 const key = () => ui.account && ui.run ? `tern-work-v1:${encodeURIComponent(ui.account)}:${encodeURIComponent(HOST)}:${ui.run.id}` : "";
 const tabID = (kind, resource) => JSON.stringify([kind, resource]);
@@ -11,6 +11,7 @@ function resourceIcon(kind) {
     browser: '<circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/>',
     diff: '<path d="M8 4v12a4 4 0 0 0 4 4h4M8 8h8"/><circle cx="8" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="18" cy="20" r="2"/>',
     jobs: '<path d="m4 6 6 6-6 6M13 18h7"/>',
+    preview: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M7 6.5v.01"/>',
   };
   const icon = el("span", "work-tab-icon"); icon.setAttribute("aria-hidden", "true");
   icon.innerHTML = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true">' + (paths[kind] || '<path d="M14 3H5v18h14V8ZM14 3v5h5"/>') + '</svg>'; return icon;
@@ -150,10 +151,11 @@ export function renderWorkPanel(renderers) {
   root.dataset.chrome = chrome;
   const controls = $("work-tools"); controls.replaceChildren();
   const add = panelMenu("打开工作视图", "+"), options = panelMenu("工作区选项", "⋯");
-  for (const [kind, label] of [["git", "交付修改"], ["operations", "项目操作"], ["goal", "持续 Goal"], ["plan", "计划"], ["project-files", "项目文件"], ["diff", "改动"], ["files", "任务产物"], ["jobs", "后台命令"], ["browser", "浏览器过程"], ["agent", "子智能体"]]) {
+  for (const [kind, label] of [["git", "交付修改"], ["operations", "项目操作"], ["goal", "持续 Goal"], ["plan", "计划"], ["project-files", "项目文件"], ["diff", "改动"], ["files", "任务产物"], ["jobs", "后台命令"], ["browser", "浏览器过程"], ["preview", "网页预览"], ["agent", "子智能体"]]) {
     const entry = button(label, () => {
       if (kind === "agent") return document.dispatchEvent(new Event("tern:open-agents"));
       if (kind === "browser") return document.dispatchEvent(new Event("tern:open-browser"));
+      if (kind === "preview") return document.dispatchEvent(new Event("tern:open-preview"));
       openWorkTab(kind, "", label);
     });
     entry.disabled = ["diff", "project-files", "git", "operations"].includes(kind) && !ui.run.workspace;

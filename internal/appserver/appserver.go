@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/xuzhao123/tern/internal/preview"
 	"github.com/xuzhao123/tern/internal/tenant"
 )
 
@@ -49,9 +50,10 @@ type Server struct {
 	conns map[*conn]struct{}
 
 	runs      []*run
-	hubMu     sync.Mutex // 保护 .data/hub.json 与 .data/settings.json 的读改写
-	requestMu sync.Mutex // 发送回执认领与原子写入
-	evals     evals      // 评测记录（见 eval.go）
+	hubMu     sync.Mutex       // 保护 .data/hub.json 与 .data/settings.json 的读改写
+	requestMu sync.Mutex       // 发送回执认领与原子写入
+	evals     evals            // 评测记录（见 eval.go）
+	preview   *preview.Manager // 网页预览：一个对话最多一个会话，各一个独立的 Chrome（见 preview.go）
 
 	oauthMu       sync.Mutex // 保护下面两项：MCP 的 OAuth 状态只在内存里
 	oauth         map[string]oauthLogin
@@ -127,7 +129,8 @@ func open(dir string, dev bool) (*Server, error) {
 		return nil, fmt.Errorf("写 %s：%w", PIDFile, err)
 	}
 	s := &Server{lock: lock, dir: dir, dev: dev, started: time.Now(), conns: map[*conn]struct{}{}, done: make(chan struct{}),
-		evals: evals{jobs: map[string]*evalJob{}}, oauth: map[string]oauthLogin{}, oauthRequired: map[string]bool{}}
+		evals: evals{jobs: map[string]*evalJob{}}, oauth: map[string]oauthLogin{}, oauthRequired: map[string]bool{},
+		preview: preview.NewManager()}
 	os.Remove(Socket)
 	if s.ln, err = net.Listen("unix", Socket); err != nil {
 		lock.Close()
@@ -160,6 +163,7 @@ func pidText() string {
 func (s *Server) Shutdown() {
 	s.once.Do(func() {
 		s.closeOperations()
+		s.preview.CloseAll() // 预览的 Chrome 与私有 profile 都收掉
 		s.ln.Close()
 		s.llm.Close()
 		s.mu.Lock()

@@ -14,6 +14,7 @@ import { renderGitDelivery } from "./git-delivery.js";
 import { renderOperations } from "./operations.js";
 import { renderContinuous } from "./continuous.js";
 import { renderPlan } from "./plan.js";
+import { renderPreview } from "./preview.js";
 import { subInputActions } from "./subinput.js";
 // ---------- 子 agent ----------
 function subList(r) {
@@ -88,7 +89,7 @@ export function collaborationSummary(r) {
 export function renderSubPanel() {
   const params=new URLSearchParams(location.search), sub=params.get("sub"), link=ui.run?.id+":"+sub;
   if(sub && params.get("run")===ui.run?.id && !ui.historyReplaying && ui.subLinkApplied!==link && subList(ui.run).some((item)=>item.id===sub)) {ui.subLinkApplied=link;openSub(sub);}
-  renderWorkPanel({ git:renderGitDelivery, operations:renderOperations, goal:renderContinuous, plan:renderPlan, files: renderFilesPanel, file: renderFilesPanel, "project-files": renderProjectFiles, "project-file": renderProjectFiles, diff: renderDiffPanel, jobs: renderJobsPanel, browser: renderWebPanel, agent: renderAgentPanel });
+  renderWorkPanel({ git:renderGitDelivery, operations:renderOperations, goal:renderContinuous, plan:renderPlan, files: renderFilesPanel, file: renderFilesPanel, "project-files": renderProjectFiles, "project-file": renderProjectFiles, diff: renderDiffPanel, jobs: renderJobsPanel, browser: renderWebPanel, preview: renderPreview, agent: renderAgentPanel });
 }
 function renderAgentOverview(panel, r, list) {
   const tab = workTab(), views = list.map((item) => ({ item, view: subActivity(r, item) }));

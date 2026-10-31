@@ -32,6 +32,8 @@ type ServerInfo struct {
 	// Providers 是这台机器上配好了的供应商（对路由表里的每家算一次配置）：网页端据此提示
 	// “远端没有配模型密钥”，并给“从本机复制密钥”的按钮。
 	Providers []string `json:"providers,omitempty"`
+	// Preview 是网页预览用不了的原因：空表示能用。启动时判一次（找得到 Chrome 就行，不真的起浏览器）。
+	Preview string `json:"preview,omitempty"`
 }
 
 // 一个连接一份状态：第一条必须是 initialize，之后的方法才认。
@@ -175,6 +177,11 @@ var methods = map[string]func(*conn, protocol.Message) (any, *protocol.Error){
 	"files/write":                (*conn).filesWrite,
 	"files/delete":               (*conn).filesDelete,
 	"browser/frame":              (*conn).browserFrame,
+	"preview/open":               (*conn).previewOpen,
+	"preview/get":                (*conn).previewGet,
+	"preview/action":             (*conn).previewAction,
+	"preview/frame":              (*conn).previewFrame,
+	"preview/close":              (*conn).previewClose,
 	"trace/spans":                (*conn).traceSpans,
 	"trace/metrics":              (*conn).traceMetrics,
 	"memory/list":                (*conn).memoryList,
@@ -269,7 +276,8 @@ func userName(m protocol.Message) string {
 func (s *Server) info() ServerInfo {
 	host, _ := os.Hostname()
 	return ServerInfo{Version: Version(), Protocol: Protocol, Host: host, Home: home(),
-		Build: Build(), Started: s.started, Dev: s.dev, Evals: s.runningEvals(), Providers: providers()}
+		Build: Build(), Started: s.started, Dev: s.dev, Evals: s.runningEvals(), Providers: providers(),
+		Preview: s.preview.Reason()}
 }
 
 // providers 是这台机器上能用的供应商：路由表里的每家算一次配置（读 .env 与环境变量），

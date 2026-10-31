@@ -353,6 +353,8 @@ func (c *conn) threadDelete(m protocol.Message) (any, *protocol.Error) {
 	if err := audit.Write(c.ctx, audit.Record{Actor: "user", User: userName(m), Event: "user_thread_delete", Task: r.rootTask, Conversation: r.ID, Detail: c.clientName()}); err != nil {
 		return nil, bad(500, "审计日志写入失败，没有删除："+err.Error())
 	}
+	// 这条对话的预览会话跟着关掉：Chrome 进程与私有 profile 都不留着（见 preview.go）。
+	c.s.preview.Close(r.ID)
 	if err := c.s.drop(r, turns); err != nil {
 		return nil, bad(500, "删除失败："+err.Error())
 	}

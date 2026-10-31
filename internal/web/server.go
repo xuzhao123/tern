@@ -296,6 +296,20 @@ func Run(args []string, mcpHandler http.Handler) error {
 	mux.HandleFunc("DELETE /runs/{id}/files/{path...}", s.deleteFile)
 	mux.HandleFunc("POST /runs/{id}/files", s.uploadFile)
 	mux.HandleFunc("GET /audit", s.listAudit)
+	// 网页预览：授权目标、画面与受限动作都在 app-server 的 preview 里管，网页端只翻接口。
+	mux.HandleFunc("POST /runs/{id}/preview", func(w http.ResponseWriter, req *http.Request) {
+		s.reply(w, req, "preview/open", map[string]any{"threadId": req.PathValue("id")})
+	})
+	mux.HandleFunc("GET /runs/{id}/preview", func(w http.ResponseWriter, req *http.Request) {
+		s.reply(w, req, "preview/get", map[string]any{"threadId": req.PathValue("id")})
+	})
+	mux.HandleFunc("DELETE /runs/{id}/preview", func(w http.ResponseWriter, req *http.Request) {
+		s.replyNone(w, req, "preview/close", map[string]any{"threadId": req.PathValue("id")})
+	})
+	mux.HandleFunc("POST /runs/{id}/preview/action", func(w http.ResponseWriter, req *http.Request) {
+		s.reply(w, req, "preview/action", map[string]any{"threadId": req.PathValue("id")})
+	})
+	mux.HandleFunc("GET /runs/{id}/preview/frame", s.previewFrame)
 	mux.HandleFunc("GET /browser/{task}/{call}", s.browserFrame)
 	mux.HandleFunc("GET /traces/{id}", s.traceSpans)
 	mux.HandleFunc("GET /trace-metrics", s.traceMetrics)
@@ -491,6 +505,8 @@ type hostInfo struct {
 	Providers []string `json:"providers,omitempty"`
 	Home      string   `json:"home,omitempty"`
 	Stale     bool     `json:"stale,omitempty"`
+	// Preview 是那台主机上用不了网页预览的原因（initialize 报的）：空表示能用。页面的预览标签据此只显示原因、不给地址栏。
+	Preview string `json:"preview,omitempty"`
 }
 
 type connections struct {
@@ -684,6 +700,7 @@ func (s *server) connection() connections {
 			srv := h.client.Info()
 			info.Providers, info.Home, info.Stale = srv.Providers, srv.Home, srv.Build != appserver.Build()
 		}
+		info.Preview = srv.Preview
 		out.Hosts = append(out.Hosts, info)
 	}
 	for _, alias := range s.remembered {
@@ -1365,6 +1382,36 @@ func (s *server) browserFrame(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", head.Mime)
 		w.Header().Set("Cache-Control", "no-store")
 	})
+}
+
+// 预览画面：有比 after 新的帧就直接回那张 JPEG，没有就回 204（页面在这里长轮询等下一帧）。
+// 帧本身归 app-server 的内存，不落盘，网页端只转一次。
+func (s *server) previewFrame(w http.ResponseWriter, req *http.Request) {
+	after, _ := strconv.ParseInt(req.URL.Query().Get("after"), 10, 64)
+	wait, _ := strconv.Atoi(req.URL.Query().Get("wait"))
+	wait = max(0, min(wait, 10000))
+	var frame struct {
+		Frame  int64  `json:"frame"`
+		Width  int    `json:"width"`
+		Height int    `json:"height"`
+		Data   []byte `json:"data"`
+	}
+	params := map[string]any{"threadId": req.PathValue("id"), "after": after, "wait_ms": wait}
+	if err := s.callInto(req, "preview/frame", params, &frame); err != nil {
+		fail(w, err)
+		return
+	}
+	if frame.Frame <= after || len(frame.Data) == 0 {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	w.Header().Set("Content-Type", "image/jpeg")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Preview-Frame", strconv.FormatInt(frame.Frame, 10))
+	w.Header().Set("X-Preview-Width", strconv.Itoa(frame.Width))
+	w.Header().Set("X-Preview-Height", strconv.Itoa(frame.Height))
+	w.Write(frame.Data)
 }
 
 // ---------- 模型、调用链、记忆、审计 ----------
