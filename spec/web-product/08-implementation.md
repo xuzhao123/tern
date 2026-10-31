@@ -19,55 +19,57 @@
 
 ## 需求台账
 
+2026-10-31 按实际证据重标（[下一阶段计划](../harness-next-phase.md) 2.5）：**已验收（脚本）**＝`spec/web-product/run-checks.py` 一条命令跑的脚本覆盖、2026-10-31 通过（整套 31/32，唯一失败是队列版本的 bug，修复后该项通过）；**已验收（浏览器）**＝2026-10-30/31 Claude Code 用无头 Chrome 逐项点验通过，没有脚本；**部分验收**＝写明了没覆盖的部分；**保留/补强**照旧是沿用旧能力。不再用“定向验收”。
+
 | ID | 需求 | 状态 | 实现与证据 |
 | --- | --- | --- | --- |
-| NAV-01 | [打开网页就能找到手头任务](01-current-and-gaps.md) | 已实现；定向验收 | 项目导航、首屏空态与项目新任务入口；导航批次 |
-| NAV-02 | [一个项目下管理多条任务](01-current-and-gaps.md) | 已实现；定向验收 | 稳定目录身份、改名与历史归属；两真实主机组合尚未复验 |
-| NAV-03 | [长期保留常用任务](01-current-and-gaps.md) | 已实现；定向验收 | 个人置顶、归档/恢复、全文搜索；导航/草稿批次 |
-| NAV-04 | [快速找回旧讨论](01-current-and-gaps.md) | 已实现；定向验收 | 服务端全文搜索、命中片段和任务内分页查找；20及closeout报告 |
-| CTX-01 | [发送前确认会在哪里改文件](01-current-and-gaps.md) | 已实现；定向验收 | 主机/实际目录/副本信息；导航批次及copy-delivery回归 |
-| CTX-02 | [知道用什么模型，必要时切换](01-current-and-gaps.md) | 已实现；定向验收 | 模型与推理菜单；历史模型固定并解释限制 |
+| NAV-01 | [打开网页就能找到手头任务](01-current-and-gaps.md) | 已验收（脚本） | run-checks：navigation；原记录：项目导航、首屏空态与项目新任务入口；导航批次 |
+| NAV-02 | [一个项目下管理多条任务](01-current-and-gaps.md) | 部分验收 | run-checks：navigation 通过；两台真实主机的组合未验；原记录：稳定目录身份、改名与历史归属；两真实主机组合尚未复验 |
+| NAV-03 | [长期保留常用任务](01-current-and-gaps.md) | 已验收（脚本） | run-checks：navigation（置顶、归档/恢复）；原记录：个人置顶、归档/恢复、全文搜索；导航/草稿批次 |
+| NAV-04 | [快速找回旧讨论](01-current-and-gaps.md) | 已验收（浏览器） | 10-30 无头 Chrome 点验：命令面板与搜索；原记录：服务端全文搜索、命中片段和任务内分页查找；20及closeout报告 |
+| CTX-01 | [发送前确认会在哪里改文件](01-current-and-gaps.md) | 已验收（脚本） | run-checks：navigation、copy-delivery；原记录：主机/实际目录/副本信息；导航批次及copy-delivery回归 |
+| CTX-02 | [知道用什么模型，必要时切换](01-current-and-gaps.md) | 已验收（浏览器） | 10-30 点验：模型与推理下拉、按对话选模型；原记录：模型与推理菜单；历史模型固定并解释限制 |
 | CTX-03 | [给 agent 提供必要上下文](01-current-and-gaps.md) | 保留/补强；部分验收 | 图片、@文件、显式Skill和产物上传入口；一般文件无自动解析承诺 |
-| CHAT-01 | [快速了解 agent 做到哪一步](01-current-and-gaps.md) | 已实现；定向验收 | 当前阶段、工具过程与最终结果；真实Goal/子任务页面 |
-| CHAT-02 | [工作中补充要求或安排下一件事](01-current-and-gaps.md) | 已实现；定向验收 | 持久插话、队列排序/恢复；managed-steer和仲裁报告 |
-| CHAT-03 | [切任务、刷新、断线后继续写](01-current-and-gaps.md) | 已实现；定向验收 | 账号/主机/任务草稿、冲突合并和请求回执；草稿批次 |
-| CHAT-04 | [一眼发现等待自己的事项](01-current-and-gaps.md) | 已实现；定向验收 | 活动中心和真实待处理来源；activity/subinput报告 |
-| CHAT-05 | [停下或继续工作](01-current-and-gaps.md) | 已实现；定向验收 | 停止、队列暂停、持续Goal暂停/恢复；真实模型报告 |
+| CHAT-01 | [快速了解 agent 做到哪一步](01-current-and-gaps.md) | 已验收（脚本） | run-checks：goal-plan、subcontrol；原记录：当前阶段、工具过程与最终结果；真实Goal/子任务页面 |
+| CHAT-02 | [工作中补充要求或安排下一件事](01-current-and-gaps.md) | 已验收（脚本） | run-checks：managed-steer 8 个场景、queue start/finish（2026-10-31 修了重启改队列版本的 bug）；原记录：持久插话、队列排序/恢复；managed-steer和仲裁报告 |
+| CHAT-03 | [切任务、刷新、断线后继续写](01-current-and-gaps.md) | 部分验收 | run-checks：delivery（发送回执、去重）；草稿冲突合并只有 10-25 批次的定向证据；原记录：账号/主机/任务草稿、冲突合并和请求回执；草稿批次 |
+| CHAT-04 | [一眼发现等待自己的事项](01-current-and-gaps.md) | 部分验收 | 10-30 点验：审批卡片与活动中心；check-activity、check-subinput 要人在网页上答，没在一条命令里；原记录：活动中心和真实待处理来源；activity/subinput报告 |
+| CHAT-05 | [停下或继续工作](01-current-and-gaps.md) | 已验收（脚本） | run-checks：queue、goal-plan pause、managed-steer stop；原记录：停止、队列暂停、持续Goal暂停/恢复；真实模型报告 |
 | CHAT-06 | [改问题、分叉试另一条路](01-current-and-gaps.md) | 保留/补强；部分验收 | 保留编辑/撤销/分叉与影响说明；副本分叉生命周期通过，bash撤销完整页面组合待补 |
-| CHAT-07 | [审阅计划后再实施](01-current-and-gaps.md) | 已实现；定向验收 | 结构化计划、版本CAS、明确批准实施和历史；goal-plan-plan及页面冲突恢复 |
-| WORK-01 | [对照对话、文件、改动连续工作](01-current-and-gaps.md) | 已实现；定向验收 | 统一右侧工作标签、滚动与输入保留；15及页面回归 |
-| WORK-02 | [确认这次究竟改了什么](01-current-and-gaps.md) | 已实现；定向验收 | 四种真实Git范围；25项diff回归，外部转换隔离 |
-| WORK-03 | [指出某几行需要调整](01-current-and-gaps.md) | 已实现；定向验收 | 版本化行/文件反馈草稿；17及既有页面反馈证据 |
-| WORK-04 | [确认、提交和交付修改](01-current-and-gaps.md) | 已实现；定向验收 | 文件级暂存/取消暂存、本地提交与回执；23、15项Git写入检查和页面确认 |
-| WORK-05 | [点回答里的文件就能读](01-current-and-gaps.md) | 已实现；定向验收 | 目录树分页、文件链接、行号、高亮和只读边界；16/20 |
-| WORK-06 | [检查命令并运行自己的验证](01-current-and-gaps.md) | 已实现；定向验收 | 真实!命令回执、历史和独立项目操作；shell/lifecycle报告 |
-| WORK-07 | [安全试改，再应用回去](01-current-and-gaps.md) | 已实现；定向验收 | 隔离副本基线、应用冲突/成功、共享副本删除保护；copy-delivery报告 |
-| WORK-08 | [查看浏览器/子任务进展](01-current-and-gaps.md) | 已实现；定向验收 | 子任务过程/历史浏览器截图保留；交互预览另见EXT-06 |
-| SET-01 | [少量操作完成配置](01-current-and-gaps.md) | 已实现；定向验收 | 八类设置复用原控件和作用域；真实页面分类验证 |
+| CHAT-07 | [审阅计划后再实施](01-current-and-gaps.md) | 已验收（脚本） | run-checks：goal-plan plan；10-31 无头 Chrome 验了这一轮结束后不刷新也能批准；原记录：结构化计划、版本CAS、明确批准实施和历史；goal-plan-plan及页面冲突恢复 |
+| WORK-01 | [对照对话、文件、改动连续工作](01-current-and-gaps.md) | 已验收（浏览器） | run-checks：workpanel（准备资源）；10-30 点验工作面板 10 个入口；原记录：统一右侧工作标签、滚动与输入保留；15及页面回归 |
+| WORK-02 | [确认这次究竟改了什么](01-current-and-gaps.md) | 部分验收 | run-checks：diff-lines；check-diff-review（25 项）是独立长流程，没在一条命令里；原记录：四种真实Git范围；25项diff回归，外部转换隔离 |
+| WORK-03 | [指出某几行需要调整](01-current-and-gaps.md) | 部分验收 | 没有脚本；10-25 批次的定向证据；原记录：版本化行/文件反馈草稿；17及既有页面反馈证据 |
+| WORK-04 | [确认、提交和交付修改](01-current-and-gaps.md) | 已验收（脚本） | run-checks：git-delivery；10-30/31 点验暂存、确认框、本地提交、提交后说明清空；原记录：文件级暂存/取消暂存、本地提交与回执；23、15项Git写入检查和页面确认 |
+| WORK-05 | [点回答里的文件就能读](01-current-and-gaps.md) | 已验收（脚本） | run-checks：projectfiles、closeout（目录树分页）；原记录：目录树分页、文件链接、行号、高亮和只读边界；16/20 |
+| WORK-06 | [检查命令并运行自己的验证](01-current-and-gaps.md) | 已验收（脚本） | run-checks：shell-access、operations、closeout-lifecycle；原记录：真实!命令回执、历史和独立项目操作；shell/lifecycle报告 |
+| WORK-07 | [安全试改，再应用回去](01-current-and-gaps.md) | 已验收（脚本） | run-checks：copy-delivery；原记录：隔离副本基线、应用冲突/成功、共享副本删除保护；copy-delivery报告 |
+| WORK-08 | [查看浏览器/子任务进展](01-current-and-gaps.md) | 已验收（脚本） | run-checks：substate；交互预览见 EXT-06；原记录：子任务过程/历史浏览器截图保留；交互预览另见EXT-06 |
+| SET-01 | [少量操作完成配置](01-current-and-gaps.md) | 部分验收 | 没有脚本；10-25 批次的定向证据；原记录：八类设置复用原控件和作用域；真实页面分类验证 |
 | SET-02 | [模型不可用时知道怎么解决](01-current-and-gaps.md) | 保留/补强；部分验收 | 保留供应商配置、错误与修复入口；新供应商/OAuth故障组合未重跑 |
 | SET-03 | [启用 skill / MCP 并知道是否可用](01-current-and-gaps.md) | 保留/补强；部分验收 | Skill启用与来源版本已验；MCP沿旧能力，真实失联服务矩阵待补 |
 | SET-04 | [连接 VM/远端并排障](01-current-and-gaps.md) | 保留/补强；部分验收 | 保留SSH连接/安装/诊断入口；本轮没有独立第二主机故障验收 |
-| SET-05 | [知道页面是否已用最新程序](01-current-and-gaps.md) | 已实现；定向验收 | Web/backend真实版本和build接口；closeout报告及关于页 |
-| UX-01 | [小屏和分栏都能操作](01-current-and-gaps.md) | 已实现；定向验收 | 1280/1024/390/320定向页面检查，无整页横向溢出 |
-| UX-02 | [视觉一致、能选主题](01-current-and-gaps.md) | 已实现；定向验收 | 明暗主题、统一右栏/资源弹窗；真实截图检查 |
-| UX-03 | [键盘与中文输入可靠](01-current-and-gaps.md) | 已实现；定向验收 | Tab真实焦点、Alt↑恢复人输入；组合输入事件守卫通过，OS输入法矩阵未覆盖 |
-| SUB-01 | [主对话显示协作摘要：有几个子任务、各自负责什么、哪些仍在运行/需要处理](06-subagents.md) | 已实现；定向验收 | 真实分工摘要与父子状态；substate和子任务批次 |
-| SUB-02 | [准确区分启动、工作、等待用户、停止中、完成、失败、未知；显示父任务在等谁](06-subagents.md) | 已实现；定向验收 | 稳定尝试、waiting/stopping/terminal区分；subcontrol真实运行 |
-| SUB-03 | [子任务详情先看结论/产物/限制，再按需展开执行过程；显示结果已返回父任务与否](06-subagents.md) | 已实现；定向验收 | 结果回收/过程/限制说明；历史页面和真实完成记录 |
-| SUB-04 | [父任务、子任务列表与详情间直接切换，保留位置和草稿](06-subagents.md) | 已实现；定向验收 | 右侧父子导航和深链接；草稿/阅读位置保留 |
-| SUB-05 | [用户明确选择“告诉主 agent”或“直接补充这个子任务”，并能只停止一个子任务](06-subagents.md) | 已实现；定向验收 | 直接补充、只停目标、去重和采纳回执；subcontrol报告 |
-| SUB-06 | [子任务审批/提问汇入主任务待处理区，显示来源且能直达](06-subagents.md) | 已实现；定向验收 | 真实子任务提问/审批来源、过期拒绝；子任务批次 |
-| SUB-07 | [展示执行目录、上下文来源与共享边界，提示父轮结束对子任务的影响](06-subagents.md) | 已实现；定向验收 | 实际目录和继承上下文说明；子任务详情页 |
+| SET-05 | [知道页面是否已用最新程序](01-current-and-gaps.md) | 已验收（脚本） | run-checks：closeout（版本与 build 接口）；原记录：Web/backend真实版本和build接口；closeout报告及关于页 |
+| UX-01 | [小屏和分栏都能操作](01-current-and-gaps.md) | 部分验收 | 没有脚本；10-25 批次 1280/1024/390/320 的定向检查；原记录：1280/1024/390/320定向页面检查，无整页横向溢出 |
+| UX-02 | [视觉一致、能选主题](01-current-and-gaps.md) | 部分验收 | 没有脚本；视觉对齐见 18，要用户看截图；原记录：明暗主题、统一右栏/资源弹窗；真实截图检查 |
+| UX-03 | [键盘与中文输入可靠](01-current-and-gaps.md) | 部分验收 | run-checks：permission-state；网页预览的输入法提交 10-31 验过；OS 输入法矩阵未覆盖；原记录：Tab真实焦点、Alt↑恢复人输入；组合输入事件守卫通过，OS输入法矩阵未覆盖 |
+| SUB-01 | [主对话显示协作摘要：有几个子任务、各自负责什么、哪些仍在运行/需要处理](06-subagents.md) | 已验收（脚本） | run-checks：substate；原记录：真实分工摘要与父子状态；substate和子任务批次 |
+| SUB-02 | [准确区分启动、工作、等待用户、停止中、完成、失败、未知；显示父任务在等谁](06-subagents.md) | 已验收（脚本） | run-checks：subcontrol；原记录：稳定尝试、waiting/stopping/terminal区分；subcontrol真实运行 |
+| SUB-03 | [子任务详情先看结论/产物/限制，再按需展开执行过程；显示结果已返回父任务与否](06-subagents.md) | 部分验收 | 没有脚本；10-25 子任务批次的定向证据；原记录：结果回收/过程/限制说明；历史页面和真实完成记录 |
+| SUB-04 | [父任务、子任务列表与详情间直接切换，保留位置和草稿](06-subagents.md) | 部分验收 | 没有脚本；10-25 子任务批次的定向证据；原记录：右侧父子导航和深链接；草稿/阅读位置保留 |
+| SUB-05 | [用户明确选择“告诉主 agent”或“直接补充这个子任务”，并能只停止一个子任务](06-subagents.md) | 已验收（脚本） | run-checks：subcontrol；原记录：直接补充、只停目标、去重和采纳回执；subcontrol报告 |
+| SUB-06 | [子任务审批/提问汇入主任务待处理区，显示来源且能直达](06-subagents.md) | 部分验收 | check-subinput 要人在网页上答，没在一条命令里；原记录：真实子任务提问/审批来源、过期拒绝；子任务批次 |
+| SUB-07 | [展示执行目录、上下文来源与共享边界，提示父轮结束对子任务的影响](06-subagents.md) | 部分验收 | 没有脚本；10-25 子任务详情页的定向证据；原记录：实际目录和继承上下文说明；子任务详情页 |
 | SUB-08 | [失败、已停止或结果未知时提供可理解的恢复路径，沿用同一子任务身份](06-subagents.md) | 保留/补强；部分验收 | 历史尝试、未知结果保留与恢复到主草稿；活跃目标直控，已结束由主agent沿原ID续跑 |
-| EXT-01 | [命令面板与快速导航](07-workflow-completeness.md) | 已实现；定向验收 | 操作/任务/文件/任务内查找、空输入恢复；20及页面回归 |
-| EXT-02 | [活动中心与未读管理](07-workflow-completeness.md) | 已实现；定向验收 | 活动中心、账号阅读游标、待处理来源；11及既有真实证据 |
-| EXT-03 | [上下文与用量管理](07-workflow-completeness.md) | 已实现；定向验收 | 真实用量、未知额度、准备压缩及实际发送；API+UI compact成功 |
-| EXT-04 | [显式调用 Skill](07-workflow-completeness.md) | 已实现；定向验收 | 来源/path/hash固定引用、草稿恢复、失效拒绝和正文快照；Skill报告+UI |
-| EXT-05 | [项目常用操作](07-workflow-completeness.md) | 已实现；定向验收 | 动作配置、沙箱服务、Unix端口、日志、停止、副本初始化；9+8项实际检查 |
-| EXT-06 | [网页预览与可视化反馈](07-workflow-completeness.md) | 未实现；阻塞已有可行路径 | 19的T01：命名空间方案在VM上与Chrome沙箱冲突；2026-10-31 改走“Chrome自有沙箱+固定目标代理”，原型通过（19文末），待补受限CDP与scheme拦截的原型后开发；截图回放不算完成 |
-| EXT-07 | [产物预览与批注](07-workflow-completeness.md) | 已实现；定向验收 | 四种格式、PDF分页恢复、区域批注、版本过期、加密/损坏错误；20及真实页面 |
-| EXT-08 | [工作区多标签](07-workflow-completeness.md) | 已实现；定向验收 | 多资源标签与布局/恢复；15、既有和本次窄屏回归 |
-| EXT-09 | [Goal 持续任务模式](07-workflow-completeness.md) | 已实现；定向验收 | 显式Goal、预算、暂停/恢复/修改、真实证据、重启和用户队列仲裁；21及六组真模型报告 |
+| EXT-01 | [命令面板与快速导航](07-workflow-completeness.md) | 已验收（浏览器） | 10-30 点验：命令面板（Ctrl+Shift+P）、搜索；原记录：操作/任务/文件/任务内查找、空输入恢复；20及页面回归 |
+| EXT-02 | [活动中心与未读管理](07-workflow-completeness.md) | 部分验收 | 10-30 点验：活动中心“待处理 1”；check-activity 要人在网页上答；原记录：活动中心、账号阅读游标、待处理来源；11及既有真实证据 |
+| EXT-03 | [上下文与用量管理](07-workflow-completeness.md) | 部分验收 | 没有脚本；10-25 批次 API+UI 压缩的定向证据；原记录：真实用量、未知额度、准备压缩及实际发送；API+UI compact成功 |
+| EXT-04 | [显式调用 Skill](07-workflow-completeness.md) | 已验收（脚本） | run-checks：skill-refs；原记录：来源/path/hash固定引用、草稿恢复、失效拒绝和正文快照；Skill报告+UI |
+| EXT-05 | [项目常用操作](07-workflow-completeness.md) | 已验收（脚本） | run-checks：operations；10-30 点验项目操作；原记录：动作配置、沙箱服务、Unix端口、日志、停止、副本初始化；9+8项实际检查 |
+| EXT-06 | [网页预览与可视化反馈](07-workflow-completeness.md) | 部分验收 | P1 已实现并验收（[web-preview-p1.md](../web-preview-p1.md)：本机开发服务，能点、能输入、代理只放行授权 origin，连跑 5 次 18 项全过）；P2 agent 接管、P3 反馈、P4 沙箱服务未做；macOS 未实测；原记录：19的T01：命名空间方案在VM上与Chrome沙箱冲突；2026-10-31 改走“Chrome自有沙箱+固定目标代理”，原型通过（19文末），待补受限CDP与scheme拦截的原型后开发；截图回放不算完成 |
+| EXT-07 | [产物预览与批注](07-workflow-completeness.md) | 已验收（脚本） | run-checks：highlight、closeout；10-25 批次的 PDF/批注证据；原记录：四种格式、PDF分页恢复、区域批注、版本过期、加密/损坏错误；20及真实页面 |
+| EXT-08 | [工作区多标签](07-workflow-completeness.md) | 已验收（浏览器） | 10-30 点验工作面板多标签；10-31 预览标签；原记录：多资源标签与布局/恢复；15、既有和本次窄屏回归 |
+| EXT-09 | [Goal 持续任务模式](07-workflow-completeness.md) | 已验收（脚本） | run-checks：goal-plan goal/budget/pause、goal-arbitration、closeout-lifecycle；10-30 点验持续 Goal；原记录：显式Goal、预算、暂停/恢复/修改、真实证据、重启和用户队列仲裁；21及六组真模型报告 |
 
 ## 验收记录
 
