@@ -1,0 +1,13 @@
+#!/bin/sh
+# 假的 ssh：按别名给出各种失败，把每次调用的参数记进 $FAKE_SSH_LOG。
+echo "$*" >> "$FAKE_SSH_LOG"
+alias=""
+for a in "$@"; do case "$a" in eval*) alias=$a;; esac; done
+case "$1" in -G) printf 'hostname 127.0.0.1\nport 2222\nuser eval\n'; exit 0;; esac
+case "$alias" in
+  evalauth) echo "eval@127.0.0.1: Permission denied (publickey)." >&2; exit 255;;
+  evalhostkey) echo "Host key verification failed." >&2; exit 255;;
+  evalunreach) echo "ssh: Could not resolve hostname evalunreach: Name or service not known" >&2; exit 255;;
+  evalnotern) echo "bash: line 1: tern: command not found" >&2; exit 127;;
+esac
+echo "fake ssh: unknown alias $alias" >&2; exit 255
