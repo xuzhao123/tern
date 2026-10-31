@@ -840,7 +840,7 @@ func (s *Server) followUp(r *run) {
 	at, _ := r.lastTurnEvent()
 	normal := at >= 0 && r.events[at].Kind == "exit" && r.events[at].Text == "exit 0"
 	ready := normal && !r.stopping && !r.queuePaused && r.queueClaim == nil && len(r.queue) > 0 && r.canContinue()
-	pending, interrupted := len(r.queue) > 0, r.stopping
+	pending, interrupted, paused := len(r.queue) > 0, r.stopping, r.queuePaused
 	immediate, version, first, firstUser := false, r.queueVersion, "", ""
 	if len(r.queue) > 0 && r.queue[0].Immediate && r.queueClaim == nil && r.canContinue() {
 		immediate, first, firstUser = true, r.queue[0].ID, r.queue[0].User
@@ -850,7 +850,9 @@ func (s *Server) followUp(r *run) {
 		s.deliverQueueLocked(r, first, &version, false, false, "", firstUser)
 		return
 	}
-	if !normal && pending && !interrupted {
+	// 每次启动接管都会走一遍这里：队列早已因为上一轮没正常结束暂停时什么都不写，
+	// 否则一样的结论每次都加 queue_version，界面拿着旧版本就会被 409。
+	if !normal && pending && !interrupted && !paused {
 		s.setMeta(r, func(meta *runMeta) {
 			meta.QueuePaused = true
 			meta.QueueError = "上一轮未正常结束，队列已暂停"
