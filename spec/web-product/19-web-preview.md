@@ -1,6 +1,6 @@
 # 网页预览：持久会话、控制权与可视化反馈
 
-状态：方案稿，未实现、未进行本功能的运行验收。日期：2026-10-25。对应 EXT-06、A36/A37，并与 WORK-08、EXT-05、EXT-08 共用能力。开发与真实验收结果仍统一记录到 [08](08-implementation.md)，不能以本文或已有浏览器截图关闭需求。
+状态：方案稿，未实现。日期：2026-10-25；2026-10-31 补充：T01 改走“Chrome 自有沙箱 + 只放行授权目标的代理”，原型在 Linux VM 上通过，见文末。对应 EXT-06、A36/A37，并与 WORK-08、EXT-05、EXT-08 共用能力。开发与真实验收结果仍统一记录到 [08](08-implementation.md)，不能以本文或已有浏览器截图关闭需求。
 
 本文细化 [07 第 7 节](07-workflow-completeness.md#7-ext-06网页预览与可视化反馈)，保留其完整范围。用户明确网页、文件、diff、子智能体都属于同一个右侧工作区，布局遵守 [18](18-codex-visual-alignment.md)。本文只交付设计，不改应用实现或运行环境。
 
@@ -108,7 +108,9 @@ flowchart LR
 
 现有 `open_page` 的 `checkURL/privateHost/guard` 保持原行为。preview 的授权不能设置成通用的“允许内网浏览器”开关。
 
-Linux 的优先实现路径是独立 preview 网络 namespace：内部只通过受控 relay 连接 grant 指定的固定目标；relay 可以转发 TCP/Unix 字节，但不接收任意 URL、不改内容、不重写 Origin/CORS/CSP/frame/TLS。这样原站点仍在浏览器自己的 origin 下运行，同一授权端点的 HTTP 与 WebSocket 能走同一边界。
+**2026-10-31 起，首选路径改为“Chrome 自有沙箱 + 只放行授权目标的代理”**（原型结果见文末）：preview 的 Chrome 不套 bwrap 或网络 namespace，保留 Chrome 自己的沙箱；所有流量用 `--proxy-server` 指到 tern 的 preview 代理，并加 `--proxy-bypass-list=<-loopback>`，让 localhost 也必须经过代理；代理只放行 grant 指定的目标，放行的连接固定连到授权地址，不按请求里的名字解析。下面这段命名空间方案在 VM 上已证实与 Chrome 沙箱冲突，保留作为历史记录。
+
+原方案：Linux 的优先实现路径是独立 preview 网络 namespace：内部只通过受控 relay 连接 grant 指定的固定目标；relay 可以转发 TCP/Unix 字节，但不接收任意 URL、不改内容、不重写 Origin/CORS/CSP/frame/TLS。这样原站点仍在浏览器自己的 origin 下运行，同一授权端点的 HTTP 与 WebSocket 能走同一边界。
 
 该隔离路径尚未实施，worker/CDP 通道与 Chrome 沙箱是否能共同工作必须先做 T01 的真实原型验证。仅依靠 CDP Fetch 放行本地 origin 不足以完成安全验收，因为现有代码已确认 WebSocket 和 DNS 重绑定覆盖不足。不能以功能可用为理由自动退回宿主无限制 Chrome、`--share-net`、`--disable-web-security` 或关闭证书检查。
 
@@ -368,3 +370,28 @@ helper 不得自动把新打开的同 host QA 登录覆盖正在使用的账号�
 - 同等隔离的systemd用户服务原型（PrivateUsers/PrivateNetwork/ProtectSystem/ProtectHome/PrivateTmp/NoNewPrivileges）也无法启动Chrome自有sandbox。原型临时unit已自动回收。
 - 没有采用 `--no-sandbox`，没有放宽AppArmor或转为宿主无限制Chrome，没有公开端口。当前P0没有通过，P1–P5不得冒称已实现/已验收。需要一个经授权配置、可同时保留网络隔离与Chrome自有sandbox的专用运行环境，再推进该项。
 - EXT-05的专用沙箱服务和固定端口Unix导出已独立实现、真实验证；此事实不能替代浏览器交互与控制交接验收。
+
+## 2026-10-31 T01 第二条路：Chrome 自有沙箱 + 固定目标代理（原型通过）
+
+用户提出：tern 不必把预览浏览器套进自己的隔离，网络边界改由代理负责。Claude Code 在同一台 VM（Ubuntu、`google-chrome`、`apparmor_restrict_unprivileged_userns=1`）上做了原型。原型是 `/tmp` 里的一次性脚本，不进仓库：Node 写的开发服务（8601，页面、`/api`、WebSocket）、"别的服务"（8602，记录每次命中）、只放行 `127.0.0.1:8601`/`localhost:8601` 的代理（8700，放行的一律连到固定的 `127.0.0.1:8601`），以及用 Playwright（CDP pipe）启动的 Chrome。Chrome 不加 `--no-sandbox`，参数为 `--proxy-server=http://127.0.0.1:8700 --proxy-bypass-list=<-loopback> --force-webrtc-ip-handling-policy=disable_non_proxied_udp`。
+
+| 验证项 | 结果 |
+| --- | --- |
+| Chrome 自有沙箱 | 保留：本浏览器的渲染进程 `Seccomp: 2`，处在独立的 PID namespace，命令行没有 `--no-sandbox`。不在 bwrap 里，所以 10-28 的冲突不出现 |
+| 授权目标 | 页面 200，同源 `fetch('/api')`、同源 WebSocket（经 CONNECT）都通，输入框能输入中文 |
+| 其他本地端口 | 页面里用 `127.0.0.1`、`localhost`、`[::1]`、`127.0.0.1.nip.io`（公网 DNS 解析到本机）访问 8602，方式有 fetch、图片、WebSocket，另外直接导航到 8602：代理日志全部是 `DENY`，8602 命中 0 次。注意：`no-cors` 的 fetch 收到代理回的 403 也会"成功"，所以以代理日志和 8602 的命中记录为准 |
+| DNS 重绑定 | 用解析到本机的名字访问**授权的**端口（`127.0.0.1.nip.io:8601`）也是 403：代理只认字面的授权主机名，放行的连接不按名字解析 |
+| 外网 | `example.com` 的导航和 fetch 都被拒 |
+| WebRTC | 加了上面的参数后收集不到任何 ICE 候选，没有绕过代理的 UDP |
+| Chrome 后台联网 | google 的各个域名也走代理、被拒。正式实现时照 `chromeWrapper` 关掉后台联网，避免噪音 |
+
+结论：在这台 VM 上，T01 的阻塞（Chrome 沙箱在 bwrap 里起不来）只属于"命名空间方案"。代理方案不需要命名空间，也不需要搬到 Mac。
+
+**代理管不到、实现时必须另外处理的**（未验证，按风险排序）：
+
+1. **非网络的地址**：`file://`、`chrome://`、`devtools://` 等不经过代理。agent 能用的 CDP 命令必须收窄到 spec 第 7 节的动作集（不暴露 `Page.navigate` 的任意 URL、`Runtime.evaluate` 等），导航只允许 grant 的 origin；另用 Chrome 策略（`URLBlocklist`，或在 CDP 层拦截）拒绝 `file:` 等 scheme。同日补测：页面脚本 `fetch('file:///etc/hostname')` 失败、`location.href='file://…'` 被 Chrome 拒绝（`Not allowed to load local resource`）；但 **CDP 直接 `Page.navigate` 到 `file:///etc/hostname` 能读到内容**。所以网页本身碰不到本地文件，风险全在 CDP 这一层：tern 的 preview worker 只能把受限动作转给 Chrome，导航前在 tern 这边检查 scheme 和 origin，绝不把原始 CDP 交给 agent 或网页端。
+2. **浏览器主进程不在沙箱里**：它以用户身份运行，和现有 `open_page` 一样。profile 和下载目录放私有临时目录（第 3 节已要求 0700），关掉下载，或者把下载限制在该目录里。
+3. **DNS 预取**：有代理时，Chrome 对代理的请求不在本地解析，但预取、预连接是否会发起本地 DNS 查询没有验证。这最多泄露主机名，不会连通别的服务；实现时用 `--dns-prefetch-disable` 关掉，再在验收里抓包确认。
+4. **macOS**：原型只在 Linux VM 上做过。Mac 上 Chrome 的沙箱本来就不依赖 user namespace，预计没有问题，但要实测。
+
+T01 的状态由"受阻"改为"有可行路径，待正式原型"：下一步是按第 11 节进入 P0/P1 的正式实现：preview worker 只暴露受限动作（第 1 项）、私有 profile 与下载限制（第 2 项）、`--dns-prefetch-disable` 与抓包验收（第 3 项）；macOS 实测（第 4 项）放在 P1 验收里。
