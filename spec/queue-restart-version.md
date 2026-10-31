@@ -1,6 +1,6 @@
 # 队列已暂停时，app-server 重启不应再改队列版本
 
-状态：已实现并验收（2026-10-31，tern 用 DeepSeek 实现）。`run-checks.py --only queue` 两步都通过；整套网页验收 32/32。
+状态：已实现并验收（2026-10-31，tern 用 DeepSeek 实现）。`run-checks.py --only queue` 两步都通过；整套网页验收之前一次是 31/32（只差这一项），没有用新程序整套重跑。
 
 ## 1. 为什么要改
 
