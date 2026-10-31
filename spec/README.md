@@ -9,6 +9,7 @@
 | 文档 | 内容 | 状态 |
 | --- | --- | --- |
 | [harness-next-phase.md](harness-next-phase.md) | **下一阶段迭代计划**：先稳住刚合并的网页功能，主线是 agent 质量的度量与回归（扩充编码评测、合并前回归门槛、按失败归因改进），并行收口网页产品、清旧账；流程回到“spec → tern 实现 → review”，小批次合并 | 计划（2026-10-29），用户已定：主线第 1 期，tern 实现，编码评测用 DeepSeek、通用评测用豆包 |
+| [final-answer-reserve.md](final-answer-reserve.md) | **最后一次请求留给最终回答**：设了 `max_steps` 时最后一次请求禁止调用工具，逼出最终回答；75% 的预算提醒改成逐项核对。依据是 flash 基线和回放实验 | 设计（2026-10-31），待 tern 实现 |
 | [web-qa-fixes-20261030.md](web-qa-fixes-20261030.md) | **网页端点验修复**：浏览器逐项点验的结果；计划面板这一轮结束后批准按钮不可点（P1）、提交说明不清空、发送回执提示不消失 | 已实现并验收（2026-10-31，tern 实现）；第二批（第 7 节）：沙箱里关掉 Go 遥测、任务产物默认收起隐藏项，也已验收 |
 | [request-budget-reminder.md](request-budget-reminder.md) | **请求预算提醒**：设了 `max_steps` 时，用掉 50%、75% 各插一条提醒（用了多少、用完直接停、只做交给你的部分）；来自 `spec-thread-goal` 越界验收的回放证据 | 已实现并验收（2026-10-29，tern 实现）；编码评测 5 道 spec 题通过 11/15 → 15/15 |
 | [web-product/](web-product/README.md) | **网页产品方案**：Codex 体验对齐，含界面、交互、子 agent、9 类日常工作流补充；共 47 项需求、42 个验收场景，已有能力与新增体验分开记录 | 开发中（2026-10-25），进度见 web-product/08-implementation.md；不计入旧功能完成数 |
