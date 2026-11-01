@@ -10,6 +10,7 @@ const paths = {
   search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/>',
   activity: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/>',
   chat: '<path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5H4l-1 1v-9.5a9 9 0 0 1 18 0Z"/>',
+  more: '<circle cx="6" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="18" cy="12" r="1.2"/>',
   folder: '<path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10H3ZM3 10h18"/>',
 };
 export const chromeIcon = (name) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${paths[name] || paths.chevron}</svg>`;
@@ -28,15 +29,20 @@ function fitMenu(details) {
 }
 export function initLayout() {
   const brand = document.querySelector(".brand"), collapse = action("", () => { if (matchMedia("(max-width: 760px)").matches) document.body.classList.remove("nav-open"); else document.body.classList.toggle("sidebar-collapsed"); });
-  collapse.className = "chrome-icon"; collapse.innerHTML = chromeIcon("sidebar"); collapse.title = "收起侧栏"; collapse.setAttribute("aria-label", "收起侧栏"); brand.append(collapse);
+  // 收起与展开是同一个按钮、同一个图标、同一个位置：展开时在侧栏左上角，收起后由顶栏左上角的 #menu 接替。
+  collapse.className = "chrome-icon sidebar-toggle"; collapse.innerHTML = chromeIcon("sidebar"); collapse.title = "收起侧栏"; collapse.setAttribute("aria-label", "收起侧栏"); brand.prepend(collapse);
+  $("menu").className = "chrome-icon sidebar-toggle"; $("menu").innerHTML = chromeIcon("sidebar"); $("menu").title = "展开侧栏"; $("menu").setAttribute("aria-label", "展开侧栏");
   $("menu").onclick = () => { if (matchMedia("(max-width: 760px)").matches) document.body.classList.toggle("nav-open"); else document.body.classList.toggle("sidebar-collapsed"); };
   const brandActions = el("div", "brand-actions");
   $("command-menu").innerHTML = chromeIcon("search"); $("command-menu").className = "chrome-icon"; $("command-menu").title = "搜索任务"; $("command-menu").setAttribute("aria-label", "搜索任务");
   $("activity-open").innerHTML = chromeIcon("activity"); $("activity-open").append(el("span", "sr-only", "活动")); $("activity-open").lastChild.id = "activity-label"; $("activity-open").className = "chrome-icon"; $("activity-open").title = "活动";
-  brandActions.append($("activity-open"), $("command-menu"), collapse); brand.append(brandActions);
-  $("new-chat").lastChild.textContent = "新聊天";
-  $("add-project").textContent = "+"; $("add-project").title = "添加项目"; $("add-project").setAttribute("aria-label", "添加项目");
-  const theme = document.querySelector(".theme-control"); document.querySelector(".nav-tools").append(theme);
+  brandActions.append($("activity-open"), $("command-menu")); brand.append(brandActions);
+  $("add-project").innerHTML = chromeIcon("plus"); $("add-project").title = "添加项目"; $("add-project").setAttribute("aria-label", "添加项目");
+  // “工具与更多”：触发的这一行留在原地，弹层是另一层（.nav-tools-menu），外观选择放在弹层最后。
+  const tools = document.querySelector(".nav-tools"), toolsSummary = tools.querySelector("summary"), toolsMenu = el("div", "nav-tools-menu");
+  toolsSummary.innerHTML = `<span class="ico">${chromeIcon("more")}</span>工具与更多`;
+  toolsMenu.append(...[...tools.children].filter((c) => c !== toolsSummary), document.querySelector(".theme-control"));
+  tools.append(toolsMenu);
   const filter = menu("项目", "sidebar-filter-menu"), navlabel = document.querySelector(".navlabel");
   filter.summary.firstElementChild.id = "filter-label";
   filter.content.append($("list-tools")); navlabel.firstElementChild.replaceWith(filter.details);

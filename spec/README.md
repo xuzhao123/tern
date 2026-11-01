@@ -9,6 +9,7 @@
 | 文档 | 内容 | 状态 |
 | --- | --- | --- |
 | [harness-next-phase.md](harness-next-phase.md) | **下一阶段迭代计划**：先稳住刚合并的网页功能，主线是 agent 质量的度量与回归（扩充编码评测、合并前回归门槛、按失败归因改进），并行收口网页产品、清旧账；流程回到“spec → tern 实现 → review”，小批次合并 | 计划（2026-10-29），用户已定：主线第 1 期，tern 实现，编码评测用 DeepSeek、通用评测用豆包 |
+| [web-sidebar-polish.md](web-sidebar-polish.md) | **网页端侧栏样式打磨**：统一图标列、文字列和右端操作位的对齐；“项目”“对话”分区标题统一样式（修 CSS 覆盖顺序的 bug）；项目行和对话行同样式；未读点与“⋯”共用一个位置；“工具与更多”弹层不再把触发行带走 ；收起与展开侧栏是同一个按钮、同一个位置 | 已实现并验收（2026-10-31，Claude Code 直接实现） |
 | [web-product/](web-product/README.md) | **网页产品方案**：Codex 体验对齐，含界面、交互、子 agent、9 类日常工作流补充；共 47 项需求、42 个验收场景，已有能力与新增体验分开记录 | 开发中（2026-10-25），进度见 web-product/08-implementation.md；不计入旧功能完成数 |
 | [codex-parity-plan.md](codex-parity-plan.md) | **任务清单**：和 Codex 对齐的功能点，哪些没做、哪些做得不好，按优先级排；做某一条前先写它的 spec，填回这里 | 清单（2026-10-24），持续更新 |
 | [app-server-design.md](app-server-design.md) | 照 Codex 的 SSH 远程：常驻的 `tern app-server` 管对话，网页端、终端、以后的桌面端经 Unix socket 或 SSH 连它；`TERN_HOME` | 第一步（`TERN_HOME`、`-agent-server`）已实现（2026-10-23）；第一期（app-server、网页端与 chat 改成客户端、去掉租户账号、SSH 远程与重连）已实现（2026-10-24）。第二期另写在 app-server-phase2-design.md，已实现（2026-10-23）；第三期桌面端未做 |

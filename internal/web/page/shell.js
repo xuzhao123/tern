@@ -498,7 +498,8 @@ $("add-project").onclick = async () => {
 function projectGroup(h, project) {
   const key = runKey(h.alias, project.id), group = el("details", "project-group"), summary = el("summary"), name = el("span", "q", project.name);
   group.open = !closedProjects.has(key); name.title = project.path || "历史记录未保存执行目录";
-  summary.insertAdjacentHTML("beforeend", chromeIcon("folder"));
+  // 文件夹和展开箭头占同一个图标位：平时是文件夹，悬停或聚焦这一行时换成箭头（收起时朝右）。
+  summary.insertAdjacentHTML("beforeend", `<span class="proj-ico">${chromeIcon("folder")}${chromeIcon("chevron")}</span>`);
   summary.append(name, el("small", "meta", project.historical ? "历史" : project.git ? "Git" : "目录"));
   group.append(summary);
   group.ontoggle = () => { if (group.open) closedProjects.delete(key); else closedProjects.add(key); };

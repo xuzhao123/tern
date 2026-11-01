@@ -7,44 +7,99 @@
 .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
 body { font-size:14px; letter-spacing:-.01em; }
 #app { grid-template-columns:clamp(248px,23vw,300px) minmax(0,1fr); }
-#sidebar { border-right:1px solid var(--line); padding-top:7px; }
-.brand { padding:7px 12px 16px; font-size:18px; font-weight:600; }
-.brand .mark { display:none; }
-.brand-actions { margin-left:auto; display:flex; align-items:center; gap:2px; }
-.brand-actions .chrome-icon { width:27px; height:27px; padding:5px; }
-.brand-actions .chrome-icon:last-child { opacity:0; }
-.brand:hover .chrome-icon:last-child, .brand:focus-within .chrome-icon:last-child { opacity:1; }
+/* 侧栏：网格见 spec/web-sidebar-polish.md。每行左右各留 8px、行内 10px：图标列从 18 开始（16px），文字列从 42 开始，
+   行右端的操作位（⋯、未读点）宽 22、贴着行内边距。选择器都以 #sidebar 开头，不靠书写顺序压过 app.css 和 .chrome-menu。 */
+#sidebar { border-right:1px solid var(--line); padding-top:0; }
+#sidebar .brand { height:56px; flex:none; gap:2px; padding:0 15px 0 12px; font-size:16px; font-weight:600; }
+#sidebar .brand .mark { display:none; }
+.sidebar-toggle.chrome-icon, .brand-actions .chrome-icon { width:28px; height:28px; padding:6px; }
+.sidebar-toggle .i, .brand-actions .chrome-icon .i { width:16px; height:16px; }
+#sidebar .brand-actions { margin-left:auto; display:flex; align-items:center; gap:2px; }
 #activity-open { position:relative; }
-#activity-open.has-activity::after { content:""; position:absolute; right:4px; top:3px; width:5px; height:5px; border-radius:50%; background:#3783ff; }
-.navbtn { min-height:34px; font-size:14px; padding:7px 10px; gap:9px; }
+#activity-open.has-activity::after { content:""; position:absolute; right:5px; top:5px; width:5px; height:5px; border-radius:50%; background:var(--accent); }
+/* 收起后，顶栏左上角的展开按钮和侧栏里的收起按钮在同一个位置（左 12、垂直居中）。 */
+#topbar > #menu.sidebar-toggle { display:none; margin-left:-6px; flex:none; }
+.sidebar-collapsed #topbar > #menu.sidebar-toggle { display:grid; }
+@media (max-width:760px) { #topbar > #menu.sidebar-toggle { display:grid; margin-left:0; } #sidebar .brand { height:52px; } }
+
+#sidebar .navbtn { min-height:34px; margin:1px 8px; padding:6px 10px; gap:8px; font-size:14px; color:var(--text); }
+#sidebar .navbtn .ico, #sidebar .navbtn .ico .i { width:16px; height:16px; }
 #command-menu kbd { display:none; }
-.navlabel { padding-top:24px; }
-#add-project { font-size:18px; padding:0 3px; }
+
+/* 分区标题：“项目”（筛选菜单）、“置顶”“对话”、多主机时的主机名、“已归档”都是一种样式。 */
+#sidebar .navlabel { display:flex; align-items:center; padding:14px 18px 4px; }
+#sidebar .project-label, #sidebar .host-name { padding:16px 10px 4px; }
+#sidebar .navlabel .sidebar-filter-menu > summary, #sidebar .project-label, #sidebar .host-name, #sidebar .archived-toggle { font-size:12px; font-weight:500; color:var(--faint); }
+#sidebar .navlabel .sidebar-filter-menu > summary { min-height:22px; gap:4px; padding:0; background:none; }
+#sidebar .navlabel .sidebar-filter-menu > summary:hover, #sidebar .navlabel .sidebar-filter-menu[open] > summary { color:var(--text); background:none; }
+#sidebar .navlabel .sidebar-filter-menu > summary .i { width:10px; height:10px; color:currentColor; }
+#sidebar .host-name.bad { color:var(--err); }
+.sidebar-filter-menu .chrome-menu-content { left:0; right:auto; width:232px; }
+#add-project { display:grid; place-items:center; width:22px; height:22px; margin-left:auto; padding:0; border:0; border-radius:6px; background:none; color:var(--muted); }
+#add-project:hover { background:var(--hover); color:var(--text); }
+#add-project .i { width:14px; height:14px; }
 #list-tools { margin:0; }
 #run-filter { width:100%; }
 #run-search { margin:5px 0; }
-.sidebar-filter-menu .chrome-menu-content { left:0; right:auto; width:232px; }
-.sidebar-filter-menu > summary { font-size:11px; color:var(--muted); padding:2px 0; }
-.project-label { padding:18px 10px 6px; font-size:12px; }
-.project-group > summary { gap:8px; padding:8px 9px; font-size:14px; }
-.project-group > summary > .i, .runitem button > .i { width:16px; height:16px; flex:none; color:var(--muted); align-self:center; }
-.project-group > summary .meta { display:none; }
-.project-group > summary .runmenu { margin-left:auto; }
+
+/* 行：对话、项目、项目下的任务同一行高、字号与颜色。 */
+#sidebar .runitem, #sidebar .project-group > summary { min-height:34px; padding:6px 10px; gap:6px; border-radius:8px; font-size:14px; color:var(--text); }
+#sidebar .runitem button { gap:8px; align-items:center; }
+#sidebar .runitem button > .i { width:16px; height:16px; flex:none; color:var(--muted); }
+#sidebar .runitem.active .q { font-weight:500; }
+#sidebar .runitem small { font-size:11px; opacity:0; }
+#sidebar .runitem:hover small, #sidebar .runitem:focus-within small { opacity:.7; }
+/* 未读点和“⋯”共用行右端的操作位：平时是点，悬停或选中时换成“⋯”。点的外宽连同间距加起来是 0，不挤占标题。 */
+#sidebar .runitem .runmenu { order:1; }
+#sidebar .runitem .unread { order:2; margin:0 8px 0 -20px; pointer-events:none; }
+#sidebar .runitem:hover .unread, #sidebar .runitem:focus-within .unread, #sidebar .runitem.active .unread { visibility:hidden; }
+
+#sidebar .project-group { margin:0; }
+#sidebar .project-group > summary { display:flex; align-items:center; gap:8px; height:34px; padding-top:0; padding-bottom:0; list-style:none; }
+#sidebar .project-group > summary::-webkit-details-marker { display:none; }
+#sidebar .project-group > summary::before { content:none; }
+#sidebar .project-group > summary .q { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#sidebar .project-group > summary .meta { display:none; }
+.proj-ico { position:relative; flex:none; width:16px; height:16px; color:var(--muted); }
+.proj-ico .i { position:absolute; inset:0; width:16px; height:16px; transition:transform .15s; }
+.proj-ico .i:last-child { visibility:hidden; }
+.project-group:not([open]) .proj-ico .i:last-child { transform:rotate(-90deg); }
+.project-group > summary:is(:hover, :focus-visible) .proj-ico .i:first-child { visibility:hidden; }
+.project-group > summary:is(:hover, :focus-visible) .proj-ico .i:last-child { visibility:visible; }
+#sidebar .project-group > summary .runmenu { margin-left:auto; }
 .project-group .more { opacity:0; width:22px; border:0; background:none; border-radius:5px; padding:0; font-size:16px; color:var(--muted); }
 .project-group > summary:hover .more, .project-group > summary:focus-within .more { opacity:1; }
 .project-group .runmenu-box { position:fixed; z-index:50; display:flex; flex-direction:column; min-width:130px; padding:5px; border:1px solid var(--line); border-radius:10px; background:var(--panel); box-shadow:var(--shadow); }
 .project-group .runmenu-box button { width:100%; padding:6px 10px; text-align:left; border:0; border-radius:6px; background:none; font-size:12px; }
 .project-group .runmenu-box button:hover { background:var(--hover); }
-.runitem { padding:8px 10px; border-radius:7px; font-size:14px; }
-.runitem small { font-size:11px; opacity:0; }
-.runitem:hover small, .runitem:focus-within small { opacity:.7; }
-.sidebar-footer { border-top:0; padding:7px 0; position:relative; }
-.nav-tools { margin:0 8px; position:relative; }
-.nav-tools > summary { padding:7px 10px; cursor:pointer; font-size:13px; color:var(--muted); }
-.nav-tools[open] { position:absolute; z-index:35; bottom:40px; left:0; width:228px; padding:6px 0; border:1px solid var(--line); border-radius:12px; background:var(--panel); box-shadow:0 8px 28px #0002; }
-.whoami { border-top:0; padding:9px 16px 13px; }
-.whoami #logout { opacity:0; }
-.whoami:hover #logout, .whoami:focus-within #logout { opacity:1; }
+/* 项目下的任务不画对话图标，标题和项目名对齐在文字列。 */
+#sidebar .project-group .runitem { margin-left:0; padding-left:34px; }
+#sidebar .project-group .runitem button > .i { display:none; }
+#sidebar .project-empty { margin:0; padding:4px 10px 6px 34px; font-size:12px; color:var(--faint); }
+
+/* 已归档：分区标题的样式，箭头放在文字后面，文字仍从 18 开始。 */
+#sidebar .archived-toggle { display:flex; align-items:center; gap:6px; margin-top:10px; padding:6px 10px; border-radius:8px; }
+#sidebar .archived-toggle:hover { background:var(--hover); color:var(--text); }
+#sidebar .archived-toggle::before { content:none; }
+#sidebar .archived-toggle::after { content:""; width:5px; height:5px; margin-top:-2px; border-right:1.5px solid currentColor; border-bottom:1.5px solid currentColor; transform:rotate(-45deg); transition:transform .15s; }
+#sidebar .archived-toggle.on::after { margin-top:-4px; transform:rotate(45deg); }
+
+/* 底部：设置、工具与更多两行同一样式；工具与更多的弹层另起一层，触发行留在原地。 */
+#sidebar .sidebar-footer { border-top:0; padding:6px 0; position:relative; }
+#sidebar .nav-tools { position:relative; margin:0; max-height:none; overflow:visible; }
+#sidebar .nav-tools > summary { display:flex; align-items:center; gap:8px; min-height:34px; margin:1px 8px; padding:6px 10px; border-radius:8px; list-style:none; cursor:pointer; font-size:14px; color:var(--text); }
+#sidebar .nav-tools > summary::-webkit-details-marker { display:none; }
+#sidebar .nav-tools > summary:hover, #sidebar .nav-tools[open] > summary { background:var(--hover); }
+#sidebar .nav-tools > summary .ico { display:grid; place-items:center; width:16px; height:16px; color:var(--muted); }
+#sidebar .nav-tools > summary .ico .i { width:16px; height:16px; }
+#sidebar .nav-tools-menu { position:absolute; z-index:35; left:8px; right:8px; bottom:calc(100% + 4px); padding:5px 0; border:1px solid var(--line); border-radius:12px; background:var(--panel); box-shadow:0 8px 28px #0002; }
+#sidebar .nav-tools-menu .navbtn { width:calc(100% - 10px); margin:1px 5px; }
+#sidebar .nav-tools-menu .theme-control { margin-top:5px; padding:8px 15px 4px; border-top:1px solid var(--line); }
+
+/* 账号：头像中心对齐图标列，“退出”悬停才出现，右边对齐行的内边距。 */
+#sidebar .whoami { border-top:0; padding:8px 18px 12px 14px; font-size:13px; }
+#sidebar .whoami #logout { opacity:0; margin-right:-8px; }
+#sidebar .whoami:hover #logout, #sidebar .whoami:focus-within #logout { opacity:1; }
 #topbar:has(#execution-context), #topbar { height:56px; min-height:56px; padding:0 18px; gap:8px; border-bottom:0; flex-wrap:nowrap; }
 #heading { min-width:0; display:block; }
 #title { font-size:14px; font-weight:500; max-width:100%; }
@@ -234,7 +289,6 @@ body { font-size:14px; letter-spacing:-.01em; }
 .feedback-text { white-space:pre-wrap; overflow-wrap:anywhere; font-size:12px; margin:5px 0; }
 .sidebar-collapsed #app { grid-template-columns:0 minmax(0,1fr); }
 .sidebar-collapsed #sidebar { visibility:hidden; overflow:hidden; }
-.sidebar-collapsed #menu { display:block; }
 @container (max-width:520px) {
   #thread { padding-left:24px; padding-right:24px; }
   #composer-wrap { padding-left:16px; padding-right:16px; }
@@ -323,11 +377,6 @@ body { font-size:14px; letter-spacing:-.01em; }
 .git-delivery .activity-actions { flex-wrap:wrap; }
 
 /* 2026-10-31 页面打磨（spec/archive/web-polish-20261031.md）。 */
-/* 侧栏项目的展开标记：用线条画，不依赖字体里有没有 ▸ ▾。 */
-.project-group > summary { list-style:none; }
-.project-group > summary::-webkit-details-marker { display:none; }
-.project-group > summary::before { content:""; flex:none; width:5px; height:5px; margin:0 1px 0 2px; border-right:1.5px solid var(--faint); border-bottom:1.5px solid var(--faint); transform:rotate(-45deg); transition:transform .15s; }
-.project-group[open] > summary::before { content:""; transform:rotate(45deg); }
 /* 正文里的行内代码：浅底、不加框，中文段落里密集出现时不那么花。 */
 .md code { padding:.1em .35em; border-radius:4px; background:color-mix(in srgb,var(--text) 6%,transparent); font-size:.9em; }
 .md pre code { padding:0; background:none; font-size:inherit; }
@@ -370,12 +419,6 @@ body { font-size:14px; letter-spacing:-.01em; }
 /* 设置等页面、对话框和侧栏弹层里的下拉统一成一种样式（原来是浏览器自带的，和其他控件不搭）。 */
 :is(.hubpanel, dialog, .theme-control) select:not(.pick):not([multiple]):not([size]) { appearance:none; -webkit-appearance:none; padding:5px 26px 5px 9px; border:1px solid var(--line); border-radius:8px; color:var(--text); font-size:13px; background:var(--panel) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M2 3.5l3 3 3-3' fill='none' stroke='%23999' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 9px center; }
 .theme-control select:not(.pick) { font-size:12px; padding:3px 24px 3px 8px; }
-/* “工具与更多”：不用浏览器的三角标记，展开时它是弹层的小标题。 */
-.nav-tools > summary { list-style:none; display:flex; align-items:center; gap:9px; }
-.nav-tools > summary::-webkit-details-marker { display:none; }
-.nav-tools > summary::before { content:""; width:5px; height:5px; margin:0 4px 0 3px; border-right:1.5px solid currentColor; border-bottom:1.5px solid currentColor; transform:rotate(-135deg); }
-.nav-tools[open] > summary { font-size:11px; color:var(--faint); }
-.nav-tools[open] > summary::before { transform:rotate(45deg); }
 /* 审批卡片：一行标题加风险说明，命令单独一块。 */
 .approval-head { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
 .net-card > pre.term { margin:6px 0 2px; max-height:160px; }
@@ -400,7 +443,3 @@ body { font-size:14px; letter-spacing:-.01em; }
 .slash-item:disabled:hover { background:none; }
 /* 新任务的空状态输入框在页面中间，上方放不下菜单：改成往下展开。 */
 #chat-col:has(#thread > .welcome) #slash { bottom:auto; top:calc(100% + 8px); }
-/* 已归档的展开标记同项目行：线条画的箭头，不依赖字体里的 ▸ ▾。 */
-.archived-toggle { display:flex; align-items:center; gap:7px; }
-.archived-toggle::before, .archived-toggle.on::before { content:""; width:5px; height:5px; border-right:1.5px solid currentColor; border-bottom:1.5px solid currentColor; transform:rotate(-45deg); transition:transform .15s; }
-.archived-toggle.on::before { transform:rotate(45deg); }
