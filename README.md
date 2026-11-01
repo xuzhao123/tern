@@ -228,7 +228,7 @@ tern -question '计算 1231+23123'
 | `-provider` | ark | 模型路由：`ark`（豆包，方舟 Coding Plan）、`deepseek`、`deepseekanthropic`（DeepSeek 的 Anthropic 接口）或 `coconut`（本机 Responses 服务）；子 agent 继承，续跑沿用 |
 | `-model` | 空 | 这家供应商下的具体模型，优先于 `LLM_MODEL` / `DEEPSEEK_MODEL`；写进检查点的启动参数，子 agent 继承，续跑与回放沿用 |
 | `-bash` | false | 增加 bash 与 request_network_access，命令在沙箱里执行（Linux 用 bubblewrap，macOS 用 sandbox-exec）；工作目录按对话保留，续聊各轮共用，网页端可上传、下载 |
-| `-bash-host` | false | 配合 `-bash`：命令直接在宿主机上跑（完全访问，没有沙箱）。网页端的权限下拉选「完全访问」时带这个参数；也可以单独与任意 `-permission-mode` 组合。校验命令（`-check`、`verify_feature`）仍进沙箱 |
+| `-bash-host` | false | 配合 `-bash`：命令直接在宿主机上跑（完全访问，没有沙箱）。网页端的权限下拉选「完全访问」时带这个参数；`tern chat`、`tern mcp-server` 这类只给权限、不说在哪跑的入口，app-server 按权限推：`full` 在宿主机，其余在沙箱；也可以单独与任意 `-permission-mode` 组合。校验命令（`-check`、`verify_feature`）仍进沙箱 |
 | `-workspace` | 空 | 增加 read_file、glob、grep、edit_file、write_file，只在这个仓库目录里读写；子 agent 继承。配合 `-bash` 时 bash 的 `/workspace` 就是这个仓库（`.git` 只读，`.env`、`.data` 看不到），本对话目录改挂 `/scratch` |
 | `-personal-instructions` | true | 读 `TERN_HOME` 下的 `AGENTS.md`（默认 `~/.tern/AGENTS.md`）作为个人指令放进系统提示词，排在项目指令前面，没选工作区也带上；`TERN_HOME` 就是工作区根目录时这个文件已作为项目指令读了，不再读一遍。评测传 `false`，结果才可比；子 agent 继承 |
 | `-permission-mode` | edit | plan（只读计划）、ask（改动都问）、edit（工作区内编辑与沙箱 bash 直接执行）、full（不问，含高风险确认，由程序放行并写审计；deny、ask 规则照常）。命令是否在沙箱里由 `-bash-host` 决定，full 不自动关沙箱 |

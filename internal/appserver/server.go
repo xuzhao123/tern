@@ -296,6 +296,8 @@ func (c *conn) threadStart(m protocol.Message) (any, *protocol.Error) {
 			return nil, bad(400, "sandbox 取 sandbox 或 host")
 		}
 		snap.Sandbox = input.Sandbox
+	} else if input.Permission != "" {
+		snap.Sandbox = sandboxFor(input.Permission)
 	}
 	// 执行位置可能由本次请求覆盖默认值，不能沿用默认沙箱缺依赖时的关闭结果。
 	snap.Bash = settings.Values["bash"] == "on" && s.unavailable("bash", snap.Sandbox, settings.Skills, settings.MCP) == ""
@@ -652,6 +654,16 @@ func (c *conn) turnStart(m protocol.Message) (any, *protocol.Error) {
 }
 
 // startTurn 真正开始一轮：检查能不能续聊、拼出这一轮的 start/continue 事件、起 agent。
+// sandboxFor：请求只给了权限、没说命令在哪跑时（tern chat、tern mcp-server、直接调接口），按网页端三档的规则推：
+// 只有完全访问（full）在宿主机上跑，其余在沙箱里。不推的话会落到平台默认的 sandbox_mode，
+// 平台默认是 host 时，选了 edit 的对话命令也直接在宿主机上跑，和网页端不一致。
+func sandboxFor(permission string) string {
+	if permission == "full" {
+		return "host"
+	}
+	return "sandbox"
+}
+
 // turn/start 与一轮结束后接着发排队的消息（followUp）共用。
 func (s *Server) startTurn(r *run, input turnInput, user string) (any, *protocol.Error) {
 	r.turnMu.Lock()
@@ -757,6 +769,8 @@ func (s *Server) startTurnLocked(r *run, input turnInput, user string) (any, *pr
 	}
 	if input.Sandbox != "" {
 		snap.Sandbox = input.Sandbox
+	} else if input.Permission != "" {
+		snap.Sandbox = sandboxFor(input.Permission)
 	}
 	if input.Effort != "" {
 		snap.Effort = input.Effort
@@ -929,6 +943,8 @@ func (c *conn) threadShellCommandOnce(m protocol.Message) (any, *protocol.Error)
 	}
 	if input.Sandbox != "" {
 		snap.Sandbox = input.Sandbox
+	} else if input.Permission != "" {
+		snap.Sandbox = sandboxFor(input.Permission)
 	}
 	dir, task := r.sandboxID(), r.rootTask
 	if dir == "" {
