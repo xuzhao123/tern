@@ -6,6 +6,17 @@ const dialog = el("dialog","resource-dialog"), title = el("h2", "", "选择 Skil
 title.id = "skill-picker-title"; dialog.setAttribute("aria-labelledby", title.id);
 query.type = "search"; query.placeholder = "按名称或用途搜索"; query.setAttribute("aria-label", "搜索 Skill"); close.type = "button";
 dialog.append(title, query, note, list, close); document.body.append(dialog);
+// 这条对话（或新对话所选工作区的设置）能不能用这个 skill：选择框和 / 菜单共用这一条判断。
+export function skillUsable(skill) {
+  return skill.enabled && !!skill.version && (ui.run ? ui.run.skills.includes(skill.name) : (ui.wsSettings?.[$("workspace").value] || ui.settings?.effective)?.values?.skills === "on");
+}
+// / 菜单选中一个 skill：同在选择框里点它，加进引用条。返回不能加的原因，加上了返回空串。
+export function addSkill(skill) {
+  if (!skillUsable(skill)) return "这个 skill 在当前任务里没启用";
+  if (refs.some((r) => r.name === skill.name)) return "已经选了这个 skill";
+  if (refs.length >= 8) return "最多选 8 个 skill";
+  refs.push({ name: skill.name, path: skill.path, version: skill.version }); renderRefs(); saveDraft(); return "";
+}
 export function selectedSkills() { return refs.map(({name,path,version}) => ({name,path,version})); }
 export function restoreSkills(value) {
   refs = (Array.isArray(value) ? value : []).filter((r) => typeof r?.name === "string" && typeof r.path === "string" && typeof r.version === "string").slice(0,8);
@@ -29,7 +40,7 @@ async function open() {
     const render=()=>{
       list.replaceChildren(); const q=query.value.trim().toLocaleLowerCase();
       for(const skill of data.skills.filter((s)=>`${s.name} ${s.description}`.toLocaleLowerCase().includes(q))) {
-        const enabled=skill.enabled && !!skill.version && (ui.run ? ui.run.skills.includes(skill.name) : (ui.wsSettings?.[$("workspace").value] || ui.settings?.effective)?.values?.skills === "on");
+        const enabled=skillUsable(skill);
         const button=el("button","command-result");button.type="button";button.disabled=!enabled || refs.length>=8 || refs.some((r)=>r.name===skill.name);
         button.append(el("span","",skill.name),el("small","",`${skill.builtin ? "内置" : "执行主机个人目录"} · ${enabled ? "可用" : "任务未启用或版本不支持"} · ${skill.description}`));
         button.onclick=()=>{

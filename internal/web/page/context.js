@@ -17,7 +17,14 @@ function refresh() {
   const compression = run.calls.findLast((c) => c.compact);
   const state = ui.compactNext ? "已准备：下一条消息发送前压缩，可取消"
     : !compression ? "尚无压缩记录" : !compression.end ? "压缩中" : compression.choice && !compression.invalidSummary && compression.status === 200 ? "压缩模型已返回；有效上下文以随后请求为准" : "压缩失败，查看原始历史与错误";
+  // /status 也打开这里：对话 ID、推理强度、权限与执行位置放在最前面（同 Codex 的 /status）。
+  const id = el("p", ""), copy = el("button", "link", "复制"); copy.type = "button";
+  copy.onclick = async () => { try { await navigator.clipboard.writeText(run.id); copy.textContent = "已复制"; } catch { copy.textContent = "复制不了，请手动选择"; } };
+  id.append(`对话 ID：${run.id} `, copy);
   metrics.replaceChildren(
+    id,
+    el("p", "", `执行位置：${$("execution-context").textContent || "未知"}`),
+    el("p", "", `本轮设置：${$("perm").selectedOptions[0]?.textContent || "权限未知"} · ${$("effort").hidden ? "推理强度不适用" : $("effort").selectedOptions[0]?.textContent || ""}`),
     el("p", "", `实际模型：${run.provider || "未记录"} / ${run.model || "未记录"}`),
     el("p", "", `最近输入：${last ? last.usage.prompt_tokens.toLocaleString() + " tokens" : "供应商未报告"} · 输入容量：${capacity ? capacity.toLocaleString() + " tokens（运行实例报告）" : "未知"}`),
     el("p", "meta", `用量更新时间：${last?.end ? new Date(last.end).toLocaleString() : "未知"}。上下文占用为最近一次请求，压缩后的值要等下一次请求报告。`),
@@ -32,6 +39,7 @@ function refresh() {
 compact.onclick = () => { ui.compactNext = !ui.compactNext; saveDraft(); refresh(); };
 close.onclick = () => dialog.close();
 dialog.addEventListener("close", () => focus?.focus?.());
+export function openContext() { open(); }
 function open() { if (!ui.run) return; run = ui.run; focus = document.activeElement; dialog.showModal(); refresh(); close.focus(); $("ctx-tip").hidden = true; }
 $("ctx-ring").onclick = open;
 $("ctx-ring").onkeydown = (event) => { if (["Enter", " "].includes(event.key) && !event.isComposing) { event.preventDefault(); open(); } };

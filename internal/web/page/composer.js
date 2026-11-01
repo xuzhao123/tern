@@ -1,4 +1,5 @@
 import { selectedSkills, restoreSkills } from "./skillrefs.js";
+import { renderSlash, runSlash, slashKey } from "./slash.js";
 import { managedSteerSection } from "./managed-steer.js";
 import { queueSection, hasQueueStatus, refreshQueueEditor } from "./queue.js";
 import { show } from "./follow.js";
@@ -166,6 +167,8 @@ $("composer").onsubmit = (ev) => {
   ev.preventDefault();
   if (ui.sending || ui.streamDisconnected || !ui.account) return;
   const query = $("query").value.trim();
+  // “/名字 参数”是界面命令时在页面里执行，不发给模型（运行中也一样，能不能用由命令自己判断）。
+  if (query.startsWith("/") && runSlash(query)) return;
   // 以 ! 开头是人在沙箱里跑一条命令（不进模型，见 runShell）：新对话要先开一个，运行中要等它结束。
   if (query.startsWith("!")) { runShell(query.slice(1).trim()); return; }
   // 运行中按回车是插话：排进 agent 的下一次模型请求，不打断正在进行的请求或工具。
@@ -356,38 +359,14 @@ $("settings").onclick = () => openSettings();
 // 输入法组合输入时的 Enter 用于选词，不能发送；@ 菜单开着时回车是插入，也不发送。
 // Tab 保留焦点导航（补全菜单打开时可选候选）；排队使用显式按钮。
 $("query").onkeydown = (ev) => {
-  if (atKey(ev)) { ev.preventDefault(); return; }
+  if (atKey(ev) || slashKey(ev)) { ev.preventDefault(); return; }
   if (ev.key === "Enter" && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); $("composer").requestSubmit(); }
 };
 $("queue").onclick = () => queueInput();
-$("query").oninput = () => { autosize(); syncComposer(); if (!syncAt()) syncSlash(); };
-// 斜杠命令。输入框里只有 /前缀时列出命令（编进程序的内置命令、个人级 commands/、所选工作区的 .agents/commands/）；展开由 agent 做。
-async function loadCommands() {
-  const ws = ui.run ? ui.run.workspace || "" : $("workspace").value;
-  if (ui.commands && ui.commandsFor === ws) return;
-  try { const res = await fetch(api("/commands?workspace=" + encodeURIComponent(ws))); ui.commands = res.ok ? await res.json() : []; } catch { ui.commands = []; }
-  ui.commandsFor = ws;
-}
-async function syncSlash() {
-  const box = $("slash"), m = /^\/([a-z0-9_-]*)$/.exec($("query").value);
-  if (!m) { box.hidden = true; return; }
-  await loadCommands();
-  if (atMatch) { box.hidden = true; return; } // 等命令列表时 @ 菜单开了：这个框归它
-  const list = ui.commands.filter((c) => c.name.startsWith(m[1]));
-  const scope = { builtin: "内置", user: "个人", project: "项目" };
-  box.replaceChildren(...list.map((c) => {
-    const b = el("button", "slash-item");
-    b.type = "button";
-    b.append(el("span", "slash-name", "/" + c.name + (c.argument_hint ? " " + c.argument_hint : "")), el("span", "meta", (scope[c.scope] ? scope[c.scope] + " · " : "") + (c.description || "")));
-    b.onmousedown = (ev) => ev.preventDefault();
-    b.onclick = () => { $("query").value = "/" + c.name + " "; box.hidden = true; $("query").focus(); syncComposer(); };
-    return b;
-  }));
-  if (!list.length) box.append(el("div", "meta", ui.commands.length ? "没有匹配的命令" : "没有可用的命令：放在 TERN_HOME 的 commands/ 或工作区的 .agents/commands/"));
-  box.hidden = false;
-}
+$("query").oninput = () => { autosize(); syncComposer(); if (!syncAt()) renderSlash(); };
+// 斜杠命令的菜单与执行在 slash.js：界面命令在页面里执行，提示词命令照旧整句发给 agent 展开。
 $("query").onblur = () => { atClose(); $("slash").hidden = true; };
-$("workspace").addEventListener("change", () => { ui.commands = null; atClose(); });
+$("workspace").addEventListener("change", () => atClose());
 // ---------- @ 提到文件 ----------
 // 光标前是“行首或空白 + @ + 若干非空白字符”时，在斜杠命令那个框里列出工作区的文件（app-server 的 workspace/files）：
 // 新对话按工作区下拉当前选的，已有对话按这条对话的（threadId，用它快照里的工作区目录）。没有工作区就不弹菜单，@ 是普通字符。

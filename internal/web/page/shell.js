@@ -556,7 +556,7 @@ function closeRowMenus() {
 function runMenu(r, h) {
   return rowActions("对话操作", [
     [isUnread(h.alias, r) ? "标为已读" : "标为未读", () => isUnread(h.alias, r) ? markSeen(h.alias, r, true) : markUnread(h.alias, r)],
-    [r.pinned ? "取消置顶" : "置顶", async () => { if (await threadCall(h, `/runs/${encodeURIComponent(r.id)}/pin`, "PUT", { pinned: !r.pinned })) loadRuns(); }],
+    [r.pinned ? "取消置顶" : "置顶", () => pinRun(r, h)],
     ["改名", () => renameRun(r, h)], [r.archived ? "取消归档" : "归档", () => archiveRun(r, h)], ["删除", () => deleteRun(r, h)],
   ]);
 }
@@ -603,17 +603,23 @@ async function threadCall(h, path, method, body) {
   } catch (err) { alert("请求失败：" + err.message); }
   return false;
 }
-async function renameRun(r, h) {
-  const name = prompt("这条对话的名字（留空就显示第一句话）：", r.name || r.query || "");
-  if (name === null) return;
-  if (await threadCall(h, `/runs/${encodeURIComponent(r.id)}/name`, "PUT", { name })) loadRuns();
+// 下面几个也给 / 命令用（slash.js）：带了参数就不再弹框问。返回是否成功。
+export async function renameRun(r, h, given) {
+  const name = given ?? prompt("这条对话的名字（留空就显示第一句话）：", r.name || r.query || "");
+  if (name === null) return false;
+  if (!(await threadCall(h, `/runs/${encodeURIComponent(r.id)}/name`, "PUT", { name }))) return false;
+  loadRuns(); return true;
+}
+export async function pinRun(r, h) {
+  if (!(await threadCall(h, `/runs/${encodeURIComponent(r.id)}/pin`, "PUT", { pinned: !r.pinned }))) return false;
+  loadRuns(); return true;
 }
 // 目标：点标题下面那一行改，默认值是现在的目标，留空就是清除（见 thread/goal/set）。
 // 改的是下一轮开始时告诉模型的，这一轮不打断，所以这里只更新那一行。
-async function editGoal() {
+export async function editGoal(given) {
   const r = ui.run;
   if (!r) return;
-  const text = prompt("这条对话的目标（留空就是清除）：", r.goal || "");
+  const text = given ?? prompt("这条对话的目标（留空就是清除）：", r.goal || "");
   if (text === null) return;
   try {
     const res = await fetch(api(`/runs/${encodeURIComponent(r.id)}/goal`), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
@@ -624,8 +630,9 @@ async function editGoal() {
     renderShell();
   } catch (err) { alert("请求失败：" + err.message); }
 }
-async function archiveRun(r, h) {
-  if (await threadCall(h, `/runs/${encodeURIComponent(r.id)}/archive`, r.archived ? "DELETE" : "POST")) loadRuns();
+export async function archiveRun(r, h) {
+  if (!(await threadCall(h, `/runs/${encodeURIComponent(r.id)}/archive`, r.archived ? "DELETE" : "POST"))) return false;
+  loadRuns(); return true;
 }
 async function deleteRun(r, h) {
   if (!confirm("永久删除这条对话？存档、检查点和沙箱里的文件都会删掉，不能撤销。")) return;
@@ -790,7 +797,7 @@ $("files-btn").onclick = () => openWorkTab("files", "", "任务产物");
 // 导出：整条对话在页面里拼成 Markdown 再下载，不经服务端（见 export.js）。
 $("export-btn").onclick = () => exportRun(ui.run);
 // 旁支提问：按钮的显示见 renderShell，四步见 sideQuestion。
-$("side-btn").onclick = sideQuestion;
+$("side-btn").onclick = () => sideQuestion();
 $("diff-btn").onclick = () => openWorkTab("diff", "", "改动");
 // 后台命令（看、停模型用 bash 带 background=true 起的命令）：面板的渲染在 jobs.js。
 $("jobs-btn").onclick = () => openWorkTab("jobs", "", "后台命令");
@@ -923,12 +930,12 @@ export async function forkTurn(r, t) {
 }
 // 旁支提问：从最后一轮临时分出去问一句，问答不进这条对话。分出来的对话已归档，名字用问题；四步里
 // 哪一步失败就停下，原因写在输入框下面，已经分出来的旁支留着（在已归档里），不回滚。
-async function sideQuestion() {
+export async function sideQuestion(given) {
   const r = ui.run;
   // 和每条回答下的“分叉”一样，分叉带过来的轮次不能再分（它们的撤销会走进原对话）。
   const turn = [...(r?.turns || [])].reverse().find((t) => t.checkpoint && !t.rewound && !t.inherited);
   if (!turn) { ui.hint = "这条对话还没有可以分出去的轮次"; syncComposer(); return; }
-  const question = (prompt("旁支问题：临时分出去问一句，问答不会回到这条对话") || "").trim();
+  const question = (given || prompt("旁支问题：临时分出去问一句，问答不会回到这条对话") || "").trim();
   if (!question) return;
   const fail = (text) => { ui.hint = text; syncComposer(); };
   let id;
