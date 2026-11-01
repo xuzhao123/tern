@@ -118,6 +118,11 @@ export function el(tag, cls, text) {
 export const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 export function parse(v) { if (typeof v !== "string") return v; try { return JSON.parse(v); } catch { return v; } }
 export function pretty(v) { v = parse(v); return typeof v === "string" ? v : JSON.stringify(v, null, 2); }
+// 没起名字的任务用第一句话当标题（同 Codex 的线程标题）：到第一个句号、问号、感叹号或换行为止，太长再截断；全文在悬停里。
+export function shortTitle(text) {
+  const first = String(text || "").trim().split(/(?<=[。！？!?])|\n/)[0].trim();
+  return first.length > 40 ? first.slice(0, 40) + "…" : first;
+}
 export const compact = (v) => { v = parse(v); return typeof v === "string" ? v : JSON.stringify(v); };
 // 附图：content 是数组时（有图的消息）只拼文字段。图片的 <image …> 开标签与 </image> 闭标签去掉，
 // image_url 那一段写成它的编号（开标签里的 [Image #1]），没有编号就写 [图片]。

@@ -9,6 +9,7 @@
 | 文档 | 内容 | 状态 |
 | --- | --- | --- |
 | [harness-next-phase.md](harness-next-phase.md) | **下一阶段迭代计划**：先稳住刚合并的网页功能，主线是 agent 质量的度量与回归（扩充编码评测、合并前回归门槛、按失败归因改进），并行收口网页产品、清旧账；流程回到“spec → tern 实现 → review”，小批次合并 | 计划（2026-10-29），用户已定：主线第 1 期，tern 实现，编码评测用 DeepSeek、通用评测用豆包 |
+| [web-polish-20261031.md](web-polish-20261031.md) | **网页端打磨**：工具行写成人话、每轮改动卡片、短标题、空态居中、侧栏去重、改动面板去掉重复头部和 git 文件头、设置页不挂输入框、默认用配好的模型 | 已实现并验收（2026-10-31，Claude Code 直接实现） |
 | [web-preview-p1.md](web-preview-p1.md) | **网页预览 P1**（EXT-06 第一段）：右侧工作区打开本机开发服务，能点、能输入、能滚动；Chrome 保留自己的沙箱，网络只经一个只放行授权 origin 的代理 | 已实现并验收（2026-10-31），macOS 未实测 |
 | [eval-cost-visibility.md](eval-cost-visibility.md) | **评测的成本与耗时**：逐题请求次数、未命中 tokens、耗时，和基线配对的成本差；网页端换基线 | 已实现并验收（2026-10-31） |
 | [cleanup-phase3.md](cleanup-phase3.md) | **第 3 期清旧账**：删对话连子 agent 检查点一起删、沙箱 Go 的 stat cache 警告、知识库旧名称 | 已实现并验收（2026-10-31） |

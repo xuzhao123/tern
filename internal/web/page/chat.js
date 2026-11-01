@@ -3,7 +3,7 @@ import { agentCard, collaborationSummary, renderSubPanel } from "./agents.js";
 import { analyze, endLabel, tokenParts, toolResult } from "./analysis.js";
 import { WEB_TOOLS, webCard } from "./browser.js";
 import { start } from "./composer.js";
-import { openDiff } from "./diff.js";
+import { diffFileCounts, openDiff } from "./diff.js";
 import { exploreCall, exploreLabel } from "./explore.js";
 import { show } from "./follow.js";
 import { claimViz, md, parkViz } from "./md.js";
@@ -121,15 +121,18 @@ function chatFlow(r) {
   });
   return flow;
 }
-// 这一轮成功改过的工作区文件：edit_file / write_file 的 path 参数，按调用顺序去重。
-function turnFiles(r, turn) {
+// 这一轮成功改过的工作区文件：edit_file / write_file 的 path 参数，按调用顺序去重；created 记下是不是这一轮新建的。
+export function turnFiles(r, turn) {
   const files = [];
   for (const c of r.calls) {
     if (c.turn !== turn) continue;
     for (const t of c.tools) {
       if (t.name !== "edit_file" && t.name !== "write_file") continue;
       const path = t.state === "ok" ? parse(t.args)?.path : "";
-      if (path && !files.includes(path)) files.push(path);
+      if (!path) continue;
+      let f = files.find((x) => x.path === path);
+      if (!f) files.push(f = { path, created: false });
+      if (t.name === "write_file" && parse(t.result)?.result?.created) f.created = true;
     }
   }
   return files;
@@ -151,17 +154,35 @@ function shellCard(s) {
   if (b.truncated) card.append(el("div", "meta", "输出太长，只留了开头 16 KB"));
   return card;
 }
-// 每轮末尾那一行“这一轮改了 N 个文件：…（看改动）”：只在有成功的改动时出现。
+// 每轮末尾的改动卡片：这一轮改过的文件一行一个，点文件打开右侧改动并展开它，“查看改动”打开整个工作目录的 diff。
+// 最后一轮的卡片带上工作目录相对 HEAD 的行数（diff.js 读到后填进 data-path 那一格），输入框上方就不再重复一个改动胶囊。
 function changedLine(r, turn) {
   const files = turnFiles(r, turn);
   if (!files.length) return null;
-  const bar = el("div", "turn-files");
-  bar.append(el("span", "meta", `这一轮改了 ${files.length} 个文件：` + files.slice(0, 5).join("、") + (files.length > 5 ? ` 等 ${files.length} 个` : "")));
-  const link = el("button", "link", "看改动");
-  link.title = "打开改动面板：工作区相对 HEAD 的 diff，并展开这一轮改过的文件";
-  link.onclick = () => openDiff(r, files);
-  bar.append(link);
-  return bar;
+  const latest = turn === r.calls.at(-1)?.turn;
+  const card = el("div", "turn-files" + (latest ? " latest" : "")), head = el("div", "tf-head");
+  head.append(el("span", "", `已修改 ${files.length} 个文件`));
+  const all = el("button", "link", "查看改动");
+  all.title = "打开改动面板：工作区相对 HEAD 的 diff，并展开这一轮改过的文件";
+  all.onclick = () => openDiff(r, files.map((f) => f.path));
+  head.append(all);
+  card.append(head);
+  const counts = latest ? diffFileCounts(r) : null;
+  for (const f of files.slice(0, 8)) {
+    const row = el("button", "tf-file");
+    row.type = "button"; row.title = "在改动面板里展开 " + f.path;
+    row.onclick = () => openDiff(r, [f.path]);
+    const n = el("span", "tf-count"); n.dataset.path = f.path;
+    fillCount(n, counts?.get(f.path));
+    row.append(el("span", "tf-tag", f.created ? "新建" : "修改"), el("span", "tf-path", f.path), n);
+    card.append(row);
+  }
+  if (files.length > 8) card.append(el("div", "meta", `还有 ${files.length - 8} 个文件，在改动面板里看`));
+  return card;
+}
+export function fillCount(node, c) {
+  node.replaceChildren(...(c ? [el("span", "diff-count-add", "+" + c.added), el("span", "diff-count-delete", "−" + c.deleted)] : []));
+  node.title = c ? "工作目录相对 HEAD 的行数" : "";
 }
 export function step(key, head, body) {
   const box = el("details", "step");
@@ -206,6 +227,24 @@ setInterval(() => {
   const s = ui.live;
   if (s?.wait?.isConnected && !s.call.end) s.wait.textContent = liveWait(s.call);
 }, 1000);
+// 文件与检索工具的一行说明写成人话（同 Codex 的 Edited / Read 行）：动作、路径，改文件的再带行数；参数原文点开看。
+// 行数只按这一次调用的参数算（edit_file 的新旧片段、write_file 结果里的 lines），不是相对 HEAD 的 diff。
+const lineCount = (s) => typeof s === "string" && s ? s.split("\n").length - (s.endsWith("\n") ? 1 : 0) : 0;
+function toolLabel(t) {
+  const args = parse(t.args) || {}, out = parse(t.result)?.result || {};
+  const count = (add, del) => [el("span", "diff-count-add", "+" + add), ...(del === undefined ? [] : [el("span", "diff-count-delete", "−" + del)])];
+  switch (t.name) {
+    case "edit_file": return args.path && { verb: "编辑", target: args.path, counts: count(lineCount(args.new_string), lineCount(args.old_string)) };
+    case "write_file": {
+      const lines = out.lines ?? lineCount(args.content);
+      return args.path && (out.created === false ? { verb: "重写", target: args.path, counts: [el("span", "", lines + " 行")] } : { verb: "新建", target: args.path, counts: count(lines) });
+    }
+    case "read_file": return args.path && { verb: "读取", target: args.path };
+    case "grep": return args.pattern && { verb: "搜索", target: args.pattern + (args.path ? " · " + args.path : "") };
+    case "glob": return args.pattern && { verb: "查找文件", target: args.pattern };
+  }
+  return null;
+}
 export function renderCall(outer, r, c, last) {
   const m = (c.choice && c.choice.message) || {};
   // 每次请求不再单独占一行编号（同 Codex、Claude Code 的主视图）：原始输入 / 输出的开关悬停时出现在右上角，
@@ -254,7 +293,9 @@ export function renderCall(outer, r, c, last) {
     if (t.name === "ask_user") { box.append(askCard(ui.run, t, r)); continue; }
     const icon = t.state === "running" ? el("span", "ico") : ico(t.detour ? "bad" : "ok", t.detour ? "bad" : "ok");
     if (t.state === "running") icon.append(el("span", "spin"));
-    const head = [icon, el("span", "tname", t.name), el("span", "targs", clip(compact(t.args), 90))];
+    const label = toolLabel(t);
+    const head = label ? [icon, el("span", "tname", label.verb), el("span", "targs", label.target), ...(label.counts || [])] : [icon, el("span", "tname", t.name), el("span", "targs", clip(compact(t.args), 90))];
+    if (label) head[1].title = t.name;
     if (t.name === "load_skill" || t.name.startsWith("mcp_")) head.splice(1, 0, el("span", "hub-chip", t.name === "load_skill" ? "skill" : "mcp"));
     if (t.done) head.push(el("span", "", sec(t.done - c.end)));
     const result = t.done ? toolResult(t) : el("div", "meta", t.state === "lost" ? "进程已结束，没有结果" : "执行中…");

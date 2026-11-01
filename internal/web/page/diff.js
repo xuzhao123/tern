@@ -1,7 +1,7 @@
-import { renderChat } from "./chat.js";
+import { fillCount, renderChat, turnFiles } from "./chat.js";
 import { renderShell } from "./shell.js";
 import { $, HOST, api, el, ui } from "./util.js";
-import { closeWorkTab, openWorkTab } from "./workpanel.js";
+import { openWorkTab } from "./workpanel.js";
 import { openProjectFile } from "./projectfiles.js";
 import { diffLines } from "./diff-lines.js";
 import { beginFeedback, feedbackEditor, feedbackList } from "./diff-feedback.js";
@@ -10,11 +10,19 @@ export const DIFF_SCOPES = { workspace: "工作目录", unstaged: "未暂存", s
 const requestKey = (d) => JSON.stringify([d.scope || "workspace", d.scope === "branch" ? d.base || "" : ""]);
 const badges = new Map();
 const badgeKey = (r) => JSON.stringify([ui.account, HOST, r.id]);
+// 最后一轮改动卡片用的每个文件的行数：来自输入框上方那份工作目录预览（同一次读取），还没读到时是 null。
+export function diffFileCounts(r) {
+  const data = badges.get(badgeKey(r))?.data;
+  return data ? new Map(data.files.map((f) => [f.path, f])) : null;
+}
+// 这一轮已经停下、而且最后一轮改过文件：对话末尾的改动卡片已经列出来了，输入框上方不再放同一份摘要。
+const cardShown = (r) => !!r.exit && turnFiles(r, r.calls.at(-1)?.turn).length > 0;
 function paintDiffBadge(r, value) {
   if (ui.run?.id !== r.id) return;
   const wrap = $("composer-review"), badge = $("composer-diff"), data = value.data;
+  if (data) { const counts = new Map(data.files.map((f) => [f.path, f])); document.querySelectorAll(".turn-files.latest .tf-count").forEach((n) => fillCount(n, counts.get(n.dataset.path))); }
   badge.onclick = () => openDiff(r, [], "workspace");
-  wrap.hidden = !!data && !data.files.length && !value.error && !value.loading;
+  wrap.hidden = (!!data && !data.files.length && !value.error && !value.loading) || (cardShown(r) && !value.error);
   badge.replaceChildren();
   if (!data || value.error) { badge.textContent = value.error ? "改动读取失败 · 点击重试" : "查看工作目录改动"; badge.title = value.error || "读取当前工作目录的改动"; return; }
   const incomplete = data.truncated || data.files.some((f) => f.truncated || f.notice || f.conflicted);
@@ -73,10 +81,12 @@ export function openDiff(r, files = [], scope = "") {
   ui.diff.run = r.id; ui.diff.exit = null; ui.diff.fetchKey = null;
   renderChat(); renderShell();
 }
+const GIT_HEADER = /^(diff --(git|cc|combined) |index |--- |\+\+\+ |(new|deleted) file mode |old mode |new mode |similarity index |dissimilarity index |rename (from|to) |copy (from|to) )/;
 function diffBody(file, r, data, unavailable, shownEditors) {
   if (!file.diff) return el("div", "meta diff-empty", file.notice || (file.binary ? "二进制文件" : "没有文本内容变化"));
   const pre = el("div", "diff-body");
-  for (const line of diffLines(file)) {
+  // git 的文件头（diff --git、index、---/+++、mode）不进页面：文件名和状态已经在上面那一行。
+  for (const line of diffLines(file).filter((l) => l.kind || l.old !== undefined || l.new !== undefined || !GIT_HEADER.test(l.text))) {
     const row = el("span", "diff-line numbered " + line.kind);
     for (const side of ["old", "new"]) {
       const number = line[side] === undefined ? el("span", "diff-number", "") : button(String(line[side]), () => beginFeedback(r, data, file, line, side), "diff-number feedback-line");
@@ -105,9 +115,10 @@ export function renderDiffPanel() {
   scope.id = "diff-scope";
   for (const [value, label] of Object.entries(DIFF_SCOPES)) scope.append(new Option(label, value)); scope.value = d.scope || "workspace";
   scope.onchange = () => { d.scope = scope.value; d.err = ""; loadDiff(); renderChat(); $("subpanel").querySelector('.diff-scope')?.focus(); };
-  const refresh = button("↻", () => { loadDiff(); renderChat(); }, "sp-close"); refresh.setAttribute("aria-label", "刷新改动"); refresh.title = "刷新改动"; refresh.disabled = d.loading;
-  const close = button("×", () => closeWorkTab(), "sp-close"); close.setAttribute("aria-label", "关闭改动面板");
-  head.append(el("strong", "", "改动"), scope, refresh, close);
+  // 标题和关闭已经在上面的资源标签里（“改动 ×”），这一行只留范围和刷新。
+  const refresh = button("", () => { loadDiff(); renderChat(); }, "sp-close"); refresh.setAttribute("aria-label", "刷新改动"); refresh.title = "刷新改动"; refresh.disabled = d.loading;
+  refresh.innerHTML = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>';
+  head.append(scope, refresh);
   const nodes = [head];
   if (d.scope === "branch") {
     const form = el("form", "diff-base"), input = el("input"); input.id = "diff-base-input"; input.value = d.baseDraft ?? d.base ?? ""; input.placeholder = "基准分支或提交"; input.setAttribute("aria-label", "比较基准"); input.maxLength = 255; input.oninput = () => { d.baseDraft = input.value; };

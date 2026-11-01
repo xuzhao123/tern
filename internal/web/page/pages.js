@@ -108,7 +108,11 @@ export async function openSettings() {
   // 来源一栏多了“项目”：所选工作区里 .agents/tern.json 的键；不生效的键与整份没读进来的原因也在这里说明。
   const projectNote = e.project_error ? `项目配置整份没生效：${e.project_error}。`
     : (e.project_ignored || []).length ? `项目配置里这些键不生效：${e.project_ignored.join("、")}。` : "";
-  panel.lastChild.replaceWith(el("p", "meta", "生效顺序：内置默认 › 平台 › 项目 › 你。项目是工作区里的 .agents/tern.json，只在对话选了这个工作区时生效，permission_rules 与 net_allow 是追加。" + projectNote));
+  // 怎么生效、存在哪是给想细究的人看的，收进一个可展开的说明；项目配置没生效的原因要让人看到，直接放在外面。
+  const help = el("details", "set-help");
+  help.append(el("summary", "", "设置怎么生效"), panel.children[1], el("p", "meta", "生效顺序：内置默认 › 平台 › 项目 › 你。项目是工作区里的 .agents/tern.json，只在对话选了这个工作区时生效，permission_rules 与 net_allow 是追加。"));
+  panel.lastChild.replaceWith(help);
+  if (projectNote) panel.append(el("p", "err", projectNote));
   const tag = (key) => el("span", "set-tag" + (e.source[key] === "user" ? " user" : ""), SET_SOURCE[e.source[key]] || e.source[key]);
   const select = (key, options) => {
     const node = el("select");
@@ -335,7 +339,7 @@ function organizeSettings(panel, grid, actions) {
   const link = (name, action) => { const b = el("button", "ghost", name); b.type = "button"; b.onclick = action; return b; };
   const tools = sections.get("工具与集成");
   tools.prepend(el("p", "meta", `执行主机：${HOST || "当前主机"}。启用状态与实际加载/连接结果分别展示。`), link("Skills 中心", openSkills), link("MCP 连接与授权", openMCP));
-  const general = sections.get("常规"), theme = el("select");
+  const general = sections.get("常规"), theme = el("select", "set-select");
   theme.setAttribute("aria-label", "界面主题"); theme.append(new Option("跟随系统", "system"), new Option("浅色", "light"), new Option("深色", "dark")); theme.value = $("theme").value;
   theme.onchange = () => { $("theme").value = theme.value; $("theme").dispatchEvent(new Event("change")); };
   general.prepend(el("h3", "", "外观"), theme, el("p", "meta", "快捷键：Ctrl/⌘ Shift P 操作面板；Ctrl/⌘ Shift F 任务内查找；空输入 Alt ↑ 恢复上一条输入；Tab 移动焦点。"));

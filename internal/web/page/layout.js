@@ -37,7 +37,7 @@ export function initLayout() {
   $("new-chat").lastChild.textContent = "新聊天";
   $("add-project").textContent = "+"; $("add-project").title = "添加项目"; $("add-project").setAttribute("aria-label", "添加项目");
   const theme = document.querySelector(".theme-control"); document.querySelector(".nav-tools").append(theme);
-  const filter = menu("任务", "sidebar-filter-menu"), navlabel = document.querySelector(".navlabel");
+  const filter = menu("项目", "sidebar-filter-menu"), navlabel = document.querySelector(".navlabel");
   filter.summary.firstElementChild.id = "filter-label";
   filter.content.append($("list-tools")); navlabel.firstElementChild.replaceWith(filter.details);
 

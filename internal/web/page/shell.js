@@ -9,7 +9,7 @@ import { pickWorkspace } from "./pages.js";
 import { render } from "./render.js";
 import { apply, newRun } from "./runs.js";
 import { leaveDraft, switchDraft } from "./drafts.js";
-import { $, HOST, HOST_STATE, MAX_IMAGES, api, clip, el, hostAPI, hostURL, isUnread, markSeen, markUnread, permChoice, permValue, runKey, save, ui } from "./util.js";
+import { $, HOST, HOST_STATE, MAX_IMAGES, api, clip, el, hostAPI, hostURL, isUnread, markSeen, markUnread, permChoice, permValue, runKey, save, shortTitle, ui } from "./util.js";
 // 工作区下拉的最后一项：选了它就去浏览目录登记一个新的。值不会和工作区名撞上（名字是小写字母或数字开头的目录名）。
 import { updateActivity } from "./activity.js";
 import { leaveWorkPanel, openWorkTab, showWorkPanel } from "./workpanel.js";
@@ -31,7 +31,8 @@ export function renderShell() {
   $("page-observe").className = chat ? "" : "on";
   $("cmp-hint").hidden = chat;
   syncRunSearch();
-  $("title").textContent = ui.tab === "compare" && !chat ? `对比 ${ui.checked.size} 条运行` : r ? r.name || r.query || r.id : "新任务";
+  $("title").textContent = ui.tab === "compare" && !chat ? `对比 ${ui.checked.size} 条运行` : r ? r.name || shortTitle(r.query) || r.id : "新任务";
+  $("title").title = r && !r.name ? r.query || "" : "";
   renderExecutionContext();
   $("files-btn").hidden = !chat || !r?.sandbox;
   $("files-btn").classList.toggle("on", !!ui.filesOpen);
@@ -227,7 +228,12 @@ export function syncComposer() {
   // 一条对话固定一个模型和一个工作区：续聊沿用开始时的选择（换模型请新建对话）。
   $("provider").disabled = !!r;
   if (r) $("provider").value = r.provider || "ark";
-  else if (!ui.picked.provider && s) $("provider").value = s.values.provider;
+  else if (!ui.picked.provider && s) {
+    // 设置里的默认供应商在这台主机上没配好（缺密钥或地址）时，新对话先用第一家配好的，免得一打开就是“所选模型不可用”；
+    // 设置本身不改，配好以后照旧用它。一家都没配好时保留设置里的，下面的提示说明原因。
+    const usable = (name) => { const p = ui.models?.get(name); return !!p && !p.error; };
+    $("provider").value = usable(s.values.provider) ? s.values.provider : plist.find((p) => !p.error)?.name || s.values.provider;
+  }
   const prov = $("provider").value, spec = ui.models?.get(prov);
   const models = (spec?.models || []).map((m) => m.name);
   // 已有对话只显示它实际用的模型（agent 在 turn/started 里报的），它可以不在清单里：旧对话的带日期版本号的模型名、.env 里自填的名字；
@@ -300,7 +306,8 @@ export function syncComposer() {
   const cp = $("copy");
   cp.disabled = !!r || !!imported || !codingOK || !ws.value || ws.value === ADD_WORKSPACE;
   cp.checked = r ? !!r.copy : !!ui.picked.copy;
-  $("copy-pick").hidden = ws.hidden || !!imported;
+  // 没选工作区时副本没有意义，不占输入框下面的位置。
+  $("copy-pick").hidden = ws.hidden || !!imported || !ws.value || ws.value === ADD_WORKSPACE;
   $("query").disabled = !!imported || !ui.ready;
   $("send").disabled = ui.streamDisconnected || !ui.account || !ui.ready ? true : running ? false : ui.sending || !!busy || !!broken || !!ui.replay || !!imported || (!r && !!spec?.error) || !$("query").value.trim();
   $("query").placeholder = imported ? "导入的对话只能查看" : running ? "补充或纠正，agent 做完这一步就会看到（“排队”放到下一轮） · Esc 打断" : r ? "继续提问" : "给 agent 布置一个任务，/ 选命令";
@@ -414,7 +421,7 @@ function syncWsFilter(lists, hosts) {
     }
   });
   if (wsFilter && wsFilter !== WS_NONE && !options.has(wsFilter)) setWsFilter("");
-  if ($("filter-label")) $("filter-label").textContent = wsFilter ? "任务 · 已筛选" : "任务";
+  if ($("filter-label")) $("filter-label").textContent = wsFilter ? "项目 · 已筛选" : "项目";
   const entries = [...options].sort((a, b) => a[1].localeCompare(b[1]));
   const signature = JSON.stringify(entries) + "|" + wsFilter;
   if (select.dataset.sig === signature) return;
@@ -485,12 +492,14 @@ function groupRows(h, runs, grouped) {
     if (!projects.has(key)) projects.set(key, { id: key, name: task.workspace || "历史项目", path: task.project_dir || "", historical: true, tasks: [] });
     projects.get(key).tasks.push(task);
   }
-  box.append(el("div", "project-label", "项目"));
+  // 只有一台主机时侧栏上方那一行就是“项目”（筛选菜单与添加项目），这里不再重复一个标题。
+  if (grouped || !runs) box.append(el("div", "project-label", "项目"));
   if (registered === null) box.append(el("div", "meta", "项目列表暂不可用，历史任务仍可查看"));
   for (const p of projects.values()) if (wsFilter === "" || p.tasks.length || runKey(h.alias, p.id) === wsFilter) box.append(projectGroup(h, p));
   if (!projects.size) box.append(el("div", "meta", "尚未添加项目"));
-  const recent = active.slice(0, 12);
-  if (recent.length) box.append(el("div", "project-label", "最近任务"), ...recent.map((r) => runRow(r, h)));
+  // 项目里的任务已经列在项目下面；这里只放不属于任何项目的对话，同一条不在侧栏出现两次。
+  const loose = active.filter((r) => !r.workspace && !r.workspace_id && !r.pinned).slice(0, 30);
+  if (loose.length) box.append(el("div", "project-label", "对话"), ...loose.map((r) => runRow(r, h)));
   const archived = list.filter((r) => r.archived);
   if (archived.length) box.append(archivedGroup(archived, h));
   return box;
@@ -667,7 +676,7 @@ function runRow(r, h, archived = false) {
   // 这条对话在等人：醒目的小标签放标题前面，点进对话就能答复。
   if (r.waiting) q.append(el("span", "wait", r.waiting === "approval" ? "等你审批" : "等你回答"));
   // 有名字就显示名字；悬停里仍是第一句话和对话 ID，看得出这是哪条。
-  q.append(r.name || r.query || "（无问题）");
+  q.append(r.name || shortTitle(r.query) || "（无问题）");
   b.title = `${r.query}\n对话 ID：${r.id}`;
   b.insertAdjacentHTML("beforeend", chromeIcon("chat"));
   b.append(q, el("small", "", relTime(r)));

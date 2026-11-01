@@ -7,7 +7,9 @@ export function bashCard(r, c, t) {
   const running = !t.done && !r.exit;
   const icon = running ? el("span", "ico") : ico(res?.status === "ok" ? "ok" : "bad", res?.status === "ok" ? "ok" : "bad");
   if (running) icon.append(el("span", "spin"));
-  const head = [icon, el("span", "hub-chip", "bash"), el("span", "targs", clip(args.command || t.args, 90))];
+  // 一行里省掉开头进工作区的 cd（命令都在 /workspace 里跑）；点开的终端照原样显示整条命令。
+  const shown = typeof args.command === "string" ? args.command.replace(/^cd\s+\/workspace\/?\s*&&\s*/, "") : t.args;
+  const head = [icon, el("span", "hub-chip", "bash"), el("span", "targs", clip(shown, 90))];
   // background=true 的命令立刻返回 job_id，没有退出码；之后用 bash_output 读输出。
   const code = bashExit(out);
   if (out.job_id) head.push(el("span", "exit-chip", "后台 " + out.job_id));

@@ -322,3 +322,49 @@ body { font-size:14px; letter-spacing:-.01em; }
 .git-delivery { display:flex; flex-direction:column; height:100%; min-height:0; }
 .git-delivery .sp-body { overflow:auto; }
 .git-delivery .activity-actions { flex-wrap:wrap; }
+
+/* 2026-10-31 页面打磨（spec/web-polish-20261031.md）。 */
+/* 侧栏项目的展开标记：用线条画，不依赖字体里有没有 ▸ ▾。 */
+.project-group > summary { list-style:none; }
+.project-group > summary::-webkit-details-marker { display:none; }
+.project-group > summary::before { content:""; flex:none; width:5px; height:5px; margin:0 1px 0 2px; border-right:1.5px solid var(--faint); border-bottom:1.5px solid var(--faint); transform:rotate(-45deg); transition:transform .15s; }
+.project-group[open] > summary::before { content:""; transform:rotate(45deg); }
+/* 正文里的行内代码：浅底、不加框，中文段落里密集出现时不那么花。 */
+.md code { padding:.1em .35em; border-radius:4px; background:color-mix(in srgb,var(--text) 6%,transparent); font-size:.9em; }
+.md pre code { padding:0; background:none; font-size:inherit; }
+/* 工具行里改文件的行数。 */
+.step > summary .diff-count-add, .step > summary .diff-count-delete { font:11px var(--mono); flex:none; }
+/* 每轮末尾的改动卡片。 */
+.turn-files { display:block; margin:6px 0 16px; padding:4px; border:1px solid var(--line); border-radius:12px; background:var(--panel); font-size:12px; color:var(--muted); }
+.tf-head { display:flex; align-items:center; justify-content:space-between; padding:5px 8px 4px; }
+.tf-head > span { color:var(--text); font-weight:500; }
+.tf-file { display:flex; align-items:center; gap:8px; width:100%; padding:5px 8px; border:0; border-radius:7px; background:none; color:var(--text); font-size:12px; text-align:left; }
+.tf-file:hover { background:var(--hover); }
+.tf-tag { flex:none; color:var(--faint); font-size:11px; }
+.tf-path { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:var(--mono); }
+.tf-count { display:flex; gap:5px; flex:none; font:11px var(--mono); }
+.turn-files > .meta { padding:4px 8px; }
+/* 新任务的空状态：标题和输入框一起放在页面中间，建议做成小标签，不和输入框长得一样。 */
+#chat-col:has(#thread > .welcome) #chat-scroll { flex:none; overflow:visible; padding-top:max(12vh,48px); }
+#thread > .welcome { padding:0; }
+#thread:has(> .welcome) { padding-bottom:12px; }
+.welcome h1 { margin-bottom:6px; }
+.sugs { display:flex; flex-wrap:wrap; justify-content:center; gap:6px; max-width:none; margin-top:14px; }
+.sugs button { padding:5px 12px; border-radius:16px; background:transparent; font-size:12px; text-align:center; }
+.sugs:empty { display:none; }
+/* 设置、Skills、MCP、记忆、评测、审计这些页面不是对话，下面不挂输入框。 */
+#chat-col:has(#thread > .mempanel) #composer-wrap { display:none; }
+.set-help { margin:4px 0 8px; font-size:12px; color:var(--muted); }
+.set-help > summary { cursor:pointer; width:max-content; }
+.set-help > p { margin:6px 0 0; }
+.set-select { appearance:none; -webkit-appearance:none; padding:6px 28px 6px 10px; border:1px solid var(--line); border-radius:8px; color:var(--text); font-size:13px; background:var(--panel) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M2 3.5l3 3 3-3' fill='none' stroke='%23999' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 10px center; }
+/* 输入框下面的工作区下拉按当前选项的宽度排，不按最长的选项留空。 */
+#composer-context #workspace { field-sizing:content; }
+/* 改动面板：范围下拉与刷新一行；每个文件的“打开当前文件 / 文件反馈”平时淡出，悬停或聚焦时出现（触屏照常显示）。 */
+.diff-content > .sp-head, #subpanel > .sp-head:has(.diff-scope) { gap:6px; }
+#subpanel > .sp-head:has(.diff-scope) .diff-scope { margin-right:auto; }
+.sp-head .sp-close .i { width:15px; height:15px; }
+@media (hover:hover) {
+  .diff-file-tools { opacity:0; transition:opacity .12s; }
+  .diff-file:hover + .diff-file-tools, .diff-file-tools:hover, .diff-file-tools:focus-within { opacity:1; }
+}
