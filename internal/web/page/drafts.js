@@ -28,7 +28,8 @@ function warn(text) {
   box.replaceChildren(document.createTextNode(text)); box.hidden = false;
 }
 function persist(name, value, ancestors = []) {
-  const record = { revision: crypto.randomUUID(), author, at: Date.now(), ancestors: [...new Set(ancestors)].slice(-64), value };
+  // ancestors 最新的在前，截取保留前 64 个；保留后面的会丢掉刚刚的上一版，旧页面的副本就永远认不出祖先，每次打开都报冲突。
+  const record = { revision: crypto.randomUUID(), author, at: Date.now(), ancestors: [...new Set(ancestors)].slice(0, 64), value };
   // 独立副本先写，两个页面同时覆盖主记录时仍各自保留输入。
   localStorage.setItem(name + ":copy:" + author, JSON.stringify(record));
   localStorage.setItem(name, JSON.stringify(record));
@@ -144,7 +145,25 @@ export function attachToDraft(token, image) {
   } catch { warn("上一份草稿的附件已上传，但保存引用失败，请重新选择文件。"); return true; }
 }
 
+// 一次性清理：ancestors 截错方向的旧版本留下了大量认不出祖先的页面副本，打开页面就误报冲突。
+// 比主记录早写的副本当作已被取代，删掉；比主记录晚的（冲突时另存的）和没有主记录的照旧保留。清理过一次就记下，不再执行。
+const CLEANED = "tern-draft-v1-copies-cleaned";
+function cleanStaleCopies() {
+  try {
+    if (localStorage.getItem(CLEANED)) return;
+    const stale = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i), at = k?.startsWith("tern-draft-v1:") ? k.indexOf(":copy:") : -1;
+      if (at < 0) continue;
+      const main = read(k.slice(0, at)), copy = read(k);
+      if (main && (!copy || copy.at <= main.at)) stale.push(k);
+    }
+    stale.forEach((k) => localStorage.removeItem(k));
+    localStorage.setItem(CLEANED, String(Date.now()));
+  } catch { /* 读不了存储时不清理，草稿照旧按原样处理 */ }
+}
 export function initDrafts() {
+  cleanStaleCopies();
   $("query").addEventListener("input", saveDraft);
   for (const id of ["provider", "model", "perm", "effort"]) $(id).addEventListener("change", saveDraft);
   $("workspace").addEventListener("change", () => { if (!ui.run && !$("workspace").value.startsWith("__add_")) switchDraft(null); });
