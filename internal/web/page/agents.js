@@ -7,7 +7,7 @@ import { renderJobsPanel } from "./jobs.js";
 import { md } from "./md.js";
 import { $, clip, el, fold, parse, ui } from "./util.js";
 import { subActivity, subContext, subState, subTasks } from "./substate.js";
-import { closeWorkTab, openWorkTab, renderWorkPanel, workTab } from "./workpanel.js";
+import { openWorkTab, renderWorkPanel, workTab } from "./workpanel.js";
 import { renderShell } from "./shell.js";
 import { renderProjectFiles } from "./projectfiles.js";
 import { renderGitDelivery } from "./git-delivery.js";
@@ -119,11 +119,10 @@ function renderAgentPanel() {
   const stick = !oldBody || oldBody.scrollHeight - oldBody.scrollTop - oldBody.clientHeight < 80, top = oldBody?.scrollTop || 0, sameAgent = panel.dataset.agent === item.id;
   panel.hidden = false;
   panel.dataset.agent = item.id;
-  const head = el("div", "sp-head agent-detail-head"), close = el("button", "sp-close", "✕"), back = el("button", "sp-close", "←");
-  close.type = "button"; close.title = "关闭"; close.setAttribute("aria-label", "关闭子 agent 面板");
-  close.onclick = () => closeWorkTab();
+  // 关闭在上面的资源标签上，这一行只留返回、身份和标题。
+  const head = el("div", "sp-head agent-detail-head"), back = el("button", "sp-close", "←");
   back.type = "button"; back.title = "返回子智能体列表"; back.setAttribute("aria-label", back.title); back.onclick = openAgents;
-  head.append(back, avatar(item.id), el("strong", "", clip(item.title, 60)), close);
+  head.append(back, avatar(item.id), el("strong", "", clip(item.title, 60)));
   const body = el("div", "sp-body"), st = subState(r, item), res = parse(item.t.result);
   body.append(el("div", "sub-st " + st.key, st.text), el("div", "label", "任务说明"), el("div", "sp-task", item.title));
   body.append(el("div", "meta", subContext(item)), el("div", "meta", `子任务 ID ${item.id} · ${item.attempts.length} 次尝试`));

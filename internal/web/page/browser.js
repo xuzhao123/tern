@@ -1,5 +1,5 @@
 import { renderChat } from "./chat.js";
-import { $, api, clip, el, parse, pretty, ui } from "./util.js";
+import { $, api, clip, el, icon, parse, pretty, ui } from "./util.js";
 import { closeWorkTab, openWorkTab } from "./workpanel.js";
 // ---------- 浏览器 ----------
 // agent 把 screencast 帧不断覆盖写到 .data/browser/<任务ID>/<调用ID>.jpg，结束时写入最终截图。
@@ -101,7 +101,7 @@ export function renderWebPanel() {
   if (!t) { ui.webOpen = null; panel.hidden = true; panel.replaceChildren(); return; }
   panel.hidden = false;
   panel.dataset.agent = "";
-  const head = el("div", "sp-head"), close = el("button", "sp-close", "✕");
+  const head = el("div", "sp-head"), close = el("button", "sp-close"); close.innerHTML = icon("close");
   close.type = "button"; close.title = "关闭"; close.setAttribute("aria-label", "关闭浏览器面板");
   close.onclick = () => closeWorkTab();
   head.append(el("strong", "", `浏览器 · ${list.length} 步`), close);

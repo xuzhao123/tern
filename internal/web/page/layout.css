@@ -368,3 +368,28 @@ body { font-size:14px; letter-spacing:-.01em; }
   .diff-file-tools { opacity:0; transition:opacity .12s; }
   .diff-file:hover + .diff-file-tools, .diff-file-tools:hover, .diff-file-tools:focus-within { opacity:1; }
 }
+/* 设置等页面、对话框和侧栏弹层里的下拉统一成一种样式（原来是浏览器自带的，和其他控件不搭）。 */
+:is(.hubpanel, dialog, .theme-control) select:not(.pick):not([multiple]):not([size]) { appearance:none; -webkit-appearance:none; padding:5px 26px 5px 9px; border:1px solid var(--line); border-radius:8px; color:var(--text); font-size:13px; background:var(--panel) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M2 3.5l3 3 3-3' fill='none' stroke='%23999' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 9px center; }
+.theme-control select:not(.pick) { font-size:12px; padding:3px 24px 3px 8px; }
+/* “工具与更多”：不用浏览器的三角标记，展开时它是弹层的小标题。 */
+.nav-tools > summary { list-style:none; display:flex; align-items:center; gap:9px; }
+.nav-tools > summary::-webkit-details-marker { display:none; }
+.nav-tools > summary::before { content:""; width:5px; height:5px; margin:0 4px 0 3px; border-right:1.5px solid currentColor; border-bottom:1.5px solid currentColor; transform:rotate(-135deg); }
+.nav-tools[open] > summary { font-size:11px; color:var(--faint); }
+.nav-tools[open] > summary::before { transform:rotate(45deg); }
+/* 审批卡片：一行标题加风险说明，命令单独一块。 */
+.approval-head { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
+.net-card > pre.term { margin:6px 0 2px; max-height:160px; }
+/* 计划卡片：每步前一个状态点，进行中半实心，完成实心，受阻红色。 */
+.plan-step { display:flex; align-items:baseline; gap:9px; padding:4px 8px; color:var(--text); font-size:13px; line-height:1.6; }
+.plan-dot { flex:none; width:8px; height:8px; border-radius:50%; border:1.5px solid var(--faint); transform:translateY(1px); }
+.plan-step.in_progress .plan-dot { border-color:var(--accent); background:linear-gradient(90deg,var(--accent) 50%,transparent 50%); }
+.plan-step.completed .plan-dot { border-color:var(--ok); background:var(--ok); }
+.plan-step.completed > span:last-child { color:var(--muted); }
+.plan-step.blocked .plan-dot { border-color:var(--err); background:var(--err); }
+.plan-view .sp-head { display:flex; align-items:center; gap:8px; }
+.plan-note { flex:1; margin:0; }
+.plan-view .plan-step { padding:6px 0; }
+.plan-view .activity-actions { margin-top:14px; gap:6px; align-items:center; }
+.plan-view select { appearance:none; -webkit-appearance:none; padding:5px 26px 5px 9px; border:1px solid var(--line); border-radius:8px; color:var(--text); font-size:12px; background:var(--panel) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M2 3.5l3 3 3-3' fill='none' stroke='%23999' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 9px center; }
+.plan-approve:not(:disabled) { background:var(--text); color:var(--bg); border-color:var(--text); }

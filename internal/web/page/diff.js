@@ -1,6 +1,6 @@
 import { fillCount, renderChat, turnFiles } from "./chat.js";
 import { renderShell } from "./shell.js";
-import { $, HOST, api, el, ui } from "./util.js";
+import { $, HOST, api, el, icon, ui } from "./util.js";
 import { openWorkTab } from "./workpanel.js";
 import { openProjectFile } from "./projectfiles.js";
 import { diffLines } from "./diff-lines.js";
@@ -126,7 +126,7 @@ export function renderDiffPanel() {
     form.onsubmit = (event) => { event.preventDefault(); d.base = input.value.trim(); loadDiff(); renderChat(); }; form.append(input, submit); nodes.push(form);
   }
   const data = d.data, files = data?.files || [], stale = !!data && (!!d.err || d.loadedKey !== requestKey(d) || d.loading);
-  const summary = el("div", "diff-summary"), info = el("details", "chrome-menu diff-info"), toggle = el("summary", "", "ⓘ"), content = el("div", "chrome-menu-content"); toggle.setAttribute("aria-label", "比较详情");
+  const summary = el("div", "diff-summary"), info = el("details", "chrome-menu diff-info"), toggle = el("summary"), content = el("div", "chrome-menu-content"); toggle.setAttribute("aria-label", "比较详情"); toggle.innerHTML = icon("info");
   if (data) {
     summary.append(el("span", "", `${stale ? "上次预览 · " : ""}${files.length}${data.total_files > files.length ? "/" + data.total_files : ""} 个文件`), el("span", "diff-totals", `文本 +${files.reduce((n, f) => n + f.added, 0)} −${files.reduce((n, f) => n + f.deleted, 0)}`));
     content.append(el("div", "", comparisonLabel(data, r)), el("div", "meta", data.dir), el("div", "meta", `分支：${data.branch || "分离 HEAD / 未记录"}`), el("div", "meta", `基准：${data.base_oid || "暂存区"}`), el("div", "meta", `目标：${data.target_oid || data.target || "工作目录"}`), el("div", "meta", "预览：" + (data.view_version || "版本未记录")));

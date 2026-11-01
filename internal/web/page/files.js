@@ -1,7 +1,7 @@
 import { artifactType, artifactView, contentVersion, readArtifactBytes } from "./artifact-preview.js";
 import { renderChat } from "./chat.js";
 import { renderShell } from "./shell.js";
-import { $, api, el, ui } from "./util.js";
+import { $, api, el, icon, ui } from "./util.js";
 import { closeWorkTab, openWorkTab, workTab } from "./workpanel.js";
 // 沙箱文件：agent 在 turn/started 里报告本对话的沙箱目录（第一轮的检查点ID），各轮 bash 看到的是同一个 /workspace。
 // 文件是模型写的不可信内容：文字只用 textContent 显示，图片经 blob 地址放进 <img>，其余一律下载（服务端也按附件返回）。
@@ -77,7 +77,8 @@ export function renderFilesPanel() {
   // 展开状态只放在 ui.files 上，换对话时回到收起；打开隐藏文件的标签照常预览，不受收起影响。
   const all = f.list || [], hiddenOf = (x) => x.path.split("/").some((seg) => seg.startsWith("."));
   const hidden = all.filter(hiddenOf), listed = f.hiddenOpen ? all : all.filter((x) => !hiddenOf(x));
-  const head = el("div", "sp-head"), refresh = el("button", "sp-close", "↻"), close = el("button", "sp-close", "✕");
+  const head = el("div", "sp-head"), refresh = el("button", "sp-close"), close = el("button", "sp-close");
+  refresh.innerHTML = icon("refresh"); close.innerHTML = icon("close");
   refresh.type = close.type = "button"; refresh.title = "刷新"; close.title = "关闭";
   close.setAttribute("aria-label", "关闭沙箱文件面板");
   refresh.onclick = () => loadFiles();

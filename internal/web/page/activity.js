@@ -92,8 +92,9 @@ export function renderActivity() {
       const read = button(unread ? "标为已读" : "标为未读", () => unread ? markSeen(host.alias, task, true) : markUnread(host.alias, task));
       read.dataset.activityAction = `read:${runKey(host.alias, task.id)}`; actions.append(read);
       for (const request of waiting) {
-        const source = request.task_id ? `子任务 ${request.task_title ? clip(request.task_title, 85) : request.task_id}` : "当前任务（无子任务来源标记）";
-        const act = button(`${request.kind === "question" ? "回答问题" : "处理审批"} · ${source}${request.domain ? ` · ${request.domain}` : ""}`, () => go(entry, request));
+        // 主任务自己的请求不写来源；子任务的标出是哪个。
+        const source = request.task_id ? ` · 子任务 ${request.task_title ? clip(request.task_title, 85) : request.task_id}` : "";
+        const act = button(`${request.kind === "question" ? "回答问题" : "处理审批"}${source}${request.domain ? ` · ${request.domain}` : ""}`, () => go(entry, request));
         act.title = [request.task_title, request.task_id].filter(Boolean).join("\n");
         act.disabled = !fresh(entry); act.dataset.activityAction = `request:${runKey(host.alias, task.id)}:${request.id}`;
         actions.append(act);
@@ -143,7 +144,7 @@ export function renderPending(root) {
   body.replaceChildren();
   if (ui.streamDisconnected || ui.connectionLost) { body.append(el("p", "", "连接中断，恢复状态后再处理。")); return; }
   if (root.exit || (request.id !== "legacy" && !request.call_id && !request.domain)) { body.append(el("p", "", "该请求已结束或无法定位，请核对对话记录。")); return; }
-  if (request.domain) body.append(el("p", "meta", request.task_id ? `来源：子任务 ${request.task_title ? clip(request.task_title, 85) : request.task_id}` : "来源：当前任务（无子任务来源标记）"));
+  if (request.domain) body.append(el("p", "meta", request.task_id ? `来源：子任务 ${request.task_title ? clip(request.task_title, 85) : request.task_id}` : "来源：主任务"));
   let rendered = false;
   const add = (item) => { body.append(item); rendered = true; };
   for (const [id, a] of Object.entries(root.approvals || {})) if ((!request.call_id || request.call_id === id) && !request.domain && a.state === "waiting") add(approvalCard(root, id));

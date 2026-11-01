@@ -1,4 +1,4 @@
-import { $, api, el, HOST, ui } from "./util.js";
+import { $, api, el, HOST, icon, ui } from "./util.js";
 import { closeWorkTab, openWorkTab, workTab } from "./workpanel.js";
 
 // ---------- 网页预览 ----------
@@ -353,7 +353,7 @@ function build(panel, tab, reason) {
   panel.dataset.preview = "";
   const nodes = { tab, reason, panel };
   const head = el("div", "sp-head"), title = el("strong", "", "网页预览");
-  const close = el("button", "sp-close", "✕");
+  const close = el("button", "sp-close"); close.innerHTML = icon("close");
   close.type = "button";
   close.title = "关闭标签";
   close.setAttribute("aria-label", "关闭网页预览标签");
@@ -368,7 +368,8 @@ function build(panel, tab, reason) {
   }
   const bar = el("div", "preview-bar");
   const step = (label, title, run) => {
-    const b = el("button", "ghost", label);
+    const b = el("button", "ghost", label === "refresh" || label === "close" ? "" : label);
+    if (label === "refresh" || label === "close") b.innerHTML = icon(label);
     b.type = "button";
     b.title = title;
     b.setAttribute("aria-label", title);
@@ -386,8 +387,8 @@ function build(panel, tab, reason) {
     openSession(input.value);
   };
   bar.append(step("←", "后退", () => act("back")), step("→", "前进", () => act("forward")),
-    step("⟳", "刷新", () => act("reload")), input,
-    step("✕", "关闭预览", closeSession));
+    step("refresh", "刷新", () => act("reload")), input,
+    step("close", "关闭预览", closeSession));
   const status = el("div", "preview-status");
   const shot = el("div", "preview-shot");
   const img = el("img", "preview-img");

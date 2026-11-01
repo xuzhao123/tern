@@ -1,4 +1,4 @@
-import { $, HOST, api, el, ui } from "./util.js";
+import { $, HOST, api, el, icon, ui } from "./util.js";
 import { closeWorkTab, openWorkTab, workTab } from "./workpanel.js";
 import { backToInput } from "./composer.js";
 import { openDiff } from "./diff.js";
@@ -9,7 +9,7 @@ import { highlightSource, sourceLineFragment } from "./source-highlight.js";
 const PAGE_LINES = 200;
 function redraw() { document.dispatchEvent(new Event("tern:work-changed")); }
 function button(text, fn) { const b = el("button", "ghost", text); b.type = "button"; b.onclick = fn; return b; }
-function iconButton(label, symbol, fn) { const b = button(symbol, fn); b.className = "sp-close"; b.title = label; b.setAttribute("aria-label", label); return b; }
+function iconButton(label, symbol, fn) { const b = button(symbol === "refresh" ? "" : symbol, fn); if (symbol === "refresh") b.innerHTML = icon("refresh"); b.className = "sp-close"; b.title = label; b.setAttribute("aria-label", label); return b; }
 export function projectReference(value) {
   if (typeof value !== "string" || !value || value.startsWith("//") || /^[a-z][a-z\d+.-]*:/i.test(value) && !/^[^:]+:\d+$/.test(value)) return null;
   let path = value, line = 1;
@@ -86,13 +86,13 @@ export function renderProjectFiles() {
   const treeToggle = iconButton(treeVisible(r) ? "收起目录树" : "显示目录树", "", () => toggleTree(r));
   treeToggle.innerHTML = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h7l2 2h9v11H3ZM3 7V4h7l2 3"/></svg>';
   treeToggle.classList.toggle("on", treeVisible(r)); treeToggle.setAttribute("aria-pressed", String(treeVisible(r))); head.append(treeToggle);
-  const controls = el("div", "fp-tools project-file-tools"), refresh = iconButton(s.loading ? "读取中…" : "刷新", "↻", () => { loadFile(tab, r); redraw(); }); refresh.disabled = s.loading;
+  const controls = el("div", "fp-tools project-file-tools"), refresh = iconButton(s.loading ? "读取中…" : "刷新", "refresh", () => { loadFile(tab, r); redraw(); }); refresh.disabled = s.loading;
   head.append(refresh);
   const body = el("div", "sp-body");
   if (s.error) body.append(el("div", "err", s.error));
   if (s.data) {
-    const info = el("details", "chrome-menu file-info"), summary = el("summary", "", "ⓘ"), content = el("div", "chrome-menu-content");
-    summary.setAttribute("aria-label", "文件信息"); summary.title = "文件信息";
+    const info = el("details", "chrome-menu file-info"), summary = el("summary"), content = el("div", "chrome-menu-content");
+    summary.setAttribute("aria-label", "文件信息"); summary.title = "文件信息"; summary.innerHTML = icon("info");
     content.append(el("div", "meta project-file-origin", `${s.data.directory} / ${s.data.path}`), el("div", "meta", `${s.data.size} B · ${new Date(s.data.modified).toLocaleString()}`));
     if (s.data.version) content.append(el("div", "meta", "读取版本 " + s.data.version.slice(0, 12)));
     info.append(summary, content); head.append(info);

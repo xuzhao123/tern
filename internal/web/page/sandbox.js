@@ -91,13 +91,25 @@ export function inputCallID(root, source, original, kind) {
 }
 function inputSource(a) {
   const title = a?.task_id && Object.values(ui.run?.subCalls || {}).find((s) => s.task === a.task_id)?.text;
-  return a?.task_id ? `来自子任务 ${title ? clip(title, 100) : a.task_id}` : "来自主任务";
+  return a?.task_id ? `来自子任务 ${title ? clip(title, 100) : a.task_id}` : "";
+}
+// 审批卡片里的参数写成人能读的：bash 显示命令，改文件显示路径；其余照原文。
+function approvalArgs(a) {
+  const args = parse(a.arguments);
+  if (args && typeof args === "object") {
+    if (typeof args.command === "string") return el("pre", "term", "$ " + args.command);
+    if (typeof args.path === "string") return el("div", "why", "文件：" + args.path);
+  }
+  return el("div", "why", "参数：" + a.arguments);
 }
 export function approvalCard(root, callID) {
   const a = root.approvals[callID];
   const card = el("div", "net-card");
-  card.append(el("div", "meta", inputSource(a)));
-  card.append(el("div", "", `需要你确认 · ${RISK_LABEL[a.risk] || a.risk} · `), el("b", "", a.tool), el("div", "why", "原因：" + a.reason + "\n参数：" + a.arguments));
+  // 主任务自己的请求不写来源，只有子任务发起的才标出是哪个子任务。
+  if (inputSource(a)) card.append(el("div", "meta", inputSource(a)));
+  const head = el("div", "approval-head");
+  head.append(el("b", "", "需要你确认：" + a.tool), el("span", "meta", RISK_LABEL[a.risk] || a.risk));
+  card.append(head, el("div", "why", "原因：" + a.reason), approvalArgs(a));
   const acts = el("div", "acts");
   if (a.state === "waiting") {
     const yes = el("button", "yes", "允许"), no = el("button", "", "拒绝");
@@ -125,8 +137,8 @@ export function approvalCard(root, callID) {
 export function askCard(root, t, source = root) {
   const callID = inputCallID(root, source, t.id, "question"), args = parse(t.args) || {}, a = root.asks[callID], res = parse(t.result);
   const card = el("div", "net-card ask-card");
-  card.append(el("div", "meta", inputSource(a)));
-  card.append(el("div", "", "agent 问你："), el("b", "", args.question || ""));
+  if (inputSource(a)) card.append(el("div", "meta", inputSource(a)));
+  card.append(el("b", "", args.question || ""));
   const acts = el("div", "acts");
   if (a?.state === "waiting" && !root.exit) {
     const buttons = [];

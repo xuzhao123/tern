@@ -1,6 +1,6 @@
 import { renderChat } from "./chat.js";
 import { renderShell } from "./shell.js";
-import { $, api, el, ui } from "./util.js";
+import { $, api, el, icon, ui } from "./util.js";
 import { closeWorkTab, openWorkTab } from "./workpanel.js";
 // 后台命令侧栏：模型用 bash 带 background=true 起的命令（见 runs.js 的 job/updated）。
 // 列表是这条对话最新一轮的；一轮结束以后还在（只读），没有按钮。
@@ -86,7 +86,7 @@ export function renderJobsPanel() {
   if (selected?.state === "running" && selected.id !== s.settled && !r.exit && !s.timer && !s.polling && !s.err) poll(r, selected);
   panel.hidden = false;
   panel.dataset.agent = "";
-  const head = el("div", "sp-head"), close = el("button", "sp-close", "✕");
+  const head = el("div", "sp-head"), close = el("button", "sp-close"); close.innerHTML = icon("close");
   close.type = "button";
   close.title = "关闭";
   close.setAttribute("aria-label", "关闭后台命令面板");

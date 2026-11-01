@@ -6,6 +6,7 @@ import { start } from "./composer.js";
 import { diffFileCounts, openDiff } from "./diff.js";
 import { exploreCall, exploreLabel } from "./explore.js";
 import { show } from "./follow.js";
+import { openWorkTab } from "./workpanel.js";
 import { claimViz, md, parkViz } from "./md.js";
 import { openMCP, openMemory, openSkills } from "./pages.js";
 import { render } from "./render.js";
@@ -114,7 +115,7 @@ function chatFlow(r) {
     else flow.push({ kind: "call", call: c });
     const next = r.calls.find((x) => x.n > c.n);
     if (next?.turn !== c.turn) {
-      flow.push({ kind: "memory", turn: c.turn, phase: "end" }, { kind: "changed", turn: c.turn });
+      flow.push({ kind: "memory", turn: c.turn, phase: "end" }, { kind: "changed", turn: c.turn }, { kind: "plan", turn: c.turn });
       // 两轮之间人自己用 ! 跑的命令：在上一轮结束之后、下一轮的问题之前（见 runs.js 的 shell 事件）。
       for (const s of r.shells.filter((x) => x.turn === c.turn)) flow.push({ kind: "shell", shell: s, turn: c.turn });
     }
@@ -180,6 +181,28 @@ function changedLine(r, turn) {
   if (files.length > 8) card.append(el("div", "meta", `还有 ${files.length - 8} 个文件，在改动面板里看`));
   return card;
 }
+// 这一轮保存过计划（update_plan 成功）：末尾放一张计划卡片，列出步骤，按钮打开右侧的计划面板；
+// 批准和开始实施仍在面板里做（那里有版本核对和请求回执），卡片只负责让人看得到、找得到。
+const PLAN_STATUS = { pending: "待执行", in_progress: "进行中", completed: "已完成", blocked: "受阻" };
+function planCard(r, turn) {
+  if (r.isSub) return null;
+  const t = r.calls.filter((c) => c.turn === turn).flatMap((c) => c.tools).filter((x) => x.name === "update_plan" && x.state === "ok").at(-1);
+  const steps = parse(t?.args)?.steps;
+  if (!Array.isArray(steps) || !steps.length) return null;
+  const card = el("div", "turn-files plan-card"), head = el("div", "tf-head");
+  const open = el("button", "link", r.permission === "plan" ? "查看并批准" : "查看计划");
+  open.onclick = () => openWorkTab("plan", "", "计划");
+  head.append(el("span", "", `计划 · ${steps.length} 步`), open);
+  card.append(head);
+  for (const s of steps.slice(0, 8)) {
+    const row = el("div", "plan-step " + (s.status || "pending"));
+    const dot = el("span", "plan-dot"); dot.title = PLAN_STATUS[s.status] || s.status || "";
+    row.append(dot, el("span", "", String(s.content || "")));
+    card.append(row);
+  }
+  if (steps.length > 8) card.append(el("div", "meta", `还有 ${steps.length - 8} 步，在计划面板里看`));
+  return card;
+}
 export function fillCount(node, c) {
   node.replaceChildren(...(c ? [el("span", "diff-count-add", "+" + c.added), el("span", "diff-count-delete", "−" + c.deleted)] : []));
   node.title = c ? "工作目录相对 HEAD 的行数" : "";
@@ -229,6 +252,10 @@ setInterval(() => {
 }, 1000);
 // 文件与检索工具的一行说明写成人话（同 Codex 的 Edited / Read 行）：动作、路径，改文件的再带行数；参数原文点开看。
 // 行数只按这一次调用的参数算（edit_file 的新旧片段、write_file 结果里的 lines），不是相对 HEAD 的 diff。
+const GOAL_STATE = { continue: "继续", blocked: "受阻", waiting_user: "等你处理", complete: "完成" };
+const PROGRESS_ACTION = { read: "读取", init: "建立清单", note: "写交接说明", fix_check: "更正校验命令" };
+// 子任务的工具行用子任务的标题（派它时的任务说明），找不到就用编号的末尾一段。
+const subTitle = (id) => clip(Object.values(ui.run?.subCalls || {}).find((x) => x.task === id)?.text || String(id || "").split("-").at(-1), 50);
 const lineCount = (s) => typeof s === "string" && s ? s.split("\n").length - (s.endsWith("\n") ? 1 : 0) : 0;
 function toolLabel(t) {
   const args = parse(t.args) || {}, out = parse(t.result)?.result || {};
@@ -242,6 +269,25 @@ function toolLabel(t) {
     case "read_file": return args.path && { verb: "读取", target: args.path };
     case "grep": return args.pattern && { verb: "搜索", target: args.pattern + (args.path ? " · " + args.path : "") };
     case "glob": return args.pattern && { verb: "查找文件", target: args.pattern };
+    case "view_image": return args.path && { verb: "查看图片", target: args.path };
+    case "read_output": return { verb: "读取完整输出", target: args.name || "" };
+    case "update_plan": return { verb: "更新计划", target: Array.isArray(args.steps) ? `${args.steps.length} 步` : "" };
+    case "task_status": return { verb: "读取任务状态", target: "" };
+    case "report_goal": return { verb: "报告 Goal 进展", target: GOAL_STATE[args.state] || args.state || "" };
+    case "progress": return { verb: "进度文件", target: PROGRESS_ACTION[args.action] || args.action || "" };
+    case "verify_feature": return { verb: "验证功能", target: args.id || "" };
+    case "agent_wait": return { verb: "等待子任务", target: args.task_id ? subTitle(args.task_id) : "任意一个" };
+    case "agent_send": return { verb: "补充给子任务", target: subTitle(args.task_id) };
+    case "agent_stop": return { verb: "停止子任务", target: subTitle(args.task_id) };
+    case "bash_output": return { verb: "读取后台命令输出", target: args.job_id || "" };
+    case "bash_input": return { verb: "写入后台命令", target: args.job_id || "" };
+    case "bash_kill": return { verb: "停止后台命令", target: args.job_id || "" };
+    case "load_skill": return args.name && { verb: "加载", target: args.name + (args.file ? " · " + args.file : "") };
+    case "search_memory": return { verb: "搜索记忆", target: args.query || args.id || "" };
+    case "remember_memory": return { verb: "记住", target: clip(args.quote || args.content || "", 60) };
+    case "forget_memory": return { verb: "删除记忆", target: args.id || "" };
+    case "list_mcp_resources": return { verb: "列出 MCP 资源", target: args.server || "" };
+    case "read_mcp_resource": return { verb: "读取 MCP 资源", target: [args.server, args.uri].filter(Boolean).join(" · ") };
   }
   return null;
 }
@@ -514,6 +560,7 @@ function drawChat() {
     if (f.kind === "aux") { if (!group) fresh(); group.append(auxCard(r, f.call)); return; }
     if (f.kind === "caps") { const card = capsCard(r, f.turn); if (card) { if (!group) fresh(); group.append(card); } return; }
     if (f.kind === "memory") { const card = memoryCard(r, f.turn, f.phase); if (card) { if (!group) fresh(); group.append(card); } return; }
+    if (f.kind === "plan") { const card = planCard(r, f.turn); if (card) { if (!group) fresh(); group.append(card); } return; }
     if (f.kind === "changed") { const row = changedLine(r, f.turn); if (row) { if (!group) fresh(); group.append(row); } return; }
     if (!group) fresh();
     if (f.kind === "explore") {

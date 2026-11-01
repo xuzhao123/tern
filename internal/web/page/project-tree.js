@@ -1,4 +1,4 @@
-import { $, HOST, api, el, ui } from "./util.js";
+import { $, HOST, api, el, icon, ui } from "./util.js";
 import { workTab } from "./workpanel.js";
 
 const trees = new Map();
@@ -100,11 +100,11 @@ function treeRows(r, s, path, selected, openFile) {
 export function renderProjectTree(r, selected, openFile, standalone = false) {
   const s = state(r), old = document.querySelector(".project-tree-query"), focus = document.activeElement === old && old?.dataset.treeOwner === s.key, selection = focus ? [old.selectionStart, old.selectionEnd] : null;
   const focusedPath = document.activeElement?.closest(".project-tree")?.dataset.treeOwner === s.key ? document.activeElement.dataset.treePath : "", aside = el("aside", "project-tree" + (standalone ? " standalone" : "")); aside.setAttribute("aria-label", "项目目录树"); aside.dataset.treeOwner = s.key;
-  const bar = el("div", "project-tree-search"), input = el("input"), refresh = button("↻", () => {
+  const bar = el("div", "project-tree-search"), input = el("input"), refresh = button("", () => {
     for (const node of s.nodes.values()) { node.request++; node.loading = false; node.dirty = true; }
     s.search.request++; s.search.query = ""; s.search.loading = false; repaint(r, s);
   });
-  refresh.title = "刷新目录树"; refresh.setAttribute("aria-label", refresh.title);
+  refresh.innerHTML = icon("refresh"); refresh.title = "刷新目录树"; refresh.setAttribute("aria-label", refresh.title);
   input.type = "search"; input.className = "project-tree-query"; input.dataset.treeOwner = s.key; input.placeholder = "筛选文件…"; input.setAttribute("aria-label", "筛选项目文件"); input.value = s.query; input.maxLength = 4096;
   const changed = () => { s.query = input.value; s.search.request++; persist(s); clearTimeout(s.timer); s.timer = setTimeout(() => search(r), 220); };
   input.oninput = (event) => { if (!event.isComposing) changed(); };

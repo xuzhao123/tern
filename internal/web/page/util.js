@@ -123,6 +123,9 @@ export function shortTitle(text) {
   const first = String(text || "").trim().split(/(?<=[。！？!?])|\n/)[0].trim();
   return first.length > 40 ? first.slice(0, 40) + "…" : first;
 }
+// 小图标按钮用线条 SVG，不用 ✕ ↻ ⓘ 这类符号：字体里没有这些字形时会显示成方框。
+const ICON_PATHS = { close: '<path d="M6 6l12 12M18 6 6 18"/>', refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>', info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/>' };
+export const icon = (name) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICON_PATHS[name]}</svg>`;
 export const compact = (v) => { v = parse(v); return typeof v === "string" ? v : JSON.stringify(v); };
 // 附图：content 是数组时（有图的消息）只拼文字段。图片的 <image …> 开标签与 </image> 闭标签去掉，
 // image_url 那一段写成它的编号（开标签里的 [Image #1]），没有编号就写 [图片]。
