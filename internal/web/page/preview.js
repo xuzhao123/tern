@@ -1,5 +1,5 @@
 import { $, api, el, HOST, icon, ui } from "./util.js";
-import { closeWorkTab, openWorkTab, workTab } from "./workpanel.js";
+import { openWorkTab, workTab } from "./workpanel.js";
 
 // ---------- 网页预览 ----------
 // 一个标签对应一条对话在 app-server 里的一个预览会话：一个授权的本机开发服务、一个独立的 Chrome。
@@ -353,12 +353,7 @@ function build(panel, tab, reason) {
   panel.dataset.preview = "";
   const nodes = { tab, reason, panel };
   const head = el("div", "sp-head"), title = el("strong", "", "网页预览");
-  const close = el("button", "sp-close"); close.innerHTML = icon("close");
-  close.type = "button";
-  close.title = "关闭标签";
-  close.setAttribute("aria-label", "关闭网页预览标签");
-  close.onclick = () => closeWorkTab();
-  head.append(title, close);
+  head.append(title);
   if (reason) {
     const body = el("div", "sp-body");
     body.append(el("div", "empty", "这台主机不能用网页预览：" + reason));

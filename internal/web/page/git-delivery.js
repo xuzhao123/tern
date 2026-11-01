@@ -1,5 +1,5 @@
 import { $, HOST, api, el, ui } from "./util.js";
-import { closeWorkTab, openWorkTab, workTab } from "./workpanel.js";
+import { openWorkTab, workTab } from "./workpanel.js";
 
 const labels={stage:"暂存所选文件",unstage:"取消所选暂存",commit:"本地提交"};
 function button(label,fn){const b=el("button","ghost",label);b.type="button";b.onclick=fn;return b;}
@@ -15,7 +15,7 @@ export function renderGitDelivery(){
   message.placeholder="提交说明";message.setAttribute("aria-label","提交说明");message.maxLength=10000;
   try{message.value=localStorage.getItem(key+":message")||"";pending=readPending();}catch{note.textContent="无法读取提交草稿和回执，请检查浏览器存储。";}
   message.oninput=()=>{try{localStorage.setItem(key+":message",message.value);}catch{note.textContent="提交说明尚未保存，关闭页面前请复制。";}};
-  head.append(el("strong","","交付修改"),button("刷新",load),button("查看差异",()=>openWorkTab("diff","","改动")),button("关闭",()=>closeWorkTab()));
+  head.append(el("strong","","交付修改"),button("刷新",load),button("查看差异",()=>openWorkTab("diff","","改动")));
   for(const action of ["stage","unstage"])bar.append(button(labels[action],()=>confirm(action)));
   body.append(note,receipt,list,bar,message,commit);root.append(head,body);panel.replaceChildren(root);
   function readPending(){for(let i=0;i<localStorage.length;i++){const name=localStorage.key(i);if(name?.startsWith(key+":pending:")){const value=JSON.parse(localStorage.getItem(name));if(value?.request_id)return value;}}return null;}

@@ -1,5 +1,5 @@
 import { $, HOST, api, el, icon, ui } from "./util.js";
-import { closeWorkTab, openWorkTab, workTab } from "./workpanel.js";
+import { openWorkTab, workTab } from "./workpanel.js";
 import { backToInput } from "./composer.js";
 import { openDiff } from "./diff.js";
 import { renderProjectTree, revealProjectPath, toggleTree, treeRevision, treeVisible } from "./project-tree.js";
@@ -69,7 +69,6 @@ export function renderProjectFiles() {
   head.append(title);
   if (!r.workspace) { panel.replaceChildren(head, el("div", "empty", "当前任务没有项目工作目录。任务产物在另一个工作视图中查看。")); return; }
   if (tab.kind === "project-files") {
-    head.append(iconButton("关闭项目文件", "×", () => closeWorkTab()));
     panel.replaceChildren(head, renderProjectTree(r, "", (path) => openProjectFile(path, true), true));
     s.renderKey = version();
     return;
@@ -97,7 +96,6 @@ export function renderProjectFiles() {
     if (s.data.version) content.append(el("div", "meta", "读取版本 " + s.data.version.slice(0, 12)));
     info.append(summary, content); head.append(info);
   }
-  head.append(iconButton("关闭项目文件", "×", () => closeWorkTab()));
   const artifact = s.bytes && artifactType(s.data?.path || "") && artifactView(r, {path:s.data.path,bytes:s.bytes,text:s.text,version:s.data.version,modified:s.data.modified,kind:"project"}, s, async()=>{const response=await fetch(api(`/runs/${encodeURIComponent(r.id)}/workspace/file?path=${encodeURIComponent(s.data.path)}`));if(!response.ok)throw new Error(await response.text());return (await response.json()).version||"";});
   if(artifact)body.append(artifact);
   if (s.note && !artifact) body.append(el("div", "meta", s.note));

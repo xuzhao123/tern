@@ -1,5 +1,5 @@
 import { disposeArtifact } from "./artifact-preview.js";
-import { $, HOST, el, ui } from "./util.js";
+import { $, HOST, el, icon, ui } from "./util.js";
 
 const sessions = new Map(), kinds = new Set(["diff", "files", "file", "project-files", "project-file", "jobs", "browser", "preview", "agent", "plan", "goal", "operations", "git"]);
 let shown = null, error = "";
@@ -13,8 +13,24 @@ function resourceIcon(kind) {
     jobs: '<path d="m4 6 6 6-6 6M13 18h7"/>',
     preview: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M7 6.5v.01"/>',
   };
-  const icon = el("span", "work-tab-icon"); icon.setAttribute("aria-hidden", "true");
-  icon.innerHTML = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true">' + (paths[kind] || '<path d="M14 3H5v18h14V8ZM14 3v5h5"/>') + '</svg>'; return icon;
+  const box = el("span", "work-tab-icon"); box.setAttribute("aria-hidden", "true");
+  box.innerHTML = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true">' + (paths[kind] || '<path d="M14 3H5v18h14V8ZM14 3v5h5"/>') + '</svg>'; return box;
+}
+// 标签放不下时横向滚动：当前标签要完整露出，最左边从一个标签的左边开始，不露半个标签。
+// 滚到头也对不齐时，末尾的空白（.work-tabs-end）补上差的那段。滚动条藏起来了，竖向滚轮也换成左右滚。
+function revealTab(tabs) {
+  const active = tabs.querySelector(".work-tab.active"), end = tabs.querySelector(".work-tabs-end"); if (!active || !end) return;
+  const base = tabs.getBoundingClientRect().left - tabs.scrollLeft, items = [...tabs.querySelectorAll(".work-tab")], starts = items.map((t) => t.getBoundingClientRect().left - base);
+  const left = active.getBoundingClientRect().left - base, need = left + active.offsetWidth - tabs.clientWidth;
+  if (tabs.scrollLeft <= left + 0.5 && tabs.scrollLeft >= need - 0.5 && starts.some((x) => Math.abs(x - tabs.scrollLeft) < 1)) return;
+  const target = need <= 0 ? 0 : starts.find((x) => x >= need - 0.5) ?? left, last = items.at(-1).getBoundingClientRect().right - base;
+  end.style.width = Math.max(0, Math.ceil(target + tabs.clientWidth - last)) + "px";
+  tabs.scrollLeft = target;
+}
+function scrollTabs(event) {
+  const tabs = event.currentTarget;
+  if (tabs.scrollWidth <= tabs.clientWidth || Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return;
+  event.preventDefault(); tabs.scrollLeft += event.deltaY;
 }
 function descriptor(tab) {
   return { kind: tab.kind, resource: tab.resource, title: tab.title, scroll: tab.scroll || {}, artifactPage:tab.state.artifactPage, artifactZoom:tab.state.artifactZoom, artifactMode:tab.state.artifactMode, line: tab.state.line, query: tab.state.query, scope: tab.state.scope, base: tab.state.base, baseDraft: tab.state.baseDraft, expanded: [...(tab.state.open instanceof Set ? tab.state.open : [])] };
@@ -168,7 +184,7 @@ export function renderWorkPanel(renderers) {
   others.disabled = s.tabs.length < 2; options.content.append(others, reopen);
   const hide = button("×", hideWorkPanel); hide.className = "chrome-icon"; hide.title = "回到对话"; hide.setAttribute("aria-label", "回到对话");
   controls.append(add.details, options.details, hide);
-  const tabs = $("work-tabs"); tabs.replaceChildren();
+  const tabs = $("work-tabs"); tabs.replaceChildren(); tabs.onwheel = scrollTabs;
   s.tabs.forEach((item, i) => {
     const wrap = el("div", "work-tab" + (item === tab ? " active" : "")), pick = button(item.title || item.kind, () => openWorkTab(item.kind, item.resource, item.title));
     pick.replaceChildren(resourceIcon(item.kind), el("span", "work-tab-title", item.title || item.kind));
@@ -178,10 +194,11 @@ export function renderWorkPanel(renderers) {
       if (next >= 0) { event.preventDefault(); const target = s.tabs[next]; openWorkTab(target.kind, target.resource, target.title); $("work-tabs").querySelector('[aria-selected="true"]')?.focus(); }
       else if (event.key === "Delete") { event.preventDefault(); closeWorkTab(item.id); }
     };
-    const close = button("×", () => closeWorkTab(item.id)); close.setAttribute("aria-label", "关闭标签：" + item.title);
+    const close = button("", () => closeWorkTab(item.id)); close.className = "work-tab-close"; close.innerHTML = icon("close"); close.title = "关闭标签"; close.setAttribute("aria-label", "关闭标签：" + item.title);
     wrap.append(pick, close); tabs.append(wrap);
   });
-  tabs.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  tabs.append(el("div", "work-tabs-end"));
+  revealTab(tabs);
   }
   $("work-notice").textContent = error; $("work-notice").hidden = !error;
   renderers[tab.kind]?.();

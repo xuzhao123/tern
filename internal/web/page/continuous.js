@@ -1,6 +1,6 @@
 import { $, HOST, api, el, ui } from "./util.js";
 import { loadRuns } from "./shell.js";
-import { closeWorkTab, openWorkTab, workTab } from "./workpanel.js";
+import { openWorkTab, workTab } from "./workpanel.js";
 
 const states={running:"运行中",pausing:"暂停中",paused:"已暂停",waiting_user:"等待用户",blocked:"受阻",exhausted:"预算耗尽",completed:"已完成",ended:"已结束（未完成）"};
 function button(label,fn){const b=el("button","ghost",label);b.type="button";b.onclick=fn;return b;}
@@ -20,7 +20,7 @@ export function renderContinuous(){
   pending=readPending();
   function setPending(value){try{if(value)localStorage.setItem(pendingPrefix+value.request_id,JSON.stringify(value));else if(pending)localStorage.removeItem(pendingPrefix+pending.request_id);pending=value||readPending();return true;}catch{note.textContent="无法保存操作回执，本次未执行；请检查浏览器存储。";return false;}}
   async function load(){try{const res=await fetch(api(`/runs/${r.id}/continuous`));if(!res.ok)throw new Error(await res.text());const data=await res.json();if(!valid())return;r.continuous=data.continuous_goal;drawStatus();updateBanner();}catch(error){if(valid())note.textContent="Goal读取失败："+error.message;}}
-  head.append(el("strong","","持续 Goal"),button("刷新",load),button("关闭",()=>closeWorkTab()));root.append(head,body);body.append(note,summary,form,actions);panel.hidden=false;panel.replaceChildren(root);
+  head.append(el("strong","","持续 Goal"),button("刷新",load));root.append(head,body);body.append(note,summary,form,actions);panel.hidden=false;panel.replaceChildren(root);
   function drawStatus(){
     if(!valid())return;const g=r.continuous;const version=JSON.stringify([g,busy,pending,editing,base]);if(version===drawn)return;drawn=version;summary.replaceChildren();
     if(!g)summary.append(el("p","meta","需要明确启动才会持续推进。普通目标文字不会自动执行。"));

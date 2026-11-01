@@ -1,6 +1,6 @@
 import { $, HOST, api, el, ui } from "./util.js";
 import { backToInput } from "./composer.js";
-import { closeWorkTab, workTab } from "./workpanel.js";
+import { workTab } from "./workpanel.js";
 
 const states={starting:"启动中",running:"运行中",stopping:"停止中",stopped:"已停止",exited:"已退出",failed:"失败",unavailable:"状态待核对"};
 function button(label,fn){const b=el("button","ghost",label);b.type="button";b.onclick=fn;return b;}
@@ -12,7 +12,7 @@ export function renderOperations(){
   const prefix=`tern-operation-v1:${encodeURIComponent(account)}:${encodeURIComponent(HOST)}:${r.id}:`;
   let data,selected=null,reading=false,rendered="";
   const valid=()=>ui.run===r&&ui.account===account&&!s.closed;
-  head.append(el("strong","","项目操作"),button("刷新",load),button("关闭",()=>closeWorkTab()));body.append(note,actions,instances,logs);root.append(head,body);panel.hidden=false;panel.replaceChildren(root);
+  head.append(el("strong","","项目操作"),button("刷新",load));body.append(note,actions,instances,logs);root.append(head,body);panel.hidden=false;panel.replaceChildren(root);
   async function readLog(op){try{const res=await fetch(api(`/runs/${op.thread_id}/operations/${op.id}`));if(!res.ok)throw new Error(await res.text());const result=await res.json();if(!valid()||selected?.id!==op.id)return;logs.textContent=result.output||"（尚无输出）";}catch(error){if(valid())logs.textContent="日志读取失败："+error.message;}}
   function draw(){
     actions.replaceChildren();instances.replaceChildren();note.textContent=`${HOST||"当前执行主机"} · ${data.directory} · ${data.supported?"Linux隔离沙箱":"此平台尚不支持持久项目操作"}`;

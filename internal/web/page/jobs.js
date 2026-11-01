@@ -1,7 +1,7 @@
 import { renderChat } from "./chat.js";
 import { renderShell } from "./shell.js";
-import { $, api, el, icon, ui } from "./util.js";
-import { closeWorkTab, openWorkTab } from "./workpanel.js";
+import { $, api, el, ui } from "./util.js";
+import { openWorkTab } from "./workpanel.js";
 // 后台命令侧栏：模型用 bash 带 background=true 起的命令（见 runs.js 的 job/updated）。
 // 列表是这条对话最新一轮的；一轮结束以后还在（只读），没有按钮。
 // 命令与输出都是模型那边写出来的，不可信：只用 textContent 显示。
@@ -86,12 +86,9 @@ export function renderJobsPanel() {
   if (selected?.state === "running" && selected.id !== s.settled && !r.exit && !s.timer && !s.polling && !s.err) poll(r, selected);
   panel.hidden = false;
   panel.dataset.agent = "";
-  const head = el("div", "sp-head"), close = el("button", "sp-close"); close.innerHTML = icon("close");
-  close.type = "button";
-  close.title = "关闭";
-  close.setAttribute("aria-label", "关闭后台命令面板");
-  close.onclick = () => closeWorkTab();
-  head.append(el("strong", "", `后台命令 · ${r.jobs.length} 个`), close);
+  // 关闭用标签上的 ×，这里不再放一个。
+  const head = el("div", "sp-head");
+  head.append(el("strong", "", `后台命令 · ${r.jobs.length} 个`));
   const body = el("div", "sp-body");
   const operations=el("button","ghost","项目操作与开发服务");operations.type="button";operations.onclick=()=>openWorkTab("operations","","项目操作");body.append(operations);
   for(const command of r.shells||[]) {const row=el("details");row.append(el("summary","",`用户命令 · ${command.text} · 退出码 ${command.body.exit_code}`),el("pre","job-out",command.body.output||"（无输出）"));body.append(row);}

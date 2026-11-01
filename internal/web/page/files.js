@@ -2,7 +2,7 @@ import { artifactType, artifactView, contentVersion, readArtifactBytes } from ".
 import { renderChat } from "./chat.js";
 import { renderShell } from "./shell.js";
 import { $, api, el, icon, ui } from "./util.js";
-import { closeWorkTab, openWorkTab, workTab } from "./workpanel.js";
+import { openWorkTab, workTab } from "./workpanel.js";
 // 沙箱文件：agent 在 turn/started 里报告本对话的沙箱目录（第一轮的检查点ID），各轮 bash 看到的是同一个 /workspace。
 // 文件是模型写的不可信内容：文字只用 textContent 显示，图片经 blob 地址放进 <img>，其余一律下载（服务端也按附件返回）。
 const fileURL = (r, p) => api(`/runs/${encodeURIComponent(r.id)}/files/${p.split("/").map(encodeURIComponent).join("/")}`);
@@ -77,13 +77,12 @@ export function renderFilesPanel() {
   // 展开状态只放在 ui.files 上，换对话时回到收起；打开隐藏文件的标签照常预览，不受收起影响。
   const all = f.list || [], hiddenOf = (x) => x.path.split("/").some((seg) => seg.startsWith("."));
   const hidden = all.filter(hiddenOf), listed = f.hiddenOpen ? all : all.filter((x) => !hiddenOf(x));
-  const head = el("div", "sp-head"), refresh = el("button", "sp-close"), close = el("button", "sp-close");
-  refresh.innerHTML = icon("refresh"); close.innerHTML = icon("close");
-  refresh.type = close.type = "button"; refresh.title = "刷新"; close.title = "关闭";
-  close.setAttribute("aria-label", "关闭沙箱文件面板");
+  // 关闭用标签上的 ×，这里只留刷新。
+  const head = el("div", "sp-head"), refresh = el("button", "sp-close");
+  refresh.innerHTML = icon("refresh");
+  refresh.type = "button"; refresh.title = "刷新"; refresh.setAttribute("aria-label", "刷新任务产物");
   refresh.onclick = () => loadFiles();
-  close.onclick = () => closeWorkTab();
-  head.append(el("strong", "", `任务产物 · 临时目录${f.list ? ` · ${listed.length} 项${hidden.length ? `，另有 ${hidden.length} 个隐藏项` : ""}` : ""}`), refresh, close);
+  head.append(el("strong", "", `任务产物 · 临时目录${f.list ? ` · ${listed.length} 项${hidden.length ? `，另有 ${hidden.length} 个隐藏项` : ""}` : ""}`), refresh);
   const tools = el("div", "fp-tools"), pick = el("input"), up = el("button", "ghost", f.uploading ? "上传中…" : "上传文件");
   pick.type = "file"; pick.multiple = true;
   pick.onchange = () => { if (pick.files.length) uploadFiles(r, [...pick.files]); };

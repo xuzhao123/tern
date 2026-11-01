@@ -10,6 +10,7 @@
 | --- | --- | --- |
 | [harness-next-phase.md](harness-next-phase.md) | **下一阶段迭代计划**：先稳住刚合并的网页功能，主线是 agent 质量的度量与回归（扩充编码评测、合并前回归门槛、按失败归因改进），并行收口网页产品、清旧账；流程回到“spec → tern 实现 → review”，小批次合并 | 计划（2026-10-29），用户已定：主线第 1 期，tern 实现，编码评测用 DeepSeek、通用评测用豆包 |
 | [web-draft-conflict-fix.md](web-draft-conflict-fix.md) | **草稿误报冲突**：每次打开都提示“另一页面修改了这份草稿”；`ancestors` 截错方向（保留最旧的 64 个），改为保留最新的，并一次性清理旧版本留下的副本 | 已修复并验收（2026-10-31，Claude Code 直接修） |
+| [web-worktab-polish.md](web-worktab-polish.md) | **工作面板标签**：标题和关闭的 × 放进同一个标签框（原来两个按钮各带 `.ghost` 的边框，画成两个框）；× 只在当前、悬停、聚焦的标签上显示；放不下时先收窄再滚动，左边不露半个；面板内容区重复的“关闭”去掉 | 已实现并验收（2026-10-31，Claude Code 直接实现） |
 | [web-sidebar-polish.md](web-sidebar-polish.md) | **网页端侧栏样式打磨**：统一图标列、文字列和右端操作位的对齐；“项目”“对话”分区标题统一样式（修 CSS 覆盖顺序的 bug）；项目行和对话行同样式；未读点与“⋯”共用一个位置；“工具与更多”弹层不再把触发行带走 ；收起与展开侧栏是同一个按钮、同一个位置 | 已实现并验收（2026-10-31，Claude Code 直接实现） |
 | [web-product/](web-product/README.md) | **网页产品方案**：Codex 体验对齐，含界面、交互、子 agent、9 类日常工作流补充；共 47 项需求、42 个验收场景，已有能力与新增体验分开记录 | 开发中（2026-10-25），进度见 web-product/08-implementation.md；不计入旧功能完成数 |
 | [codex-parity-plan.md](codex-parity-plan.md) | **任务清单**：和 Codex 对齐的功能点，哪些没做、哪些做得不好，按优先级排；做某一条前先写它的 spec，填回这里 | 清单（2026-10-24），持续更新 |

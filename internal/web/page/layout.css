@@ -193,12 +193,27 @@ body { font-size:14px; letter-spacing:-.01em; }
 #work-resize { position:absolute; left:-4px; top:0; bottom:0; width:7px; z-index:26; cursor:col-resize; touch-action:none; }
 #work-resize:hover, #work-resize:focus-visible { background:color-mix(in srgb,var(--accent) 30%,transparent); }
 .work-wide #work-resize { display:none; }
-.work-tab { max-width:190px; border:0; border-radius:10px; background:transparent; }
-.work-tab.active { background:var(--panel); box-shadow:0 1px 3px #00000008; }
-.work-tab button { font-size:13px; padding:7px 6px; }
-.work-tab [role="tab"] { display:flex; align-items:center; gap:5px; }
+/* 工作面板标签（spec/web-worktab-polish.md）：一个标签一个框 [图标 标题 ×]。两个按钮是 .ghost，去掉它自带的边框和底色，
+   框只画在外层 .work-tab 上。× 只在当前、悬停、聚焦的标签上显示，隐藏时照样占位，标签不会因悬停变宽。
+   放不下时标签先收窄到 min-width（标题至少露出四个汉字），再横向滚动；滚动位置由 workpanel.js 的 revealTab 定，手动滚动按标签左边吸附。 */
+#work-tabs { scroll-snap-type:x proximity; scrollbar-width:none; }
+#work-tabs::-webkit-scrollbar { display:none; }
+.work-tabs-end { flex:none; width:0; }
+.work-tab { flex:0 1 auto; min-width:104px; max-width:190px; padding-right:4px; border:0; border-radius:8px; background:transparent; scroll-snap-align:start; }
+.work-tab:hover { background:var(--hover); }
+.work-tab.active { background:var(--panel); box-shadow:0 1px 3px #00000014; }
+.work-tab button { border:0; background:none; border-radius:0; font-size:13px; }
+.work-tab [role="tab"]:hover:not(:disabled) { background:none; }
+.work-tab [role="tab"] { display:flex; flex:1; align-items:center; gap:5px; min-width:0; padding:6px 2px 6px 8px; }
 .work-tab-icon { display:flex; flex:none; color:var(--muted); }
+.work-tab-icon .i { width:14px; height:14px; }
 .work-tab-title { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.work-tab .work-tab-close { display:grid; place-items:center; flex:none; width:18px; height:18px; padding:0; border-radius:4px; color:var(--muted); visibility:hidden; }
+.work-tab .work-tab-close .i { width:12px; height:12px; }
+.work-tab .work-tab-close:hover { background:var(--hover); color:var(--text); }
+.work-tab.active .work-tab-close:hover { background:var(--soft); }
+.work-tab:is(.active, :hover, :focus-within) .work-tab-close { visibility:visible; }
+@media (hover:none) { .work-tab .work-tab-close { visibility:visible; } }
 .sp-head { padding:10px 14px; border-bottom:0; }
 .sp-head strong { font-size:12px; font-weight:500; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .sp-head .sp-close { border:0; background:none; width:25px; height:25px; font-size:17px; border-radius:5px; }
