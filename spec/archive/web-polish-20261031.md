@@ -1,6 +1,6 @@
 # 网页端打磨（2026-10-31）
 
-状态：已实现并验收（2026-10-31，用户要求 Claude Code 直接实现）。属于 [视觉对齐主线](web-product/18-codex-visual-alignment.md)（下一阶段计划 2.3）的一批。
+状态：已实现并验收（2026-10-31，用户要求 Claude Code 直接实现）。属于 [视觉对齐主线](../web-product/18-codex-visual-alignment.md)（下一阶段计划 2.3）的一批。
 
 ## 为什么
 

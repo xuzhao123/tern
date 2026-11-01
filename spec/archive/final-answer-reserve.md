@@ -1,6 +1,6 @@
 # 最后一次请求留给最终回答；75% 的预算提醒改成逐项核对
 
-状态：已实现（2026-10-31，tern 用 Coconut flash 实现，243 次请求；review 时补了三处只认 `purpose == "main"` 的地方）。沙箱外 `-max-steps 3` 在 Responses（Coconut flash）、chat（`deepseek`）、Messages（`deepseekanthropic`）三种协议上都通过：第 3 次请求打出 `Final request: tools disabled`，结局 `no_tool_calls`，最终回答 2.5–2.8k 字，检查点有 `forced_final: true`。用户随后把被测模型改回 DeepSeek 官方 API，整题评测改为和同一代码的 DeepSeek 基线比，结果见 [harness-next-phase.md](harness-next-phase.md) 进度。
+状态：已实现（2026-10-31，tern 用 Coconut flash 实现，243 次请求；review 时补了三处只认 `purpose == "main"` 的地方）。沙箱外 `-max-steps 3` 在 Responses（Coconut flash）、chat（`deepseek`）、Messages（`deepseekanthropic`）三种协议上都通过：第 3 次请求打出 `Final request: tools disabled`，结局 `no_tool_calls`，最终回答 2.5–2.8k 字，检查点有 `forced_final: true`。用户随后把被测模型改回 DeepSeek 官方 API，整题评测改为和同一代码的 DeepSeek 基线比，结果见 [harness-next-phase.md](../harness-next-phase.md) 进度。
 
 ## 1. 为什么要改
 
@@ -70,7 +70,7 @@
 
 ## 4. 这一期不做
 
-- 不做"检测到越界行为（起服务、开浏览器）就提醒"。行为判断容易误伤正当的自测，见 [harness-next-phase.md](harness-next-phase.md) 10-29 的"注意"。
+- 不做"检测到越界行为（起服务、开浏览器）就提醒"。行为判断容易误伤正当的自测，见 [harness-next-phase.md](../harness-next-phase.md) 10-29 的"注意"。
 - 不按 token 设预算。
 - 网页端不显示 `forced_final`，只进日志、检查点和评测汇总。
 

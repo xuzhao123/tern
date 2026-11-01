@@ -6,7 +6,7 @@
 
 三件旧账，都在 2026-10-31 复现过：
 
-1. **删除对话后子 agent 的检查点还在**（[spec 索引](README.md#未完成与暂缓)"待专项回归"那条）。临时 `TERN_HOME`、DeepSeek，让模型用 `spawn_agent` 开一个子 agent，结束后 `thread/delete`：`.data/checkpoints/` 里剩下 `<轮次ID>-sub-<哈希>.json`、`.lock` 和 `<轮次ID>.calls/`。原因：`internal/appserver/threads.go` 的 `drop` 只删 `<轮次ID>.json`、`.lock`、`.files`，子 agent 的检查点ID是在轮次ID后面加 `-sub-`（`internal/agent/checkpoint.go` 第 120 行附近），`.calls` 目录（`internal/agent/approval.go` 第 190 行附近）也没删。`~/.tern/.data/checkpoints` 里现有 171 个检查点，29 个对不上任何对话的轮次。
+1. **删除对话后子 agent 的检查点还在**（[spec 索引](../README.md#未完成与暂缓)"待专项回归"那条）。临时 `TERN_HOME`、DeepSeek，让模型用 `spawn_agent` 开一个子 agent，结束后 `thread/delete`：`.data/checkpoints/` 里剩下 `<轮次ID>-sub-<哈希>.json`、`.lock` 和 `<轮次ID>.calls/`。原因：`internal/appserver/threads.go` 的 `drop` 只删 `<轮次ID>.json`、`.lock`、`.files`，子 agent 的检查点ID是在轮次ID后面加 `-sub-`（`internal/agent/checkpoint.go` 第 120 行附近），`.calls` 目录（`internal/agent/approval.go` 第 190 行附近）也没删。`~/.tern/.data/checkpoints` 里现有 171 个检查点，29 个对不上任何对话的轮次。
 2. **沙箱里 `go build` 报 `go: writing stat cache: … read-only file system`**。临时 clone 里新提交一次再 `go build`：出现 1 次（`go vet` 不出现）；同样条件加 `-buildvcs=false`：0 次。原因：Go 按 VCS 给主模块算伪版本，并想把它写进模块缓存的 stat cache，而沙箱里模块缓存只读挂载。
 3. **知识库里的旧名称**：`retrieval/corpus.md` 的 D14 还叫"观测台"，来源写 `internal/observer/...`（现在是 `internal/web/...`）；`internal/agent/react.go` 第 998、1002 行附近检索用的提示词还写"learning-agent 学习项目"；`internal/skills/builtin/code-review/SKILL.md` 的 `origin` 写 `learning-agent procedural memory`。
 

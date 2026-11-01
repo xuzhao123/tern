@@ -8,7 +8,7 @@ import { openContext } from "./context.js";
 import { addSkill, skillUsable } from "./skillrefs.js";
 import { saveDraft } from "./drafts.js";
 
-// 输入框的 / 菜单（参照 Codex 应用，见 spec/web-slash-commands.md）。三组：
+// 输入框的 / 菜单（参照 Codex 应用，见 spec/archive/web-slash-commands.md）。三组：
 // 界面命令在页面里执行、不发给模型；提示词命令是 internal/commands 的模板，整句发给 agent 展开；skill 选了加进引用条。
 // 界面命令的 when 返回不能用的原因（能用返回空串），条件照抄对应按钮原来的禁用条件。
 

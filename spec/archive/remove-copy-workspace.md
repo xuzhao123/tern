@@ -4,7 +4,7 @@
 
 ## 为什么
 
-用户看了输入框下面的"副本"勾选框，觉得没什么用，要求整个去掉（不只藏界面入口）。项目操作里的 `initialize` 初始化动作原来只能在副本对话里跑，用户选了一起去掉。原设计见 [copy-workspace.md](copy-workspace.md)、[web-product/22-project-operations.md](web-product/22-project-operations.md)。
+用户看了输入框下面的"副本"勾选框，觉得没什么用，要求整个去掉（不只藏界面入口）。项目操作里的 `initialize` 初始化动作原来只能在副本对话里跑，用户选了一起去掉。原设计见 [copy-workspace.md](copy-workspace.md)、[web-product/22-project-operations.md](../web-product/22-project-operations.md)。
 
 ## 改了什么
 

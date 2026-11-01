@@ -6,7 +6,7 @@
 
 `check-queue.py --mode finish` 失败：停下一条有排队消息的对话，记下 `queue_version`，重启 app-server，版本变了（复现：磁盘上 8，起一次 app-server 变 9，再重启变 10；队列内容和顺序不变）。
 
-原因：`internal/appserver/server.go` 第 853 行附近，上一轮没有正常结束、队列里有东西、不在停止中时，把队列标成暂停、写 `QueueError`，并 `QueueVersion++`。app-server 每次启动都会对这条对话再走一遍，队列早就是暂停的，版本还是每次加一。网页端拿着旧版本去发送或调整顺序，就会无故 409。[13-message-queue.md](web-product/13-message-queue.md) 要求重启前后队列和版本不变。
+原因：`internal/appserver/server.go` 第 853 行附近，上一轮没有正常结束、队列里有东西、不在停止中时，把队列标成暂停、写 `QueueError`，并 `QueueVersion++`。app-server 每次启动都会对这条对话再走一遍，队列早就是暂停的，版本还是每次加一。网页端拿着旧版本去发送或调整顺序，就会无故 409。[13-message-queue.md](../web-product/13-message-queue.md) 要求重启前后队列和版本不变。
 
 ## 2. 改什么
 

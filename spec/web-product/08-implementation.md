@@ -43,7 +43,7 @@
 | WORK-04 | [确认、提交和交付修改](01-current-and-gaps.md) | 已验收（脚本） | run-checks：git-delivery；10-30/31 点验暂存、确认框、本地提交、提交后说明清空；原记录：文件级暂存/取消暂存、本地提交与回执；23、15项Git写入检查和页面确认 |
 | WORK-05 | [点回答里的文件就能读](01-current-and-gaps.md) | 已验收（脚本） | run-checks：projectfiles、closeout（目录树分页）；原记录：目录树分页、文件链接、行号、高亮和只读边界；16/20 |
 | WORK-06 | [检查命令并运行自己的验证](01-current-and-gaps.md) | 已验收（脚本） | run-checks：shell-access、operations、closeout-lifecycle；原记录：真实!命令回执、历史和独立项目操作；shell/lifecycle报告 |
-| WORK-07 | [安全试改，再应用回去](01-current-and-gaps.md) | 已去掉（2026-10-31，用户决定） | 副本功能整体删除，见 [remove-copy-workspace.md](../remove-copy-workspace.md)；以下历史验收记录不再适用 |
+| WORK-07 | [安全试改，再应用回去](01-current-and-gaps.md) | 已去掉（2026-10-31，用户决定） | 副本功能整体删除，见 [remove-copy-workspace.md](../archive/remove-copy-workspace.md)；以下历史验收记录不再适用 |
 | WORK-08 | [查看浏览器/子任务进展](01-current-and-gaps.md) | 已验收（脚本） | run-checks：substate；交互预览见 EXT-06；原记录：子任务过程/历史浏览器截图保留；交互预览另见EXT-06 |
 | SET-01 | [少量操作完成配置](01-current-and-gaps.md) | 部分验收 | 没有脚本；10-25 批次的定向证据；原记录：八类设置复用原控件和作用域；真实页面分类验证 |
 | SET-02 | [模型不可用时知道怎么解决](01-current-and-gaps.md) | 保留/补强；部分验收 | 保留供应商配置、错误与修复入口；新供应商/OAuth故障组合未重跑 |
@@ -66,7 +66,7 @@
 | EXT-03 | [上下文与用量管理](07-workflow-completeness.md) | 部分验收 | 没有脚本；10-25 批次 API+UI 压缩的定向证据；原记录：真实用量、未知额度、准备压缩及实际发送；API+UI compact成功 |
 | EXT-04 | [显式调用 Skill](07-workflow-completeness.md) | 已验收（脚本） | run-checks：skill-refs；原记录：来源/path/hash固定引用、草稿恢复、失效拒绝和正文快照；Skill报告+UI |
 | EXT-05 | [项目常用操作](07-workflow-completeness.md) | 已验收（脚本） | run-checks：operations；10-30 点验项目操作；原记录：动作配置、沙箱服务、Unix端口、日志、停止、副本初始化；9+8项实际检查 |
-| EXT-06 | [网页预览与可视化反馈](07-workflow-completeness.md) | 部分验收 | P1 已实现并验收（[web-preview-p1.md](../web-preview-p1.md)：本机开发服务，能点、能输入、代理只放行授权 origin，连跑 5 次 18 项全过）；P2 agent 接管、P3 反馈、P4 沙箱服务未做；macOS 未实测；原记录：19的T01：命名空间方案在VM上与Chrome沙箱冲突；2026-10-31 改走“Chrome自有沙箱+固定目标代理”，原型通过（19文末），待补受限CDP与scheme拦截的原型后开发；截图回放不算完成 |
+| EXT-06 | [网页预览与可视化反馈](07-workflow-completeness.md) | 部分验收 | P1 已实现并验收（[web-preview-p1.md](../archive/web-preview-p1.md)：本机开发服务，能点、能输入、代理只放行授权 origin，连跑 5 次 18 项全过）；P2 agent 接管、P3 反馈、P4 沙箱服务未做；macOS 未实测；原记录：19的T01：命名空间方案在VM上与Chrome沙箱冲突；2026-10-31 改走“Chrome自有沙箱+固定目标代理”，原型通过（19文末），待补受限CDP与scheme拦截的原型后开发；截图回放不算完成 |
 | EXT-07 | [产物预览与批注](07-workflow-completeness.md) | 已验收（脚本） | run-checks：highlight、closeout；10-25 批次的 PDF/批注证据；原记录：四种格式、PDF分页恢复、区域批注、版本过期、加密/损坏错误；20及真实页面 |
 | EXT-08 | [工作区多标签](07-workflow-completeness.md) | 已验收（浏览器） | 10-30 点验工作面板多标签；10-31 预览标签；原记录：多资源标签与布局/恢复；15、既有和本次窄屏回归 |
 | EXT-09 | [Goal 持续任务模式](07-workflow-completeness.md) | 已验收（脚本） | run-checks：goal-plan goal/budget/pause、goal-arbitration、closeout-lifecycle；10-30 点验持续 Goal；原记录：显式Goal、预算、暂停/恢复/修改、真实证据、重启和用户队列仲裁；21及六组真模型报告 |

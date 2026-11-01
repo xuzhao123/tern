@@ -2,7 +2,7 @@
 
 状态：已实现（2026-10-24，tern 实现；Claude Code 用真实模型和无头 Chrome 驱动真实页面验收）。
 
-2026-10-25 增强实现见 [队列事务与恢复](web-product/13-message-queue.md) 和 [实现记录](web-product/08-implementation.md)。下文保留初始版本基线；当前 Tab 为焦点导航，队列支持编辑/排序/版本冲突、服务端领取和持久暂停，网页不再先续聊再删除。
+2026-10-25 增强实现见 [队列事务与恢复](../web-product/13-message-queue.md) 和 [实现记录](../web-product/08-implementation.md)。下文保留初始版本基线；当前 Tab 为焦点导航，队列支持编辑/排序/版本冲突、服务端领取和持久暂停，网页不再先续聊再删除。
 
 ## 1. 为什么要改
 

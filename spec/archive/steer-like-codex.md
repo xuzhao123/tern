@@ -2,7 +2,7 @@
 
 状态：已实现（2026-10-24，tern 实现；第 5 节验收全部通过，第 4–8 条由 Claude Code 用无头 Chrome 驱动真实页面、真实模型跑）。review 时补了第 2.1 节第 7 条（自动接着发失败时放回输入框）。
 
-2026-10-25 产品改版增量见 [managed 补充](web-product/14-managed-steer.md) 与 [实现证据](web-product/08-implementation.md)：新网页由 app-server 持久接收并协调未采纳内容，停止后进入暂停队列；不再由每个页面自行续发或放回主输入框。下面保留旧版实现的历史口径，旧 chat/unmanaged 协议继续兼容，不能按本页旧职责再次引入浏览器自动发送。
+2026-10-25 产品改版增量见 [managed 补充](../web-product/14-managed-steer.md) 与 [实现证据](../web-product/08-implementation.md)：新网页由 app-server 持久接收并协调未采纳内容，停止后进入暂停队列；不再由每个页面自行续发或放回主输入框。下面保留旧版实现的历史口径，旧 chat/unmanaged 协议继续兼容，不能按本页旧职责再次引入浏览器自动发送。
 
 ## 1. 为什么要改
 

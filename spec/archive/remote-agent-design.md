@@ -1,6 +1,6 @@
 # 远程 agent：网页操作用户本机的代码
 
-状态：已被替代，不再排期（2026-10-23）。需求对齐后改按 [app-server-design.md](app-server-design.md) 的 app-server＋SSH 方案实现。本文分期仅保留历史背景，其中 macOS 沙箱后来已由 [macos-sandbox.md](macos-sandbox.md) 实现。
+状态：已被替代，不再排期（2026-10-23）。需求对齐后改按 [app-server-design.md](../app-server-design.md) 的 app-server＋SSH 方案实现。本文分期仅保留历史背景，其中 macOS 沙箱后来已由 [macos-sandbox.md](macos-sandbox.md) 实现。
 
 ## 1. 目标与范围
 

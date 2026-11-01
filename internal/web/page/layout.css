@@ -322,7 +322,7 @@ body { font-size:14px; letter-spacing:-.01em; }
 .git-delivery .sp-body { overflow:auto; }
 .git-delivery .activity-actions { flex-wrap:wrap; }
 
-/* 2026-10-31 页面打磨（spec/web-polish-20261031.md）。 */
+/* 2026-10-31 页面打磨（spec/archive/web-polish-20261031.md）。 */
 /* 侧栏项目的展开标记：用线条画，不依赖字体里有没有 ▸ ▾。 */
 .project-group > summary { list-style:none; }
 .project-group > summary::-webkit-details-marker { display:none; }

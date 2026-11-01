@@ -58,7 +58,7 @@ tern 去掉这两个工具以后有一个缺口：环境信息（含日期）只
 | `internal/web/page/chat.js` | `welcome` 里依赖这两个工具的那条示例问题（`:279`）删掉 |
 | `internal/web/page/pages.js` | `:280`、`:301` 两处“工具是 agent 的 calculator”“它把 agent 的 calculator …”改成不提 agent，例如“工具是一个计算器 calculator（四则运算、括号、sqrt、floor）” |
 | `eval/cases.jsonl` | 删 7 题、改 `weekday`，见第 2.4 节 |
-| `README.md` | `:109` “普通任务只启用 calculator、get_current_datetime；…”改成：默认没有常驻工具，检索、记忆、MCP、Skills、子 agent、浏览器、DeepSeek 搜索、Bash、编码工具按需开启；日期（Asia/Shanghai）在环境信息里。`-disallowed-tools` 的说明只剩 `web_search`、`open_page`；`:124` “工具扩展”一行去掉 `[tools](internal/tools/)` 和“本地工具”。其余提到计算器 MCP 的地方（`:63`、`:186`）不改 |
+| `README.md` | `:109` “普通任务只启用 calculator、get_current_datetime；…”改成：默认没有常驻工具，检索、记忆、MCP、Skills、子 agent、浏览器、DeepSeek 搜索、Bash、编码工具按需开启；日期（Asia/Shanghai）在环境信息里。`-disallowed-tools` 的说明只剩 `web_search`、`open_page`；`:124` “工具扩展”一行去掉 `[tools](../internal/tools/)` 和“本地工具”。其余提到计算器 MCP 的地方（`:63`、`:186`）不改 |
 
 不改：
 - `internal/eval/grade.go`：`observedTime` 读老评测记录里的 `get_current_datetime` 结果，回放老记录还用得上。

@@ -22,7 +22,7 @@
 | 编号 | 文件与位置 | 支持的结论 |
 | --- | --- | --- |
 | E01 | [index.html](../../internal/web/page/index.html)，19–107；[app.css](../../internal/web/page/app.css) | 管理导向侧栏、顶部按钮、输入选择器、共享 subpanel；布局基础 |
-| E02 | [shell.js](../../internal/web/page/shell.js)，297 `loadRuns`、412 `groupRows`、453 `runMenu`、614 `searchHost`；[workspace-more.md](../workspace-more.md) 2.2/2.3 | 主机分组、按名字筛选、改名/归档/删除/搜索；项目树与稳定历史归属不是已有能力 |
+| E02 | [shell.js](../../internal/web/page/shell.js)，297 `loadRuns`、412 `groupRows`、453 `runMenu`、614 `searchHost`；[workspace-more.md](../archive/workspace-more.md) 2.2/2.3 | 主机分组、按名字筛选、改名/归档/删除/搜索；项目树与稳定历史归属不是已有能力 |
 | E03 | [shell.js](../../internal/web/page/shell.js)，176 `syncComposer` | 模型/工作区固定、权限/effort 逐轮选择、停止状态、图片模型限制 |
 | E04 | [composer.js](../../internal/web/page/composer.js)，5 `start`、47 `addImages`、106 `runShell`、129 `steer`、174 `queueSection`、292 键盘处理、340 `syncAt` | 图片、命令、插话与队列的具体入口；队列没有编辑排序；发送状态和快捷键 |
 | E05 | [chat.js](../../internal/web/page/chat.js)，152 `changedLine`、192 `exploreGroup`、206 `renderCall`、380 `renderChat`、521 滚动逻辑 | 活动折叠、工具/原始 I/O 展示、轮次操作、流式跟随 |
@@ -31,13 +31,13 @@
 | E08 | [util.js](../../internal/web/page/util.js)，23 `ui`、37 本地存储 helper、41 未读状态；[composer.js](../../internal/web/page/composer.js)，27 `attached` | 主输入未见按任务草稿持久化；steer/附件有页面内状态；未读为浏览器本地 |
 | E09 | [connection.js](../../internal/web/page/connection.js)，11 `watchConnection`、104 `fillRemote`；[web AGENTS](../../internal/web/AGENTS.md) | 多主机、版本/安装、SSH 错误与恢复现有边界；换主机整页导航 |
 | E10 | [handle.go](../../internal/appserver/handle.go)，104–136 方法表；[app-server AGENTS](../../internal/appserver/AGENTS.md) | 已有 thread/turn/queue/approval/workspace 方法；元数据、审批和队列事实源 |
-| E11 | [copy-workspace.md](../copy-workspace.md) 2；[app-server AGENTS](../../internal/appserver/AGENTS.md) 分叉与副本；[workspace-more.md](../workspace-more.md) | clone、副本基线、应用回去、分叉共享目录；工作区按名字的历史限制 |
+| E11 | [copy-workspace.md](../archive/copy-workspace.md) 2；[app-server AGENTS](../../internal/appserver/AGENTS.md) 分叉与副本；[workspace-more.md](../archive/workspace-more.md) | clone、副本基线、应用回去、分叉共享目录；工作区按名字的历史限制 |
 | E12 | [follow.js](../../internal/web/page/follow.js)，28 `show` 及其 `es.onerror` | 浏览器 SSE 出错后 close 并提示重新选择；和 appclient 自动重连不是同一层 |
 | E13 | [agents.js](../../internal/web/page/agents.js)，51 `renderSubPanel`；[jobs.js](../../internal/web/page/jobs.js)、[browser.js](../../internal/web/page/browser.js) | 面板互斥与现有命令/浏览器/子任务视图 |
-| E14 | [review-scope.md](../review-scope.md)、[workspace-diff.md](../workspace-diff.md)；[diff.go](../../internal/appserver/diff.go) | `/review` 范围和 diff 面板范围是两件事；不能互相当完成证据 |
-| E15 | [shell-command.md](../shell-command.md)、[background-jobs-panel.md](../background-jobs-panel.md)、[bash-interactive.md](../bash-interactive.md) | `!`、后台任务、agent PTY 的边界，不等同浏览器交互终端 |
+| E14 | [review-scope.md](../archive/review-scope.md)、[workspace-diff.md](../archive/workspace-diff.md)；[diff.go](../../internal/appserver/diff.go) | `/review` 范围和 diff 面板范围是两件事；不能互相当完成证据 |
+| E15 | [shell-command.md](../archive/shell-command.md)、[background-jobs-panel.md](../archive/background-jobs-panel.md)、[bash-interactive.md](../archive/bash-interactive.md) | `!`、后台任务、agent PTY 的边界，不等同浏览器交互终端 |
 | E16 | [pages.js](../../internal/web/page/pages.js)，90 `openSettings`、285 `pickWorkspace`、407 `openSkills`、458 `openMCP` | 设置长页、配置继承、目录浏览、工具中心、MCP 授权既有能力 |
-| E17 | [app-server-auto-replace.md](../app-server-auto-replace.md)、[现有未完成清单](../README.md#未完成与暂缓) | 后端替换已存在；源码编译并替换 web 尚未实现 |
+| E17 | [app-server-auto-replace.md](../archive/app-server-auto-replace.md)、[现有未完成清单](../README.md#未完成与暂缓) | 后端替换已存在；源码编译并替换 web 尚未实现 |
 | E18 | [app.css](../../internal/web/page/app.css)，1 色彩 token、12 系统暗色、28 焦点样式；响应式规则 | 主题和基础可访问性已存在，目标是增强；不能写“完全没有暗色” |
 
 “未见”表示在对应模块和方法表里未发现，不是对整个仓库全部未来可能路径的形式化证明。实施前仍需核对最新代码，避免已被其他提交补齐的能力重复开发。

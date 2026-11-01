@@ -6,7 +6,7 @@
 
 编码评测 `spec-thread-goal`（照 spec 实现一份设计）前后 9 个整题试次里（含两次试改提示词的），代码每次都做对了、校验都通过，但有 6 次用满 120 次模型请求，按规则记为未通过。轨迹都一样：spec 里“tern 自己做”的验收（gofmt、vet、build、`node --check`）做完之后，接着几十轮去做 spec 写明归“Claude Code 在沙箱外做”的验收：起 app-server、写桩网页服务、开无头 Chrome 截图。
 
-试过的改法（数据在 [harness-next-phase.md](harness-next-phase.md) 第 5 节）：
+试过的改法（数据在 [harness-next-phase.md](../harness-next-phase.md) 第 5 节）：
 
 | 改法 | 结果 |
 | --- | --- |

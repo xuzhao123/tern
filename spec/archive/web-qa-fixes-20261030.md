@@ -4,7 +4,7 @@
 
 ## 1. 为什么要改
 
-[下一阶段计划](harness-next-phase.md)第 0 期 0.1 要求合并后在浏览器里把新页面点一遍。2026-10-30 由 Claude Code 用无头 Chrome（Playwright）在临时 `TERN_HOME`、端口 8097、`qa` 账号、模型 `coconut-deepseek-v4-1-flash-max` 上逐项操作，代码是 `main@01eb8a8` 加上未提交的请求预算提醒。
+[下一阶段计划](../harness-next-phase.md)第 0 期 0.1 要求合并后在浏览器里把新页面点一遍。2026-10-30 由 Claude Code 用无头 Chrome（Playwright）在临时 `TERN_HOME`、端口 8097、`qa` 账号、模型 `coconut-deepseek-v4-1-flash-max` 上逐项操作，代码是 `main@01eb8a8` 加上未提交的请求预算提醒。
 
 | 入口 | 结果 |
 | --- | --- |

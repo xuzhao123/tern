@@ -4,7 +4,7 @@
 
 沙箱外（VM、临时 `TERN_HOME`、无头 Chrome 驱动网页端，开发服务 8601、别的服务 8602）连跑 5 次，每次 18 项全过：画面出现；同源 `fetch`、WebSocket 通；点击输入框输入 `abc` 再经输入法提交"中文"，开发服务收到 `abc中文`；点按钮、滚动、刷新生效；页面里用 `127.0.0.1`、`localhost`、`[::1]`、`127.0.0.1.nip.io` 访问 8602（fetch、图片、WebSocket），8602 命中 0 次，状态行显示拦下的数量；`file:///etc/hostname`、`chrome://version`、`http://localhost:8602/`、`http://example.com/`、`http://127.0.0.1:8601/`（授权的是 `localhost`）都 403 不导航；302 到 8602 停在空白页、`left_origin`；过期 `seq`、旧 `viewport` 的鼠标都 409。渲染进程 `Seccomp: 2`，没有 `--no-sandbox`；会话关闭、app-server 退出后 profile 目录都删掉。只有 API、没有 Playwright 的 20 秒里抓 53 端口：没有 Chrome 发起的 DNS 查询（只有同时在跑的评测查模型服务）。macOS 能交叉编译，没在 Mac 上实测（第 5 节第 6 条未验证）。
 
-这是 [web-product/19-web-preview.md](web-product/19-web-preview.md)（EXT-06）第 11 节的 **P1**：用户授权一个本机开发服务的地址，右侧工作区里出现能真实点击、输入、滚动、刷新的页面。浏览器的隔离照 19 号文档末节的原型结论走"Chrome 自有沙箱 + 只放行授权目标的代理"。agent 接管（P2）、元素/区域反馈（P3）、沙箱里的服务（P4）都不在这一期，19 号文档的范围不因此缩小。
+这是 [web-product/19-web-preview.md](../web-product/19-web-preview.md)（EXT-06）第 11 节的 **P1**：用户授权一个本机开发服务的地址，右侧工作区里出现能真实点击、输入、滚动、刷新的页面。浏览器的隔离照 19 号文档末节的原型结论走"Chrome 自有沙箱 + 只放行授权目标的代理"。agent 接管（P2）、元素/区域反馈（P3）、沙箱里的服务（P4）都不在这一期，19 号文档的范围不因此缩小。
 
 ## 1. 为什么这样做
 

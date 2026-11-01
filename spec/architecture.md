@@ -76,7 +76,7 @@
 ## 4. app-server 的生命周期
 
 - **谁起它**：网页端、chat、`tern app-server start` 启动时都调 `appclient.Start`：控制 socket 连不上，就用自己的程序以 `setsid` 在后台起一个（日志 `.data/app-server/app-server.log`，pid `.data/app-server/app-server.pid`，文件锁 `.data/app-server/lock` 保证一个 `TERN_HOME` 只有一个）。远程由远端的 `app-server proxy` 起。
-- **什么时候换掉它**：连上的 app-server 是另一个程序（build 不同，build 是可执行文件的 sha256 前 12 位），又比这个界面先启动，并且没有评测在跑，就让它退出、换成自己的程序。正在跑的 agent 由新的接管，见上一节。同时启动的界面靠 `.data/app-server/start.lock` 排队。设计见 [app-server-auto-replace.md](app-server-auto-replace.md)。
+- **什么时候换掉它**：连上的 app-server 是另一个程序（build 不同，build 是可执行文件的 sha256 前 12 位），又比这个界面先启动，并且没有评测在跑，就让它退出、换成自己的程序。正在跑的 agent 由新的接管，见上一节。同时启动的界面靠 `.data/app-server/start.lock` 排队。设计见 [app-server-auto-replace.md](archive/app-server-auto-replace.md)。
 - **停**：`tern app-server stop`，或者 SIGINT、SIGTERM。agent 不停。
 
 ## 5. 模块
