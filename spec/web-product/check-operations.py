@@ -16,12 +16,15 @@ def call(method,path,body=None):
 assert call('POST','/login',{'name':config.get('TERN_QA_USER', config.get('OBSERVER_TEST_USER', 'qa')),'password':(config.get('TERN_QA_PASSWORD') or config['OBSERVER_TEST_PASSWORD']).strip('\"\'')})[0]==200
 fixture=json.loads((home/'workpanel-results.json').read_text());task=fixture['task'];repo=Path(fixture['path']);assert repo.is_relative_to(home/'panel-fixtures')
 (repo/'.agents').mkdir(exist_ok=True);path=repo/'.agents/actions.json'
-source={'version':1,'actions':[{'name':'qa-dev','command':'python3 -u -m http.server 18080 --bind 127.0.0.1','platforms':['linux'],'background':True,'ports':[18080]},{'name':'qa-fail','command':"printf 'EXPECTED_FAILURE\\n'; exit 7",'platforms':['linux']},{'name':'qa-init','command':"printf 'COPY_INIT_PARTIAL' > qa-init-partial.txt; exit 9",'initialize':True,'platforms':['linux']}]};
+source={'version':1,'actions':[{'name':'qa-dev','command':'python3 -u -m http.server 18080 --bind 127.0.0.1','platforms':['linux'],'background':True,'ports':[18080]},{'name':'qa-fail','command':"printf 'EXPECTED_FAILURE\\n'; exit 7",'platforms':['linux']}]};
 if path.exists(): assert json.loads(path.read_text())==source and (home/'operations-results.json').exists(), '不覆盖非本脚本的配置'
 path.write_text(json.dumps(source));
 (repo/'closeout-fixture/live.html').write_text('<!doctype html><h1>LIVE_PREVIEW_FIXTURE</h1><input aria-label="Name"><button id="increment" onclick="document.getElementById(\'count\').textContent=Number(document.getElementById(\'count\').textContent)+1">Increment</button><b id="count">0</b>')
 report={'task':task,'checks':[]};out=home/'operations-results.json';out.write_text(json.dumps(report,indent=2));base=f'/runs/{task}/operations'
-code,data=call('GET',base);assert code==200 and data['supported'] and len(data['actions'])==3,data;version=data['version']
+# 标了 initialize 的动作已不再支持：整份配置拒绝，不当普通命令执行；随后写回原配置。
+path.write_text(json.dumps({'version':1,'actions':source['actions']+[{'name':'qa-init','command':'true','initialize':True}]}));code,data=call('GET',base);assert code==400 and 'initialize' in str(data),(code,data)
+path.write_text(json.dumps(source))
+code,data=call('GET',base);assert code==200 and data['supported'] and len(data['actions'])==2,data;version=data['version']
 def start(name,version=version,task=task):return call('POST',f'/runs/{task}/operations',{'name':name,'version':version,'confirmed':True,'request_id':str(uuid.uuid4())})
 assert start('qa-dev','old')[0]==409
 rid=str(uuid.uuid4());body={'name':'qa-dev','version':version,'confirmed':True,'request_id':rid};code,op=call('POST',base,body);assert code==200,op;report['operation']=op['id'];out.write_text(json.dumps(report,indent=2));assert call('POST',base,body)[1]['id']==op['id'];assert start('qa-dev')[0]==409
@@ -59,7 +62,6 @@ while time.monotonic()<until:
  if failed_read['operation']['state']=='failed':break
  time.sleep(.2)
 assert failed_read['operation']['exit_code']==7,failed_read
-assert start('qa-init')[0]==400
 assert call('POST',base+'/'+op['id']+'/stop',{})[0]==200
 until=time.monotonic()+20
 while time.monotonic()<until:

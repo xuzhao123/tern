@@ -39,7 +39,7 @@ Codex 把工作目录当“项目”管：`project/list`、`create`、`import`�
 | 1.4 | 对话按项目分组、筛选 | 对话挂在项目下，还能分组（`threadSection/*`） | 左侧列表按主机分组，不按工作区分 | P1 | 已完成 | [workspace-more.md](workspace-more.md) |
 | 1.5 | 工作区改名 | `project/update` | 名字取目录名，重名加 `-2`，不能改；能移除 | P2 | 已完成 | [workspace-more.md](workspace-more.md) |
 | 1.6 | 不是 git 仓库的目录 | 可以用（`codex exec` 要加 `--skip-git-repo-check`，TUI 先问要不要信任） | 直接拒绝（“改坏了要能用 git 回退”）；可以考虑给个“git init”按钮 | P2 | 已完成 | [workspace-more.md](workspace-more.md) |
-| 1.7 | 在 worktree 里开对话 | `/worktree`：新开一个 git worktree 跑这条对话，不碰当前目录 | 没有；tern-implement 是手动 clone | P2 | 已完成 | [copy-workspace.md](copy-workspace.md) |
+| 1.7 | 在 worktree 里开对话 | `/worktree`：新开一个 git worktree 跑这条对话，不碰当前目录 | 没有；tern-implement 是手动 clone | P2 | 已去掉（2026-10-31，用户决定，见 [remove-copy-workspace.md](remove-copy-workspace.md)）
 
 ## 2. SSH 远程
 

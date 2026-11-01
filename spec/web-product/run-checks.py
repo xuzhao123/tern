@@ -26,7 +26,6 @@ STEPS = [
     ("workpanel", "check-workpanel.py", ["--home", "{home}"], False),
     ("projectfiles", "check-projectfiles.py", ["--home", "{home}"], False),
     ("closeout", "check-closeout.py", ["--home", "{home}", "--model"], False),
-    ("copy-delivery", "check-copy-delivery.py", ["--home", "{home}"], False),
     ("git-delivery", "check-git-delivery.py", ["--home", "{home}"], False),
     ("operations", "check-operations.py", ["--home", "{home}"], False),
     ("skill-refs", "check-skill-refs.py", ["--home", "{home}"], False),

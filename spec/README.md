@@ -9,6 +9,7 @@
 | 文档 | 内容 | 状态 |
 | --- | --- | --- |
 | [harness-next-phase.md](harness-next-phase.md) | **下一阶段迭代计划**：先稳住刚合并的网页功能，主线是 agent 质量的度量与回归（扩充编码评测、合并前回归门槛、按失败归因改进），并行收口网页产品、清旧账；流程回到“spec → tern 实现 → review”，小批次合并 | 计划（2026-10-29），用户已定：主线第 1 期，tern 实现，编码评测用 DeepSeek、通用评测用豆包 |
+| [remove-copy-workspace.md](remove-copy-workspace.md) | **去掉副本功能**：输入框下的“副本”、“应用到”、副本基线比较与清理、项目操作的 `initialize` 动作一起删 | 已实现（2026-10-31，用户要求，Claude Code 直接实现） |
 | [web-polish-20261031.md](web-polish-20261031.md) | **网页端打磨**：工具行写成人话、每轮改动卡片与计划卡片、短标题、空态居中、侧栏去重、改动与计划面板去掉重复头部、审批卡片精简、图标不依赖字形、设置页不挂输入框、默认用配好的模型 | 两批都已实现并验收（2026-10-31，Claude Code 直接实现） |
 | [web-preview-p1.md](web-preview-p1.md) | **网页预览 P1**（EXT-06 第一段）：右侧工作区打开本机开发服务，能点、能输入、能滚动；Chrome 保留自己的沙箱，网络只经一个只放行授权 origin 的代理 | 已实现并验收（2026-10-31），macOS 未实测 |
 | [eval-cost-visibility.md](eval-cost-visibility.md) | **评测的成本与耗时**：逐题请求次数、未命中 tokens、耗时，和基线配对的成本差；网页端换基线 | 已实现并验收（2026-10-31） |
@@ -45,7 +46,7 @@
 | [web-esc-copy-export.md](web-esc-copy-export.md) | 网页端 Esc 打断、复制回答、导出对话为 Markdown（计划 3.8、3.9） | 已实现并收尾验证（2026-10-25），见收尾记录 |
 | [side-question.md](side-question.md) | 旁支提问：临时分出去问一句，不进原对话（计划 3.10） | 已实现并收尾验证（2026-10-25），见收尾记录 |
 | [thread-goal.md](thread-goal.md) | 对话的目标：常显在标题下面，改了下一轮告诉模型（计划 4.3） | 已实现并收尾验证（2026-10-25），见收尾记录 |
-| [copy-workspace.md](copy-workspace.md) | 在工作区的副本里开对话，做完“应用到”原目录（计划 1.7） | 已实现并收尾验证（2026-10-25），见收尾记录 |
+| [copy-workspace.md](copy-workspace.md) | 在工作区的副本里开对话，做完“应用到”原目录（计划 1.7） | 已去掉（2026-10-31），见 remove-copy-workspace.md |
 | [shell-command.md](shell-command.md) | 网页端 `!命令`：在这条对话的沙箱里跑一条命令，下一轮模型看得到（计划 3.11） | 已实现并收尾验证（2026-10-25），见收尾记录 |
 | [background-jobs-panel.md](background-jobs-panel.md) | 网页端看、停模型起的后台命令（计划 3.12） | 已实现并收尾验证（2026-10-25），见收尾记录 |
 | [bash-interactive.md](bash-interactive.md) | 后台命令能写输入（`bash_input`），可选伪终端（计划 6.2） | 已实现并收尾验证（2026-10-25），见收尾记录 |

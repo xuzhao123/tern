@@ -44,7 +44,7 @@ export function initLayout() {
   const topbar = $("topbar"), heading = $("heading"), task = menu("", "task-menu");
   task.summary.replaceChildren(heading); task.summary.insertAdjacentHTML("beforeend", chromeIcon("chevron"));
   topbar.insertBefore(task.details, $("work-btn"));
-  task.content.append(el("div", "chrome-menu-label", "任务与执行位置"), $("execution-context"), $("run-id"), $("goal"), $("export-btn"), $("side-btn"), $("apply-copy-btn"), document.querySelector(".seg"));
+  task.content.append(el("div", "chrome-menu-label", "任务与执行位置"), $("execution-context"), $("run-id"), $("goal"), $("export-btn"), $("side-btn"), document.querySelector(".seg"));
   const open = menu("打开", "resource-menu");
   const projectFiles = action("项目文件", () => openWorkTab("project-files", "", "项目文件")); projectFiles.id = "open-project-files";
   open.content.append(action("项目操作", () => openWorkTab("operations", "", "项目操作")), action("持续 Goal", () => openWorkTab("goal", "", "持续 Goal")), action("计划", () => openWorkTab("plan", "", "计划")), action("选择 Skill", () => document.dispatchEvent(new Event("tern:choose-skill"))), projectFiles, $("files-btn"), $("jobs-btn"), action("子智能体", () => document.dispatchEvent(new Event("tern:open-agents"))), action("浏览器过程", () => document.dispatchEvent(new Event("tern:open-browser"))));
@@ -55,7 +55,7 @@ export function initLayout() {
   $("diff-btn").innerHTML = chromeIcon("diff"); $("diff-btn").title = "查看改动"; $("diff-btn").setAttribute("aria-label", "查看改动"); topbar.insertBefore($("diff-btn"), $("work-btn"));
   const project = menu("", "task-project-menu"); project.details.id = "task-project-menu"; project.summary.firstElementChild.id = "task-project-name";
   const projectInfo = el("div", "project-execution-info"); projectInfo.id = "task-project-detail"; project.content.append(projectInfo);
-  const hostbox = $("hostbox"); $("composer-context").append(hostbox, project.details, $("workspace"), $("copy-pick"));
+  const hostbox = $("hostbox"); $("composer-context").append(hostbox, project.details, $("workspace"));
   $("composer-context").append(el("span", "composer-footnote", "输入 / 查看命令"));
   const crow = document.querySelector(".crow");
   $("attach").innerHTML = chromeIcon("plus");
@@ -111,7 +111,7 @@ export function renderLayout() {
   $("open-project-files").disabled = !r?.workspace;
   $("task-project-menu").hidden = !r;
   const project = r && (ui.projects?.[HOST] || []).find((p) => p.id === r.workspaceID);
-  $("task-project-name").textContent = r?.source ? "导入记录" : (project?.name || r?.workspace || "临时空间") + (r?.copy ? " · 副本" : "");
+  $("task-project-name").textContent = r?.source ? "导入记录" : (project?.name || r?.workspace || "临时空间");
   $("task-project-detail").textContent = $("execution-context").textContent;
   const hostTarget = ui.page === "chat" ? $("composer-context") : $("topbar");
   if ($("hostbox").parentElement !== hostTarget) hostTarget.prepend($("hostbox"));

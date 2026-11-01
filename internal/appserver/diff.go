@@ -19,7 +19,6 @@ import (
 )
 
 // workspace/diff：这条对话的工作区相对 HEAD 的改动，网页端的“改动”面板据此显示整份 diff。
-// 副本对话（见 thread/start 的 copy）相对 copy_base：基线里已经有原目录那些没提交的改动，面板只显示这条对话自己改的。
 // 已跟踪的文件取 git diff HEAD，未跟踪的文件按“新增”给出内容；命令只读，带 GIT_OPTIONAL_LOCKS=0 不碰仓库里的锁。
 // 文件内容由模型或 git 提供，页面只用 textContent 显示。
 const (
@@ -55,26 +54,6 @@ func (r *run) workDir() string {
 	return ""
 }
 
-// copyOf、copyBase 是副本对话在原目录与副本基线（提交号）上的记录；不是副本对话时都是空。调用方持有 r.mu。
-// 只看 start 事件：副本是开对话时建的，续聊照快照沿用。
-func (r *run) copyOf() string {
-	for i := len(r.events) - 1; i >= 0; i-- {
-		if e := r.events[i]; e.Kind == "start" && e.CopyOf != "" {
-			return e.CopyOf
-		}
-	}
-	return ""
-}
-
-func (r *run) copyBase() string {
-	for i := len(r.events) - 1; i >= 0; i-- {
-		if e := r.events[i]; e.Kind == "start" && e.CopyBase != "" {
-			return e.CopyBase
-		}
-	}
-	return ""
-}
-
 // git 在 dir 里跑一条只读的 git 命令。stderr 一并收进错误信息：看不懂时页面能看到 git 的原话。
 func (c *conn) git(dir string, args ...string) (string, error) {
 	cmd := exec.CommandContext(c.ctx, "git", append([]string{"-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "log.showSignature=false"}, args...)...)
@@ -101,11 +80,7 @@ func (c *conn) git(dir string, args ...string) (string, error) {
 }
 
 // 空树可由 Git 按仓库的对象格式计算，无需写入对象或拼接两份 patch。
-func (c *conn) diffBase(dir, copyBase string) (string, string, error) {
-	if copyBase != "" {
-		oid, err := c.git(dir, "rev-parse", "--verify", "--end-of-options", copyBase+"^{commit}")
-		return "copy_base", strings.TrimSpace(oid), err
-	}
+func (c *conn) diffBase(dir string) (string, string, error) {
 	if oid, err := c.git(dir, "rev-parse", "--verify", "--end-of-options", "HEAD^{commit}"); err == nil {
 		return "HEAD", strings.TrimSpace(oid), nil
 	}
@@ -248,16 +223,13 @@ func (c *conn) workspaceDiff(m protocol.Message) (any, *protocol.Error) {
 		return nil, ferr
 	}
 	r.mu.Lock()
-	dir, copyBase, copyOf := r.workDir(), r.copyBase(), r.copyOf()
+	dir := r.workDir()
 	r.mu.Unlock()
 	if dir == "" {
 		return nil, bad(400, "这条对话没有工作区")
 	}
 	if !isGitRepo(dir) {
 		return nil, bad(400, "不是 git 仓库，看不了 diff")
-	}
-	if input.Scope == "workspace" && copyOf != "" && copyBase == "" {
-		return nil, bad(409, "副本缺少创建时的比较基准，不能回退到 HEAD")
 	}
 	headOID, _ := c.git(dir, "rev-parse", "--verify", "--end-of-options", "HEAD^{commit}")
 	headOID = strings.TrimSpace(headOID)
@@ -266,12 +238,8 @@ func (c *conn) workspaceDiff(m protocol.Message) (any, *protocol.Error) {
 	baseRef, baseOID, baseTip, target, targetOID := "INDEX", "", "", "worktree", ""
 	var compare []string
 	if input.Scope == "workspace" || input.Scope == "staged" {
-		base := ""
-		if input.Scope == "workspace" {
-			base = copyBase
-		}
 		var err error
-		baseRef, baseOID, err = c.diffBase(dir, base)
+		baseRef, baseOID, err = c.diffBase(dir)
 		if err != nil {
 			return nil, bad(500, "比较基准不可用："+err.Error())
 		}

@@ -332,8 +332,6 @@ select.pick { appearance: none; -webkit-appearance: none; padding-right: 22px; b
 select.pick:hover:not(:disabled) { background-color: var(--hover); }
 select.pick:disabled { background-image: none; padding-right: 8px; }
 /* “副本”勾选框：跟工作区下拉排在一起，勾了就在这个工作区的副本里开对话（见 shell.js 的 syncComposer）。 */
-#copy-pick { display: flex; align-items: center; gap: 3px; user-select: none; }
-#copy-pick:has(input:disabled) { color: var(--faint); cursor: default; }
 .set-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 12px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--line); }
 .set-row:first-child { border-top: 0; }
 .set-row .sub { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 4px; }

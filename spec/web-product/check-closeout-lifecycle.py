@@ -1,4 +1,4 @@
-"""真实Goal等待/重启/时间预算、服务重启、隔离副本初始化及shell回执。"""
+"""真实Goal等待/重启/时间预算、服务重启及shell回执。"""
 import argparse,http.cookiejar,json,time,urllib.request,urllib.error,uuid,subprocess,os
 from pathlib import Path
 import os as _os; QA_BASE = _os.environ.get('TERN_QA_BASE', 'http://127.0.0.1:8095')  # 网页端地址，默认是原来的 8095
@@ -52,14 +52,4 @@ code,stopped=call('POST',f'/runs/{parent}/operations/{op["id"]}/stop',{});assert
 report['checks']+=['stale Goal revision rejected','real waiting request and Goal identity survive app-server restart','adoption creates no duplicate Goal round','wallclock budget interrupts waiting and persists exhaustion','late user answer rejected','owned service stops across backend restart without automatic rerun'];save()
 rid=str(uuid.uuid4());shell={'command':'printf SHELL_RECEIPT_OK','request_id':rid};code,result=call('POST',f'/runs/{parent}/shell',shell);assert code==200 and 'SHELL_RECEIPT_OK' in result['output'],result;assert call('POST',f'/runs/{parent}/shell',shell)[1]==result;assert call('GET','/requests/'+rid)[1]['state']=='accepted'
 history=[json.loads(x) for x in (home/'.data/runs'/f'{parent}.jsonl').read_text().splitlines()];assert len([e for e in history if e.get('request_id')==rid and e['kind']=='shell'])==1
-project=next(x for x in call('GET','/workspaces')[1] if x['path']==str(repo))
-code,copy=call('POST','/runs',{'workspace':project['name'],'copy':True,'provider':'deepseek','permission':'edit','query':'仅回复 COPY_READY，不调用工具、不修改文件、不写记忆。','request_id':str(uuid.uuid4())});assert code==200,copy
-report['copy_task']=copy['id'];save();r=wait(copy['id'],lambda r:r['done']);code,ops=call('GET',f'/runs/{copy["id"]}/operations');assert code==200 and ops['copy'],ops;copydir=Path(ops['directory']);assert copydir!=repo and copydir.is_relative_to(home)
-code,init=call('POST',f'/runs/{copy["id"]}/operations',{'name':'qa-init','version':ops['version'],'confirmed':True,'request_id':str(uuid.uuid4())});assert code==200,init
-end=time.monotonic()+30
-while time.monotonic()<end:
- code,result=call('GET',f'/runs/{copy["id"]}/operations/{init["id"]}')
- if result['operation']['state']=='failed':break
- time.sleep(.3)
-assert result['operation']['exit_code']==9,result;assert (copydir/'qa-init-partial.txt').read_text()=='COPY_INIT_PARTIAL';assert not (repo/'qa-init-partial.txt').exists()
-report['checks']+=['real user shell exact request executed once and receipt accepted','copy initializer nonzero exit preserved with partial file only in copy'];report['verified']=True;save();print(json.dumps(report,ensure_ascii=False,indent=2))
+report['checks']+=['real user shell exact request executed once and receipt accepted'];report['verified']=True;save();print(json.dumps(report,ensure_ascii=False,indent=2))

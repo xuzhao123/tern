@@ -85,7 +85,6 @@ let attached = [];
 export function readDraftInput() {
   const picks = {};
   for (const [key, id] of [["provider", "provider"], ["model", "model"], ["permission", "perm"], ["effort", "effort"]]) if (ui.picked?.[key]) picks[key] = $(id).value;
-  if (ui.picked?.copy) picks.copy = true;
   return { skillRefs: selectedSkills(), compact: !!ui.compactNext, text: $("query").value, images: attached.map(({ ref, name }) => ({ ref, name })), picks };
 }
 export function writeDraftInput(value) {
@@ -96,7 +95,6 @@ export function writeDraftInput(value) {
   ui.picked = { workspace: ui.picked?.workspace };
   if (value.picks?.provider) { ui.picked.provider = true; $("provider").value = value.picks.provider; syncComposer(); }
   for (const [key, id] of [["provider", "provider"], ["model", "model"], ["permission", "perm"], ["effort", "effort"]]) if (value.picks?.[key]) { ui.picked[key] = true; $(id).value = value.picks[key]; }
-  ui.picked.copy = value.picks?.copy === true;
   ui.attachError = ""; renderAttached(); autosize();
 }
 function renderAttached() {
@@ -183,7 +181,7 @@ $("composer").onsubmit = (ev) => {
   ui.chatFollow = true;
   const images = attached.map(({ ref, name }) => ({ ref, name }));
   const perm = permChoice($("perm").value);
-  const body = ui.run ? { query, compact: !!ui.compactNext, permission: perm.permission, sandbox: perm.sandbox, effort: $("effort").value } : { query, provider: $("provider").value, model: $("model").hidden ? "" : $("model").value, workspace: $("workspace").disabled ? "" : $("workspace").value, copy: $("copy").checked && !!$("workspace").value, permission: perm.permission, sandbox: perm.sandbox, effort: $("effort").value };
+  const body = ui.run ? { query, compact: !!ui.compactNext, permission: perm.permission, sandbox: perm.sandbox, effort: $("effort").value } : { query, provider: $("provider").value, model: $("model").hidden ? "" : $("model").value, workspace: $("workspace").disabled ? "" : $("workspace").value, permission: perm.permission, sandbox: perm.sandbox, effort: $("effort").value };
   body.skill_refs = selectedSkills();
   start(ui.run ? `/runs/${ui.run.id}/messages` : "/runs", images.length ? { ...body, images } : body);
 };
@@ -342,8 +340,6 @@ $("send").onclick = async (ev) => {
 $("provider").onchange = () => { ui.picked.provider = true; ui.picked.model = false; syncComposer(); };
 $("model").onchange = () => { ui.picked.model = true; syncComposer(); };
 $("workspace").onchange = () => { ui.picked.workspace = true; syncComposer(); loadWsSettings($("workspace").value, true); };
-// 副本：勾了就在这个工作区的副本里开对话（thread/start 的 copy），开完对话后不能再改（见 syncComposer）。
-$("copy").onchange = () => { ui.picked.copy = $("copy").checked; syncComposer(); };
 // 权限下拉：选「完全访问」要确认一次，取消就退回上一档；确认后每轮请求带 sandbox=host。
 let permPrev = $("perm").value;
 $("perm").onchange = () => {

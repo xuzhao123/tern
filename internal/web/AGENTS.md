@@ -18,7 +18,7 @@
 - 页面按地址上的 `/h/<别名>/` 认出当前主机（`util.js` 的 `HOST`），对话与数据的请求都走 `api(path)`，由它补前缀；`/login`、`/logout`、`/me`、`/connection`、`/hosts` 直接用原地址。输入框下方的 `#host`（观测页在顶栏）点开是主机菜单（连、断开、重试），左侧对话列表在连了几台时按主机分组，换主机一律整页跳转（`hostURL`），不动页面里按单台主机攒起来的状态。
 - 导入对话只接受 Codex 的 rollout 与 Claude Code 的会话 JSONL，只读、不续聊（解析在 app-server）。
 
-- 项目导航：`GET /workspaces` 代理 `workspace/list`；`PUT /runs/{id}/pin` 代理 `thread/pin`，user 仍由认证账号注入。项目树/筛选按主机与 workspace_id 分组；没有目录证据的老记录单列历史项目，不按显示名合并。副本关联原项目，但顶栏展示实际 workspace_dir。
+- 项目导航：`GET /workspaces` 代理 `workspace/list`；`PUT /runs/{id}/pin` 代理 `thread/pin`，user 仍由认证账号注入。项目树/筛选按主机与 workspace_id 分组；没有目录证据的老记录单列历史项目，不按显示名合并。
 
 - 网页发送恢复：`GET /requests/{id}` 代理 request/status；事件流接受 Last-Event-ID/after，输出 snapshot（历史边界）、SSE id 与 data。X-Tern-Account 仅用于发现页面账号与已认证账号不一致，不作为身份凭证；不一致则返回 409 与 X-Tern-Account-Changed。草稿和不确定发送由页面按账号/主机/任务隔离保存，不直接读任务数据文件。
 

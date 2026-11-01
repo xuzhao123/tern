@@ -162,7 +162,6 @@ var methods = map[string]func(*conn, protocol.Message) (any, *protocol.Error){
 	"workspace/browse":           (*conn).workspaceBrowse,
 	"workspace/candidates":       (*conn).workspaceCandidates,
 	"workspace/diff":             (*conn).workspaceDiff,
-	"workspace/applyCopy":        (*conn).workspaceApplyCopy,
 	"workspace/files":            (*conn).workspaceFiles,
 	"workspace/file/read":        (*conn).workspaceFileRead,
 	"workspace/tree/list":        (*conn).workspaceTreeList,

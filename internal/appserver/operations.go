@@ -28,7 +28,7 @@ type projectAction struct {
 	Platforms  []string `json:"platforms"`
 	Background bool     `json:"background"`
 	Ports      []int    `json:"ports"`
-	Initialize bool     `json:"initialize"`
+	Initialize bool     `json:"initialize"` // 已不再支持，只为读到时明确拒绝（见 operationConfig）
 }
 type operationRecord struct {
 	ID            string    `json:"id"`
@@ -216,6 +216,10 @@ func (c *conn) operationConfig(id string) (*run, string, string, []projectAction
 		if strings.TrimSpace(a.Name) == "" || len(a.Name) > 80 || seen[a.Name] || strings.TrimSpace(a.Command) == "" || len(a.Command) > 8000 || len(a.Ports) > 8 {
 			return nil, "", "", nil, bad(400, "项目动作名称、命令或端口数量无效")
 		}
+		// 初始化动作原来只能在副本对话里跑；副本去掉以后不再支持，配置里还写着就整份拒绝，不把它当普通命令在原目录执行。
+		if a.Initialize {
+			return nil, "", "", nil, bad(400, "项目动作 "+a.Name+" 标了 initialize：初始化动作已不再支持，请去掉这一项或改成普通动作")
+		}
 		seen[a.Name] = true
 		ports := map[int]bool{}
 		for _, port := range a.Ports {
@@ -249,10 +253,7 @@ func (c *conn) operationsList(m protocol.Message) (any, *protocol.Error) {
 	}
 	c.s.operationMu.Unlock()
 	slices.SortFunc(list, func(a, b operationRecord) int { return b.Started.Compare(a.Started) })
-	r.mu.Lock()
-	copy := r.copyOf() != ""
-	r.mu.Unlock()
-	return map[string]any{"directory": dir, "version": version, "actions": actions, "operations": list, "supported": runtime.GOOS == "linux", "copy": copy}, nil
+	return map[string]any{"directory": dir, "version": version, "actions": actions, "operations": list, "supported": runtime.GOOS == "linux"}, nil
 }
 func (c *conn) operationStart(m protocol.Message) (any, *protocol.Error) {
 	return c.requestOnce(m, (*conn).operationStartOnce)
@@ -290,7 +291,6 @@ func (c *conn) operationStartOnce(m protocol.Message) (any, *protocol.Error) {
 		return nil, bad(400, "当前平台不支持这个操作")
 	}
 	r.mu.Lock()
-	copy := r.copyOf() != ""
 	enabled := r.bashEnabled
 	var snap event
 	for _, e := range r.events {
@@ -299,9 +299,6 @@ func (c *conn) operationStartOnce(m protocol.Message) (any, *protocol.Error) {
 		}
 	}
 	r.mu.Unlock()
-	if action.Initialize && !copy {
-		return nil, bad(400, "初始化动作只允许明确选中的隔离副本")
-	}
 	if !snap.Bash && !enabled {
 		return nil, bad(403, "此任务未启用命令工具")
 	}

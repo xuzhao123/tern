@@ -99,8 +99,8 @@ function diffBody(file, r, data, unavailable, shownEditors) {
   return pre;
 }
 function comparisonLabel(data, r) {
-  const scope = data?.scope || "workspace", base = data?.base_ref || (r.copy ? "副本基线" : "HEAD");
-  return scope === "unstaged" ? "暂存区 → 工作目录（含未跟踪）" : scope === "staged" ? `${base} → 暂存区` : scope === "branch" ? `${base} 的共同祖先 → HEAD` : `${base === "copy_base" ? "副本基线" : base} → 工作目录（含未跟踪）`;
+  const scope = data?.scope || "workspace", base = data?.base_ref || "HEAD";
+  return scope === "unstaged" ? "暂存区 → 工作目录（含未跟踪）" : scope === "staged" ? `${base} → 暂存区` : scope === "branch" ? `${base} 的共同祖先 → HEAD` : `${base} → 工作目录（含未跟踪）`;
 }
 export function renderDiffPanel() {
   const panel = $("subpanel"), r = ui.run, d = ui.diff;

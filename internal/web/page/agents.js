@@ -126,7 +126,7 @@ function renderAgentPanel() {
   const body = el("div", "sp-body"), st = subState(r, item), res = parse(item.t.result);
   body.append(el("div", "sub-st " + st.key, st.text), el("div", "label", "任务说明"), el("div", "sp-task", item.title));
   body.append(el("div", "meta", subContext(item)), el("div", "meta", `子任务 ID ${item.id} · ${item.attempts.length} 次尝试`));
-  body.append(el("div", "meta", `执行目录：${r.workspaceDir || "无项目工作目录"}。与主任务共享文件，子任务不是隔离副本。`), subInputActions(r,item));
+  body.append(el("div", "meta", `执行目录：${r.workspaceDir || "无项目工作目录"}。与主任务共享文件。`), subInputActions(r,item));
   if(item.attempts.length>1) {const history=el("details"),label=el("summary","",`尝试记录 · ${item.attempts.length}`);history.append(label);for(const [index,a] of item.attempts.entries())history.append(el("p","meta",`尝试 ${index+1} · ${a.t.id} · ${a.info?.state || a.res?.status || "状态未记录"} · ${a.info?.error || a.res?.error || ""}`));body.append(history);}
   if (item.args.background) body.append(el("div", "meta", "后台子任务随主任务本轮结束而停止，之后可由主任务续跑。"));
   const answer = item.info?.answer ?? res?.result?.answer ?? item.answer;

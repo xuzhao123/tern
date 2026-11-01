@@ -146,7 +146,7 @@ export function attachToDraft(token, image) {
 
 export function initDrafts() {
   $("query").addEventListener("input", saveDraft);
-  for (const id of ["provider", "model", "perm", "effort", "copy"]) $(id).addEventListener("change", saveDraft);
+  for (const id of ["provider", "model", "perm", "effort"]) $(id).addEventListener("change", saveDraft);
   $("workspace").addEventListener("change", () => { if (!ui.run && !$("workspace").value.startsWith("__add_")) switchDraft(null); });
   window.addEventListener("pagehide", saveDraft);
   window.addEventListener("beforeunload", (event) => { saveDraft(); if (unsafe) { event.preventDefault(); event.returnValue = ""; } });

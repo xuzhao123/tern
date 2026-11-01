@@ -43,7 +43,7 @@
 | WORK-04 | [确认、提交和交付修改](01-current-and-gaps.md) | 已验收（脚本） | run-checks：git-delivery；10-30/31 点验暂存、确认框、本地提交、提交后说明清空；原记录：文件级暂存/取消暂存、本地提交与回执；23、15项Git写入检查和页面确认 |
 | WORK-05 | [点回答里的文件就能读](01-current-and-gaps.md) | 已验收（脚本） | run-checks：projectfiles、closeout（目录树分页）；原记录：目录树分页、文件链接、行号、高亮和只读边界；16/20 |
 | WORK-06 | [检查命令并运行自己的验证](01-current-and-gaps.md) | 已验收（脚本） | run-checks：shell-access、operations、closeout-lifecycle；原记录：真实!命令回执、历史和独立项目操作；shell/lifecycle报告 |
-| WORK-07 | [安全试改，再应用回去](01-current-and-gaps.md) | 已验收（脚本） | run-checks：copy-delivery；原记录：隔离副本基线、应用冲突/成功、共享副本删除保护；copy-delivery报告 |
+| WORK-07 | [安全试改，再应用回去](01-current-and-gaps.md) | 已去掉（2026-10-31，用户决定） | 副本功能整体删除，见 [remove-copy-workspace.md](../remove-copy-workspace.md)；以下历史验收记录不再适用 |
 | WORK-08 | [查看浏览器/子任务进展](01-current-and-gaps.md) | 已验收（脚本） | run-checks：substate；交互预览见 EXT-06；原记录：子任务过程/历史浏览器截图保留；交互预览另见EXT-06 |
 | SET-01 | [少量操作完成配置](01-current-and-gaps.md) | 部分验收 | 没有脚本；10-25 批次的定向证据；原记录：八类设置复用原控件和作用域；真实页面分类验证 |
 | SET-02 | [模型不可用时知道怎么解决](01-current-and-gaps.md) | 保留/补强；部分验收 | 保留供应商配置、错误与修复入口；新供应商/OAuth故障组合未重跑 |

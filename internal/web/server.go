@@ -291,7 +291,6 @@ func Run(args []string, mcpHandler http.Handler) error {
 	// 后台命令：看最近输出、停掉（后台命令只活到这一轮结束，这一轮结束了就回 409）。
 	mux.HandleFunc("GET /runs/{id}/jobs/{jid}/output", s.jobOutput)
 	mux.HandleFunc("POST /runs/{id}/jobs/{jid}/kill", s.killJob)
-	mux.HandleFunc("POST /runs/{id}/apply-copy", s.applyCopy)
 	mux.HandleFunc("GET /runs/{id}/files/{path...}", s.downloadFile)
 	mux.HandleFunc("DELETE /runs/{id}/files/{path...}", s.deleteFile)
 	mux.HandleFunc("POST /runs/{id}/files", s.uploadFile)
@@ -1350,11 +1349,6 @@ func (s *server) listFiles(w http.ResponseWriter, req *http.Request) {
 // 改动面板：工作区相对 HEAD 的 diff，包括未跟踪的文件（app-server 里跑 git）。
 func (s *server) workspaceDiff(w http.ResponseWriter, req *http.Request) {
 	s.reply(w, req, "workspace/diff", map[string]any{"threadId": req.PathValue("id"), "scope": req.URL.Query().Get("scope"), "base": req.URL.Query().Get("base")})
-}
-
-// 副本对话的“应用到”：把副本里的改动写回原工作区（不提交），回复改了哪些文件。
-func (s *server) applyCopy(w http.ResponseWriter, req *http.Request) {
-	s.reply(w, req, "workspace/applyCopy", map[string]any{"threadId": req.PathValue("id")})
 }
 
 // 下载沙箱文件：内容由模型写入，一律当附件下载并禁止嗅探，模型写的 HTML 不会在页面源里执行。

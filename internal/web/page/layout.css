@@ -120,7 +120,6 @@ body { font-size:14px; letter-spacing:-.01em; }
 #composer-context #host-menu { top:auto; bottom:calc(100% + 4px); left:0; right:auto; }
 #composer-context #workspace { font-size:11px; border:0; background:none; max-width:170px; color:var(--muted); }
 .has-task #composer-context #workspace { display:none; }
-#composer-context #copy-pick { font-size:11px; }
 #composer-context #ctx-ring { margin-left:6px; }
 .task-project-menu > summary { font-size:11px; padding:2px 5px; min-height:25px; color:var(--muted); max-width:190px; }
 #task-project-name { overflow:hidden; text-overflow:ellipsis; }

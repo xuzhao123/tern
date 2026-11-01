@@ -74,8 +74,6 @@ type event struct {
 	RAG          bool               `json:"rag,omitempty"`              // 设置快照：本对话启用知识库检索，续聊沿用
 	Workspace    string             `json:"workspace,omitempty"`        // 设置快照：本对话的工作区名字与开始时解析出的目录，续聊沿用
 	WorkDir      string             `json:"workspace_dir,omitempty"`    //
-	CopyOf       string             `json:"copy_of,omitempty"`          // 副本对话：原工作区目录（Workspace_dir 是 .data/copies/ 里的副本）
-	CopyBase     string             `json:"copy_base,omitempty"`        // 副本对话：副本里基线提交的提交号，改动面板与“应用到”都以它为基准
 	MaxSteps     int                `json:"max_steps,omitempty"`        // 设置快照：模型请求预算（-1 不限）、上下文窗口与工具输出上限；旧存档没有，按 agent 默认值
 	Window       int                `json:"context_window,omitempty"`   //
 	ToolOutput   int                `json:"tool_output,omitempty"`      //
@@ -197,10 +195,13 @@ func (c *conn) threadStart(m protocol.Message) (any, *protocol.Error) {
 		Effort     string             `json:"effort"`     // 空：用设置里的默认推理强度
 		Goal       string             `json:"goal"`       // 目标：第一轮就带上那句提醒（见 notes）
 		Images     []attachRef        `json:"images"`     // 附图：先经 attachment/upload 存好，这里只带引用
-		Copy       bool               `json:"copy"`       // 在工作区的副本里跑：不碰原目录，见 makeCopy
+		Copy       bool               `json:"copy"`       // 副本功能已去掉：旧界面还带 copy=true 时明确拒绝，不悄悄改成在原目录里跑
 	}
 	if ferr := decode(m, &input); ferr != nil {
 		return nil, ferr
+	}
+	if input.Copy {
+		return nil, bad(400, "副本功能已去掉，请刷新页面后在项目目录里开对话")
 	}
 	input.Query = strings.TrimSpace(input.Query)
 	goal, ferr := goalText(input.Goal)
@@ -341,22 +342,9 @@ func (c *conn) threadStart(m protocol.Message) (any, *protocol.Error) {
 	// 对话 ID：随机 UUID（v4），不含时间，与 app-server 在哪个时区启动无关。
 	// 早期存档的 ID 是“20261006-213820.763”这样的本地时间，照常读回，不改名，旧链接仍能打开。
 	id := uuid.NewString()
-	// 副本：开对话之前先建好（见 makeCopy），之后这条对话读写的都是副本目录，原目录不再碰。
-	// 建不出来就不开对话（返回 500 与原因）。
-	if input.Copy {
-		if workDir == "" {
-			return nil, bad(400, "副本要同时选工作区")
-		}
-		dir, base, err := c.makeCopy(workDir, workspace, id)
-		if err != nil {
-			return nil, bad(500, "建副本失败："+err.Error())
-		}
-		snap.CopyOf, snap.CopyBase, snap.WorkDir = workDir, base, dir
-	}
 	args := snapshotArgs(snap, snap.NetAllow)
 	file, err := s.createRunFile(id)
 	if err != nil {
-		dropCopy(snap)
 		return nil, bad(500, err.Error())
 	}
 	r := &run{ID: id, Query: strings.TrimSpace(input.Query), changed: make(chan struct{}), file: file}
@@ -365,7 +353,6 @@ func (c *conn) threadStart(m protocol.Message) (any, *protocol.Error) {
 		if ferr := s.setMeta(r, func(meta *runMeta) { meta.Goal = &threadGoal{Text: goal, At: time.Now().UTC()} }); ferr != nil {
 			file.Close()
 			os.Remove(file.Name())
-			dropCopy(snap)
 			return nil, ferr
 		}
 	}
@@ -388,188 +375,6 @@ func (c *conn) threadStart(m protocol.Message) (any, *protocol.Error) {
 	s.launch(ctx, r, args, turn, name)
 	s.goalSent(r, delivered)
 	return r.summary(), nil
-}
-
-// makeCopy 在工作区的副本里开对话（thread/start 的 copy）：副本在 .data/copies/<工作区名>-<对话ID 前 8 位>。
-// clone --local 带上已有的提交，再把原目录没提交的改动搬进来：已跟踪的照 diff | apply --index，
-// 未跟踪、没被忽略的按路径拷过去。然后在副本里提交成基线，改动面板与“应用到”都以这个提交为基准。
-// 中途任何一步失败都删掉副本：半份副本留在 .data/copies 里没有用，人还会以为它是对的。
-func (c *conn) makeCopy(orig, workspace, id string) (string, string, error) {
-	dir := c.s.abs(tenant.Path("", "copies", workspace+"-"+id[:8]))
-	fail := func(err error) (string, string, error) {
-		os.RemoveAll(dir)
-		return "", "", err
-	}
-	if err := os.MkdirAll(filepath.Dir(dir), 0o700); err != nil {
-		return fail(err)
-	}
-	if _, err := c.git("", "clone", "--local", "--quiet", orig, dir); err != nil {
-		return fail(err)
-	}
-	// 原目录还没有提交（HEAD 不存在）时没有 diff 可取：未跟踪的文件就是全部内容。
-	if _, err := c.git(orig, "rev-parse", "--verify", "HEAD"); err == nil {
-		patch, err := c.git(orig, "diff", "HEAD", "--binary")
-		if err != nil {
-			return fail(err)
-		}
-		if patch != "" {
-			if _, err := c.gitIn(dir, patch, "apply", "--index"); err != nil {
-				return fail(err)
-			}
-		}
-	}
-	untracked, err := c.git(orig, "ls-files", "--others", "--exclude-standard", "-z")
-	if err != nil {
-		return fail(err)
-	}
-	for _, name := range strings.Split(untracked, "\x00") {
-		if name == "" {
-			continue
-		}
-		if err := copyFile(filepath.Join(orig, name), filepath.Join(dir, name)); err != nil {
-			return fail(err)
-		}
-	}
-	// 提交成基线：先 add -A 把拷过来的新文件也放进这次提交（commit -a 不管未跟踪的文件，
-	// 它们不在基线里的话，之后会被当成这条对话自己的改动）。没有改动就不提交，基线就是 clone 下来的那个提交。
-	if _, err := c.git(dir, "add", "-A"); err != nil {
-		return fail(err)
-	}
-	status, err := c.git(dir, "status", "--porcelain")
-	if err != nil {
-		return fail(err)
-	}
-	if strings.TrimSpace(status) != "" {
-		if _, err := c.git(dir, "-c", "user.name=tern", "-c", "user.email=tern@localhost", "commit", "-qam", "副本基线"); err != nil {
-			return fail(err)
-		}
-	}
-	base, err := c.git(dir, "rev-parse", "HEAD")
-	if err != nil {
-		return fail(err)
-	}
-	return dir, strings.TrimSpace(base), nil
-}
-
-// dropCopy 在副本建好、对话却没开成（写存档或记目标失败）时删掉副本，不留没人用的目录。
-func dropCopy(snap event) {
-	if snap.CopyOf != "" {
-		os.RemoveAll(snap.WorkDir)
-	}
-}
-
-// gitIn 在 dir 里跑一条 git 命令，stdin 是它的标准输入；stderr 一并收进错误信息（同 conn.git）。
-// 建副本、应用回去都要把 diff 从管道喂给 git，而 conn.git 只取命令的输出。
-func (c *conn) gitIn(dir, stdin string, args ...string) (string, error) {
-	cmd := exec.CommandContext(c.ctx, "git", args...)
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
-	cmd.Stdin = strings.NewReader(stdin)
-	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		if msg := strings.TrimSpace(stderr.String()); msg != "" {
-			return "", errors.New(msg)
-		}
-		return "", err
-	}
-	return string(out), nil
-}
-
-// copyFile 拷一个文件，目录按需建：副本里要留住原目录还没提交的新文件（git 不管它们）。
-func copyFile(from, to string) error {
-	info, err := os.Lstat(from)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(to), 0o700); err != nil {
-		return err
-	}
-	// 和 git clone 一样保留链接，不把工作区外的内容读进副本。
-	if info.Mode()&os.ModeSymlink != 0 {
-		target, err := os.Readlink(from)
-		if err != nil {
-			return err
-		}
-		return os.Symlink(target, to)
-	}
-	if !info.Mode().IsRegular() {
-		return fmt.Errorf("副本不支持特殊文件：%s", from)
-	}
-	data, err := os.ReadFile(from)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(to, data, info.Mode().Perm())
-}
-
-// workspace/applyCopy：把副本里的改动应用回原目录（网页端的“应用到”）。
-// 只改原目录的工作区，不提交，由人决定怎么提交：先在原目录 git apply --check，对不上就回 409 带上 git 的原话，
-// 原目录不动。副本里的改动相对基线取（git add -A 之后取暂存的补丁，新建、删除、改名都在里面）。
-func (c *conn) workspaceApplyCopy(m protocol.Message) (any, *protocol.Error) {
-	var input struct {
-		ThreadID string `json:"threadId"`
-	}
-	if ferr := decode(m, &input); ferr != nil {
-		return nil, ferr
-	}
-	r, ferr := c.s.threadOf(input.ThreadID)
-	if ferr != nil {
-		return nil, ferr
-	}
-	r.mu.Lock()
-	running, dir, orig, base, done := r.conn != nil || r.proc != nil, r.workDir(), r.copyOf(), r.copyBase(), r.Done
-	r.mu.Unlock()
-	if orig == "" || base == "" || dir == "" {
-		return nil, bad(400, "这条对话不是副本对话")
-	}
-	if running {
-		return nil, bad(409, "这一轮在跑，等它结束再应用")
-	}
-	if _, err := c.git(dir, "add", "-A"); err != nil {
-		return nil, bad(500, "git add 失败："+err.Error())
-	}
-	patch, err := c.git(dir, "diff", "--cached", "--binary", base)
-	if err != nil {
-		return nil, bad(500, "git diff 失败："+err.Error())
-	}
-	if strings.TrimSpace(patch) == "" {
-		return nil, bad(400, "副本里没有新的改动")
-	}
-	if _, err := c.gitIn(orig, patch, "apply", "--check"); err != nil {
-		return nil, bad(409, "原目录对不上："+err.Error())
-	}
-	if _, err := c.gitIn(orig, patch, "apply"); err != nil {
-		return nil, bad(500, "应用到原目录失败："+err.Error())
-	}
-	names, err := c.git(dir, "diff", "--cached", "--name-only", base)
-	if err != nil {
-		return nil, bad(500, "git diff 失败："+err.Error())
-	}
-	files := []string{}
-	for _, name := range strings.Split(names, "\n") {
-		if name != "" {
-			files = append(files, name)
-		}
-	}
-	// 这条对话已经结束、存档文件关了：临时以追加方式打开，写完再关（同 decideNetwork），事件才留得下来。
-	if done {
-		file, err := os.OpenFile(filepath.Join(c.s.runsDir(), r.ID+".jsonl"), os.O_WRONLY|os.O_APPEND, 0o600)
-		if err != nil {
-			return nil, bad(500, "无法写入对话记录")
-		}
-		r.mu.Lock()
-		r.file = file
-		r.mu.Unlock()
-		defer file.Close()
-	}
-	body, _ := json.Marshal(map[string]any{"files": files})
-	r.add(event{Kind: "copy_applied", Body: body})
-	if err := audit.Write(c.ctx, audit.Record{Actor: "user", User: userName(m), Event: "user_apply_copy", Task: r.rootTask, Conversation: r.ID, Target: orig, Detail: c.clientName()}); err != nil {
-		return nil, bad(500, "改动已经应用到原目录，但审计日志写入失败："+err.Error())
-	}
-	return map[string]any{"files": files}, nil
 }
 
 // model/list：输入框第二级下拉的候选项。路由表只存在 llm 包里，这里按它读出来给界面，不做第二份。
@@ -1962,11 +1767,7 @@ func (r *run) summary() map[string]any {
 	for i := len(r.events) - 1; i >= 0; i-- {
 		e := r.events[i]
 		if (e.Kind == "start" || e.Kind == "continue") && e.WorkDir != "" {
-			dir := e.WorkDir
-			if original := r.copyOf(); original != "" {
-				dir = original
-			}
-			summary["workspace_id"], summary["workspace_dir"], summary["project_dir"] = workspaceID(dir), e.WorkDir, dir
+			summary["workspace_id"], summary["workspace_dir"], summary["project_dir"] = workspaceID(e.WorkDir), e.WorkDir, e.WorkDir
 			break
 		}
 	}
@@ -1980,10 +1781,6 @@ func (r *run) summary() map[string]any {
 	// 旁支提问分出来的对话（有才带）：页面在已归档里标“旁支”，打开时顶上给一条返回原对话的横幅。
 	if r.Side {
 		summary["side"] = true
-	}
-	// 副本对话（有才带）：列表里标“副本”，停下以后顶栏给“应用到 <工作区名>”。
-	if r.copyOf() != "" {
-		summary["copy"] = true
 	}
 	// 排队的后续消息（有才带）：页面在待发送区里列出它们，所有打开这条对话的页面看到的一样。
 	summary["queue"], summary["queue_version"], summary["queue_paused"] = slices.Clone(r.queue), r.queueVersion, r.queuePaused
