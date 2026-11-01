@@ -124,8 +124,20 @@ export function shortTitle(text) {
   return first.length > 40 ? first.slice(0, 40) + "…" : first;
 }
 // 小图标按钮用线条 SVG，不用 ✕ ↻ ⓘ 这类符号：字体里没有这些字形时会显示成方框。
-const ICON_PATHS = { close: '<path d="M6 6l12 12M18 6 6 18"/>', refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>', info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/>' };
+const ICON_PATHS = { close: '<path d="M6 6l12 12M18 6 6 18"/>', refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>', info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/>',
+  edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>', up: '<path d="M12 19V5M6 11l6-6 6 6"/>', down: '<path d="M12 5v14M6 13l6 6 6-6"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', steer: '<path d="M5 5v6a4 4 0 0 0 4 4h10"/><path d="m15 11 4 4-4 4"/>' };
 export const icon = (name) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICON_PATHS[name]}</svg>`;
+// 输入框上方待发送区每一节的标题：图标、“插话/排队 · 说明”、可选的橙色原因；这一节的按钮由调用方接在后面。
+export function stripHead(name, label, desc, note) {
+  const head = el("div", "head"), title = el("span", "sh-title");
+  head.innerHTML = icon(name);
+  title.append(el("b", "", label), " · " + desc);
+  if (note) title.append(el("span", "sh-note", note));
+  title.title = title.textContent;
+  head.append(title);
+  return head;
+}
 export const compact = (v) => { v = parse(v); return typeof v === "string" ? v : JSON.stringify(v); };
 // 附图：content 是数组时（有图的消息）只拼文字段。图片的 <image …> 开标签与 </image> 闭标签去掉，
 // image_url 那一段写成它的编号（开标签里的 [Image #1]），没有编号就写 [图片]。

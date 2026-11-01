@@ -1,4 +1,4 @@
-import { $, HOST, api, el, ui } from "./util.js";
+import { $, HOST, api, el, icon, stripHead, ui } from "./util.js";
 import { loadRuns } from "./shell.js";
 
 const dialog = $("queue-dialog"), field = $("queue-edit-text");
@@ -11,7 +11,10 @@ const editKey = (run, item) => prefix() + run + ":edit:" + item + ":" + editorTa
 function pending(id) { try { return JSON.parse(localStorage.getItem(pendingKey(id)) || "null"); } catch { return null; } }
 function changed() { document.dispatchEvent(new Event("tern:queue-changed")); }
 function note(text) { ui.hint = text; $("hint").textContent = text; }
-function action(text, fn, disabled = false) { const b = el("button", "", text); b.type = "button"; b.disabled = disabled; b.onclick = fn; return b; }
+function action(text, fn, disabled = false, primary = false) { const b = el("button", primary ? "sa primary" : "sa", text); b.type = "button"; b.disabled = disabled; b.onclick = fn; return b; }
+// 每条排队消息的图标按钮；hidden 用于首条的上移、末条的下移：占位不显示，行宽不变。
+function iconAction(name, label, fn, disabled, hidden) { const b = el("button", hidden ? "qslot" : ""); b.type = "button"; b.innerHTML = icon(name); b.title = label; b.disabled = disabled; b.onclick = fn; return b; }
+function warnRow(text) { const row = el("div", "qwarn"), span = el("span", "", text); span.title = text; row.append(span); return row; }
 export const hasQueueStatus = (r) => !!r && !!(r.queue?.length || r.queueClaim || r.queueError || pending(r.id));
 
 async function mutate(r, suffix, method, body) {
@@ -27,33 +30,39 @@ async function mutate(r, suffix, method, body) {
 export function queueSection(r) {
   const nodes = [], queue = r.queue || [], waiting = pending(r.id);
   const disabled = !!ui.queueBusy || !!ui.streamDisconnected || !!ui.connectionLost || !!waiting;
+  // 暂停时 queueError 就是暂停原因，跟在标题后面说一次；没暂停时它照旧单独一行。
+  const paused = !!queue.length && !!r.queuePaused;
+  if (queue.length) {
+    const head = stripHead("clock", "排队", paused ? "已暂停，不会自动发送" : r.exit ? `等你发送 ${queue.length} 条` : `这一轮结束后发 ${queue.length} 条`, paused ? r.queueError : "");
+    if (r.exit && !r.queueClaim) head.append(action("发第一条", () => send(r, false), disabled), action("继续全部", () => send(r, true), disabled, true));
+    nodes.push(head);
+  }
   if (waiting) {
-    const row = el("div", "head", "队列发送结果待确认");
+    const row = warnRow("队列发送结果待确认");
     row.append(action("查询回执", () => checkSend(r.id), !!ui.queueBusy));
     if (waiting.notFound) row.append(action("用原请求重试", () => postSend(r.id, waiting), !!ui.queueBusy));
     nodes.push(row);
   }
   if (r.queueClaim) {
     const claim = r.queueClaim, managed = !!claim.steer_ids?.length;
-    const row = el("div", "qitem", (managed ? "补充转交待确认：" : "已领取，正在核对启动结果：") + claim.text);
+    const row = warnRow((managed ? "补充转交待确认：" : "已领取，正在核对启动结果：") + claim.text);
     row.append(action("核对领取状态", () => mutate(r, "/recover", "POST", {}), !!ui.queueBusy)); nodes.push(row);
     if (managed && r.exit) {
-      const recovery = el("div", "qitem", "不会自动重发。请先恢复草稿并核对历史；释放领取项会移除这里的原文，队列仍保持暂停。");
+      const recovery = warnRow("不会自动重发。请先恢复草稿并核对历史；释放领取项会移除这里的原文，队列仍保持暂停。");
       recovery.append(action("恢复到输入草稿", () => restoreClaim(r, claim), disabled),
         action("已核对，释放领取项", () => mutate(r, "/recover", "POST", { action: "release", id: claim.id, version: r.queueVersion }), disabled));
       nodes.push(recovery);
     }
   }
-  if (r.queueError) nodes.push(el("div", "err", r.queueError));
-  if (!queue.length) return nodes;
-  const head = el("div", "head qhead", r.queuePaused ? `队列已暂停（${queue.length}），不会自动发送` : r.exit ? `等待发送（${queue.length}）` : `这一轮结束后发（${queue.length}）`);
-  if (r.exit && !r.queueClaim) head.append(action("发第一条", () => send(r, false), disabled), action("继续全部", () => send(r, true), disabled));
-  nodes.push(head);
+  if (r.queueError && !paused) nodes.push(el("div", "err", r.queueError));
   queue.forEach((item, index) => {
-    const row = el("div", "qitem"), text = el("span", "qtext", (item.steer_ids?.length ? "补充转入下一轮：\n" : "") + item.text), buttons = el("div", "qactions");
-    row.dataset.queueId = item.id;
-    buttons.append(action("编辑", () => edit(r, item), disabled), action("上移", () => move(r, index, -1), disabled || index === 0), action("下移", () => move(r, index, 1), disabled || index === queue.length - 1), action("删除", () => mutate(r, `/${encodeURIComponent(item.id)}`, "DELETE", { version: r.queueVersion }), disabled));
-    for (const b of buttons.children) b.setAttribute("aria-label", `${b.textContent}第 ${index+1} 条排队消息`);
+    const row = el("div", "qitem"), text = el("span", "qtext", item.text), buttons = el("div", "qactions");
+    row.dataset.queueId = item.id; text.title = item.text;
+    row.append(el("span", "qnum", String(index + 1)));
+    if (item.steer_ids?.length) row.append(el("span", "qtag", "补充"));
+    const first = index === 0, last = index === queue.length - 1;
+    buttons.append(iconAction("edit", "编辑", () => edit(r, item), disabled), iconAction("up", "上移", () => move(r, index, -1), disabled || first, first), iconAction("down", "下移", () => move(r, index, 1), disabled || last, last), iconAction("close", "删除", () => mutate(r, `/${encodeURIComponent(item.id)}`, "DELETE", { version: r.queueVersion }), disabled));
+    for (const b of buttons.children) b.setAttribute("aria-label", `${b.title}第 ${index+1} 条排队消息`);
     row.append(text, buttons); nodes.push(row);
   });
   return nodes;

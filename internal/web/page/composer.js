@@ -5,7 +5,7 @@ import { queueSection, hasQueueStatus, refreshQueueEditor } from "./queue.js";
 import { show } from "./follow.js";
 import { openSettings } from "./pages.js";
 import { autosize, loadRuns, loadWsSettings, modelVision, syncComposer } from "./shell.js";
-import { $, FULL_ACCESS_NOTE, HOST, MAX_IMAGES, api, el, permChoice, refURL, ui } from "./util.js";
+import { $, FULL_ACCESS_NOTE, HOST, MAX_IMAGES, api, el, permChoice, refURL, stripHead, ui } from "./util.js";
 import { attachToDraft, captureDraft, currentDraftKey, finishDelivery, pendingDelivery, rememberDelivery, saveDraft, savePendingSteers } from "./drafts.js";
 // 插话、排队、! 命令被服务端接受后显示在输入框下面的提示；runs.js 在这一轮结束时据此清掉已经过时的两条。
 export const HINTS = { queue: "已排到下一轮", steer: "补充已由服务端接收，采纳结果见待发区", shell: "命令已执行，结果见命令记录" };
@@ -254,20 +254,22 @@ export function renderSteers() {
   strip.dataset.sig = sig;
   const nodes = [];
   if (ui.run?.steerManaged) nodes.push(...managedSteerSection(ui.run));
+  // 插话每条一行，太长省略，悬停看全文。
+  const line = (it) => { const d = el("div", "item", it.text); d.title = it.text; return d; };
   if (items.length && ui.run?.steerManaged) {
-    const head = el("div", "head", "旧版待确认补充，请先核对历史");
-    const restore = el("button", "", "恢复为输入草稿"); restore.type = "button";
+    const head = stripHead("steer", "插话", "旧版待确认补充，请先核对历史");
+    const restore = el("button", "sa", "恢复为输入草稿"); restore.type = "button";
     restore.onclick = () => { const text = items.map((item) => item.text).join("\n\n"); ui.steers[ui.run.id] = { items: [], immediate: false }; savePendingSteers(ui.run.id, ui.steers[ui.run.id]); backToInput(text); renderSteers(); };
-    head.append(restore); nodes.push(head, ...items.map((item) => el("div", "item", item.text)));
+    head.append(restore); nodes.push(head, ...items.map(line));
   } else if (items.length) {
-    const head = el("div", "head"), now = el("button", "", "立即发送");
+    const head = stripHead("steer", "插话", restored ? "上次的补充尚未确认采纳，请先核对对话记录" : "做完这一步后发给 agent"), now = el("button", "sa primary", "立即发送");
     now.type = "button";
     now.disabled = !!ui.historyReplaying || !!ui.streamDisconnected;
     if (restored) now.textContent = "核对后重新发送";
     now.title = "停下正在做的这一步，马上发出去";
     now.onclick = () => sendSteersNow();
-    head.append(el("span", "", restored ? "上次的补充尚未确认采纳，请先核对对话记录" : "做完这一步后发给 agent"), now);
-    nodes.push(head, ...items.map((it) => el("div", "item", it.text)));
+    head.append(now);
+    nodes.push(head, ...items.map(line));
   }
   if (hasQueueStatus(ui.run)) nodes.push(...queueSection(ui.run));
   strip.hidden = !nodes.length;

@@ -458,3 +458,43 @@ body { font-size:14px; letter-spacing:-.01em; }
 .slash-item:disabled:hover { background:none; }
 /* 新任务的空状态输入框在页面中间，上方放不下菜单：改成往下展开。 */
 #chat-col:has(#thread > .welcome) #slash { bottom:auto; top:calc(100% + 8px); }
+/* 输入框上方的待发送区（插话、排队）：每节一行标题，每条消息一行，排队的操作是图标、悬停才出现。
+   左右各伸出 7px，让行的悬停底色有边距，而文字仍和输入框的提示文字对齐；底部一条线和输入框分开。
+   这些规则以 #steer-strip 开头，压过 app.css 里的旧样式。 */
+#steer-strip { margin:0 -7px 8px; padding:0 0 6px; border-bottom:1px solid var(--line); max-height:min(40vh,240px); overflow-y:auto; color:var(--muted); font-size:12px; }
+#steer-strip .head { display:flex; align-items:center; gap:6px; min-height:28px; margin:0; padding:0 8px; }
+#steer-strip .head:not(:first-child) { margin-top:4px; }
+#steer-strip .head > .i { width:14px; height:14px; color:var(--muted); }
+#steer-strip .sh-title { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#steer-strip .sh-title b { font-weight:500; color:var(--text); }
+#steer-strip .sh-note { margin-left:8px; color:var(--warn); }
+#steer-strip button.sa { flex:none; margin:0; padding:3px 8px; border:0; border-radius:6px; background:none; color:var(--muted); font-size:12px; line-height:1.5; }
+#steer-strip button.sa.primary { color:var(--accent); }
+#steer-strip button.sa:hover:not(:disabled) { background:var(--hover); color:var(--text); }
+#steer-strip button.sa.primary:hover:not(:disabled) { color:var(--accent); }
+#steer-strip button.sa:disabled { opacity:.45; cursor:default; }
+#steer-strip .item, #steer-strip .qitem, #steer-strip .msline { height:30px; margin:0; padding:0 8px; border-radius:6px; color:var(--text); font-size:13px; }
+#steer-strip .item:hover, #steer-strip .qitem:hover, #steer-strip .msline:hover { background:var(--hover); }
+#steer-strip .item { display:block; line-height:30px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#steer-strip .item::before { content:none; }
+#steer-strip .qitem, #steer-strip .msline { display:flex; align-items:center; gap:8px; flex-wrap:nowrap; }
+#steer-strip .qitem > span { display:block; flex:none; white-space:nowrap; }
+#steer-strip .qitem .qnum { min-width:12px; color:var(--faint); font-size:12px; font-variant-numeric:tabular-nums; }
+#steer-strip .qitem .qtag { padding:0 5px; border-radius:4px; background:var(--soft); color:var(--muted); font-size:11px; line-height:18px; }
+#steer-strip .qitem .qtext, #steer-strip .mstext { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* 用 opacity 而不是 visibility 隐藏：键盘 Tab 还能进到按钮上，聚焦时整组出现。 */
+#steer-strip .qactions { display:flex; flex:none; gap:2px; width:auto; opacity:0; }
+#steer-strip .qitem:hover .qactions, #steer-strip .qitem:focus-within .qactions { opacity:1; }
+@media (hover:none) { #steer-strip .qactions { opacity:1; } }
+#steer-strip .qactions button { display:grid; place-items:center; width:24px; height:24px; min-height:0; padding:0; border:0; border-radius:6px; background:none; color:var(--muted); }
+#steer-strip .qactions button:hover:not(:disabled) { background:var(--sel); color:var(--text); }
+#steer-strip .qactions button:disabled { opacity:.45; cursor:default; }
+#steer-strip .qactions button .i { width:14px; height:14px; }
+#steer-strip .qactions .qslot { visibility:hidden; }
+#steer-strip .qwarn { display:flex; align-items:center; gap:6px; min-height:28px; padding:0 8px; color:var(--warn); }
+#steer-strip .qwarn > span { flex:1; min-width:0; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; overflow-wrap:anywhere; }
+#steer-strip .err { padding:4px 8px; color:var(--err); }
+#steer-strip .managed-steer { padding:0; border:0; }
+#steer-strip .msline .meta { flex:none; color:var(--muted); font-size:12px; }
+#steer-strip .managed-steer > .meta { padding:0 8px 2px; color:var(--muted); font-size:12px; }
+#steer-strip .msacts { display:flex; flex-wrap:wrap; gap:4px; padding:0 2px 4px; }
