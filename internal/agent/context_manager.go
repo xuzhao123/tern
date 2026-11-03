@@ -165,7 +165,7 @@ func (c *Context) Append(m llm.Message) {
 	c.Transcript = append(c.Transcript, m)
 	view := m
 	view.ToolCalls = append([]llm.ToolCall(nil), m.ToolCalls...)
-	if m.Role == "tool" && llm.TextTokens(m.Content) > c.options.ToolOutput {
+	if m.Role == "tool" && llm.TextTokens(m.Content) > c.options.ToolOutput && !fullOutput(m.Content) {
 		if saved, ok := saveOutput(m.Content, c.options.ToolOutput); ok {
 			view.Content = saved
 		} else {
@@ -175,6 +175,15 @@ func (c *Context) Append(m llm.Message) {
 	}
 	c.View = append(c.View, view)
 	c.origins = append(c.origins, len(c.Transcript)-1)
+}
+
+// fullOutput 判断这条工具结果要不要整份进视图、不受 ToolOutput 预算限制。load_skill 读的是操作指南，
+// 截成开头结尾等于只给了半份规则（模型多半不会再去 read_output）；skill 的每个文件在加载时已限制在 64KB 以内。
+func fullOutput(content string) bool {
+	var o struct {
+		Tool string `json:"tool"`
+	}
+	return json.Unmarshal([]byte(content), &o) == nil && o.Tool == "load_skill"
 }
 
 func (c *Context) RecordReply(reply llm.Reply) {

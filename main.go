@@ -29,6 +29,7 @@ import (
 	"github.com/xuzhao123/tern/internal/commands"
 	"github.com/xuzhao123/tern/internal/eval"
 	"github.com/xuzhao123/tern/internal/hooks"
+	"github.com/xuzhao123/tern/internal/imagegen"
 	"github.com/xuzhao123/tern/internal/llm"
 	"github.com/xuzhao123/tern/internal/mcp"
 	"github.com/xuzhao123/tern/internal/mcpserver"
@@ -1009,6 +1010,10 @@ func run() error {
 	// 图片输入：view_image 看工作区或 bash 沙箱里的图。不能看图的模型不提供；同样从第一次请求就定下来。
 	if (workspace.Dir != "" || sandbox.Enabled) && config.Vision() {
 		llm.Tools = append(llm.Tools, agent.ViewImageDefinition)
+	}
+	// 图片生成：接了后端（imagegen.Active 不为 nil）才提供 image_gen；现在只有壳子，后端见 spec/visualization-full.md。
+	if imagegen.Active != nil {
+		llm.Tools = append(llm.Tools, imagegen.Definition)
 	}
 	fmt.Printf("Checkpoint: id=%s file=%s（中断后用 -resume %s 续跑）\n", agent.CheckpointID, agent.CheckpointPath(agent.CheckpointID), agent.CheckpointID)
 	hooks.Session = first

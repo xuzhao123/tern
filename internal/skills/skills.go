@@ -37,10 +37,10 @@ const builtinDir = "builtin"
 
 var LoadDefinition = map[string]any{
 	"name":        "load_skill",
-	"description": "按名称读取一个 skill 的完整操作指南（SKILL.md 正文）。只在任务与 system 中列出的某个 skill 相关时调用；name 必须是列表里的名字。正文要求按需读取 references/ 下的文件时，再带上 file（如 references/mode-echarts.md）读取那一份。",
+	"description": "按名称读取一个 skill 的完整操作指南（SKILL.md 正文）。只在任务与 system 中列出的某个 skill 相关时调用；name 必须是列表里的名字。正文要求按需读取 references/ 或 examples/ 下的文件时，再带上 file（如 references/mode-echarts.md）读取那一份。",
 	"parameters": map[string]any{"type": "object", "required": []string{"name"}, "properties": map[string]any{
 		"name": map[string]string{"type": "string"},
-		"file": map[string]string{"type": "string", "description": "可选：skill 目录内 references/ 下的 .md 相对路径；不给则返回 SKILL.md 正文"},
+		"file": map[string]string{"type": "string", "description": "可选：skill 目录内 references/ 或 examples/ 下的 .md 相对路径；不给则返回 SKILL.md 正文"},
 	}},
 }
 
@@ -307,12 +307,13 @@ func readAt(s Skill) (Skill, string, error) {
 	return readSkill(s.Path)
 }
 
-// 第三级：只开放 references/ 下的 Markdown，examples/、scripts/ 等开发用文件不给模型。
-// 先 Clean 再判断前缀：references/../examples/x.md 在 os.Root 里不算逃逸，但不该被读到。
+// 第三级：只开放 references/ 与 examples/ 下的 Markdown（examples/ 是正文里写明“卡住时参考”的示例）；
+// scripts/、schemas/、agents/ 等开发用文件不给模型。
+// 先 Clean 再判断前缀：references/../scripts/x.md 在 os.Root 里不算逃逸，但不该被读到。
 func loadReference(s Skill, file string) (any, error) {
 	file = path.Clean(file)
-	if !filepath.IsLocal(file) || !strings.HasPrefix(file, "references/") || filepath.Ext(file) != ".md" {
-		return map[string]any{"error": "bad_file", "message": "file 只能是 references/ 下的 .md 文件"}, nil
+	if !filepath.IsLocal(file) || !(strings.HasPrefix(file, "references/") || strings.HasPrefix(file, "examples/")) || filepath.Ext(file) != ".md" {
+		return map[string]any{"error": "bad_file", "message": "file 只能是 references/ 或 examples/ 下的 .md 文件"}, nil
 	}
 	if s.Builtin {
 		// 嵌入的文件系统里没有符号链接，按路径直接读；读不到就是没有这个文件。

@@ -1,5 +1,5 @@
 import { render } from "./render.js";
-import { $, el, esc, ui } from "./util.js";
+import { $, el, esc, parse, refURL, ui } from "./util.js";
 import { openProjectFile, projectReference } from "./projectfiles.js";
 // ---------- 对话流：从同一批模型请求还原用户消息、思考、工具和回答 ----------
 // 只渲染少量 Markdown：先转义再替换，模型输出不能注入 HTML。
@@ -25,8 +25,9 @@ export function md(text, visual) {
   // 行内代码和公式先换成占位符：里面的地址不变成链接、* 不变成粗体，代码两边的 ** 仍能配成粗体。
   // 行内代码照 CommonMark：两边是一样长的一串反引号，里面可以有更短的反引号（`` `x` ``）；内容两头都是空格时各去掉一个。
   const inline = (s) => {
-    const codes = [], maths = [], files = [];
+    const codes = [], maths = [], files = [], pics = [];
     s = String(s).replace(/(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)/g, (_, tick, code) => `${codes.push(/^ .*[^ ].* $/.test(code) ? code.slice(1, -1) : code) - 1}`)
+      .replace(/!\[([^\]\n]*)\]\(tern-image:(\d+)\)/g, (original, alt, n) => visual ? `\uE003${pics.push([alt, n]) - 1}\uE003` : original)
       .replace(MD_MATH, (_, a, b, c, d) => `\uE001${maths.push([a ?? b ?? c ?? d, b !== undefined || c !== undefined]) - 1}\uE001`)
       .replace(/\[([^\]\n]+)\]\((?:<([^>\n]+)>|([^\s)]+))\)/g, (original, label, angled, plain) => {
         const path = angled || plain;
@@ -42,7 +43,8 @@ export function md(text, visual) {
       .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
       .replace(/(\d+)/g, (_, n) => `<code>${esc(codes[n])}</code>`)
       .replace(/\uE002(\d+)\uE002/g, (original, n) => { if (!files[n]) return original; const [label, path] = files[n]; return `<a href="#" class="project-reference" data-project-reference="${encodeURIComponent(path)}">${esc(label)}</a>`; })
-      .replace(/\uE001(\d+)\uE001/g, (_, n) => tex(...maths[n]));
+      .replace(/\uE001(\d+)\uE001/g, (_, n) => tex(...maths[n]))
+      .replace(/\uE003(\d+)\uE003/g, (original, n) => { if (!pics[n]) return original; const [alt, num] = pics[n]; return answerPicture(alt, num); });
   };
   const block = /^(```|#{1,6}\s|\s*([-*]|\d+\.)\s|\||\s*(\\\[|\$\$)|\s*(-{3,}|\*{3,}|_{3,})\s*$)/;
   for (let i = 0; i < lines.length;) {
@@ -98,6 +100,56 @@ export function md(text, visual) {
 // renderChat 每个事件都重建 DOM，iframe 一旦离开文档就会重载、丢掉交互状态；所以重建前先 moveBefore 停到 #viz-park，
 // 重建后按内容认领回原位。不支持 moveBefore 的浏览器退化为重载。
 const vizFrames = new Map(), vizPending = [];
+// ---------- 对话里的图：tern-image:N 指 [Image #N] ----------
+// 原图在 tern 里没有能给沙箱 iframe 用的地址（附件接口要登录 cookie，空源 iframe 带不上），所以模型按编号写
+// tern-image:N，页面用自己的登录态取图、换成 data: URL 再塞进 srcdoc；iframe 的 sandbox 不变，也只认当前对话的编号。
+// 编号在整个对话里唯一（agent 按 LastImageNumber+1 分配）：用户附图在 turn.images，工具给的图（view_image、以后的
+// image_gen）在工具结果的 result 或 result.images 里，都带 label 与 ref。
+let vizImages = new Map();
+const vizData = new Map(); // ref → Promise<data URL>，同一张图只取一次
+const IMAGE_LABEL = /^\[Image #(\d+)\]$/;
+export function setVizImages(r) {
+  const found = new Map(), add = (img) => {
+    const m = IMAGE_LABEL.exec(img?.label || "");
+    if (m && typeof img.ref === "string" && img.ref.startsWith("attachment://")) found.set(m[1], img.ref);
+  };
+  for (const turn of r?.turns || []) for (const img of turn.images || []) add(img);
+  for (const c of r?.calls || []) for (const t of c.tools || []) {
+    const v = parse(t.result), result = v && typeof v === "object" ? v.result : null;
+    add(result);
+    if (Array.isArray(result?.images)) result.images.forEach(add);
+  }
+  vizImages = found;
+}
+// 回答正文里的 ![说明](tern-image:N)：页面同源，直接用附件地址；外部地址的图片仍不渲染。
+function answerPicture(alt, n) {
+  const ref = vizImages.get(n), label = alt || `图片 ${n}`;
+  if (!ref) return `<span class="pic-missing">[${esc(label)}：图片 ${n} 不可用]</span>`;
+  const url = esc(refURL(ref));
+  return `<a class="answer-pic" href="${url}" target="_blank" rel="noopener"><img src="${url}" alt="${esc(label)}" title="${esc(label)}"></a>`;
+}
+const missingPicture = (n) => "data:image/svg+xml;charset=utf-8," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="480" height="270" viewBox="0 0 480 270"><rect width="480" height="270" fill="#f2f2f2" stroke="#bbb"/><text x="240" y="140" font-size="18" text-anchor="middle" fill="#777" font-family="sans-serif">图片 ${n} 不可用</text></svg>`);
+function imageData(ref) {
+  if (!vizData.has(ref)) vizData.set(ref, fetch(refURL(ref)).then((res) => {
+    if (!res.ok) throw new Error(String(res.status));
+    return res.blob();
+  }).then((blob) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  })).catch((err) => { vizData.delete(ref); throw err; }));
+  return vizData.get(ref);
+}
+// 把代码里的 tern-image:N 换成图片的 data: URL；没有这个编号或取图失败时换成占位图，不让 iframe 去请求别处。
+async function withImages(code) {
+  const nums = [...new Set([...code.matchAll(/tern-image:(\d+)/g)].map((m) => m[1]))];
+  const urls = new Map(await Promise.all(nums.map(async (n) => {
+    const ref = vizImages.get(n);
+    try { return [n, ref ? await imageData(ref) : missingPicture(n)]; } catch { return [n, missingPicture(n)]; }
+  })));
+  return code.replace(/tern-image:(\d+)/g, (_, n) => urls.get(n));
+}
 const VIZ_HEIGHT = `<script>new ResizeObserver(function(){parent.postMessage({vizHeight:Math.ceil(document.documentElement.getBoundingClientRect().height)},"*")}).observe(document.documentElement)<\/script>`;
 function vizSrc(kind, code) {
   if (kind === "renderer") return code + VIZ_HEIGHT;
@@ -125,7 +177,9 @@ export function claimViz() {
       f = el("iframe", "viz");
       f.sandbox = "allow-scripts";
       f.style.height = kind === "echarts" ? "420px" : "160px";
-      f.srcdoc = vizSrc(kind, code);
+      // 缓存的 key 用替换前的原始代码：重渲染时按它认领已有的 iframe，不会因为 data URL 而重建。
+      if (/tern-image:\d/.test(code)) withImages(code).then((resolved) => { f.srcdoc = vizSrc(kind, resolved); });
+      else f.srcdoc = vizSrc(kind, code);
       if (!used.has(key)) vizFrames.set(key, f);
     }
     used.add(key);

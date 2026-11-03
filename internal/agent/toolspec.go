@@ -39,6 +39,7 @@ var specs = map[string]Spec{
 	"grep":                   {ReadOnly: true, Repeatable: true, Private: "workspace", Permission: "Read"},
 	"glob":                   {ReadOnly: true, Repeatable: true, Permission: "Read"}, // 只列文件名，不读内容
 	"view_image":             {ReadOnly: true, Repeatable: true, Private: "workspace", Permission: "Read"},
+	"image_gen":              {Outbound: true}, // prompt 发给外面的图片 API，按次计费：不算只读、不可自动重复
 	"edit_file":              {Serial: true, Permission: "Edit"},
 	"write_file":             {Serial: true, Permission: "Edit"},
 	"bash":                   {Serial: true, Private: "bash", Permission: "Bash"}, // 只在沙箱能读到用户文件时才算私有，见 trackPrivate

@@ -7,7 +7,7 @@ import { diffFileCounts, openDiff } from "./diff.js";
 import { exploreCall, exploreLabel } from "./explore.js";
 import { show } from "./follow.js";
 import { openWorkTab } from "./workpanel.js";
-import { claimViz, md, parkViz } from "./md.js";
+import { claimViz, md, parkViz, setVizImages } from "./md.js";
 import { openMCP, openMemory, openSkills } from "./pages.js";
 import { render } from "./render.js";
 import { approvalCard, inputCallID, askCard, bashCard, netCard, proxyNetCards } from "./sandbox.js";
@@ -270,6 +270,7 @@ function toolLabel(t) {
     case "grep": return args.pattern && { verb: "搜索", target: args.pattern + (args.path ? " · " + args.path : "") };
     case "glob": return args.pattern && { verb: "查找文件", target: args.pattern };
     case "view_image": return args.path && { verb: "查看图片", target: args.path };
+    case "image_gen": return Array.isArray(args.request_list) && { verb: "生成图片", target: `${args.request_list.length} 张` };
     case "read_output": return { verb: "读取完整输出", target: args.name || "" };
     case "update_plan": return { verb: "更新计划", target: Array.isArray(args.steps) ? `${args.steps.length} 步` : "" };
     case "task_status": return { verb: "读取任务状态", target: "" };
@@ -488,6 +489,7 @@ function drawChat() {
   const r = ui.run;
   if (!r) { renderSubPanel(); return box.append(welcome()); }
   analyze(r);
+  setVizImages(r); // 回答里的 tern-image:N 按这条对话的图片编号取图
   // 旁支的横幅放在对话最上面：这一整条都是临时分出来问的，问答不回到原对话。
   if (r.side) box.append(sideBanner(r));
   // 项目配置的横幅同样在第一轮之前：新对话用的工作区里有 .agents/tern.json，开始前告诉人它改了哪些设置。

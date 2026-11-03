@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/xuzhao123/tern/internal/browser"
+	"github.com/xuzhao123/tern/internal/imagegen"
 	"github.com/xuzhao123/tern/internal/llm"
 	"github.com/xuzhao123/tern/internal/mcp"
 	"github.com/xuzhao123/tern/internal/memory"
@@ -141,6 +142,8 @@ func runTool(ctx context.Context, call llm.ToolCall) (result any, err error) {
 		return mcp.ReadResource(ctx, args.Server, args.URI)
 	case "view_image":
 		return viewImage(call.Function.Arguments)
+	case "image_gen":
+		return imagegen.Run(ctx, call.Function.Arguments)
 	case "progress":
 		return progressTool(call.Function.Arguments)
 	case "verify_feature":

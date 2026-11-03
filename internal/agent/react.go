@@ -13,6 +13,7 @@ import (
 	"github.com/xuzhao123/tern/internal/audit"
 	"github.com/xuzhao123/tern/internal/browser"
 	"github.com/xuzhao123/tern/internal/hooks"
+	"github.com/xuzhao123/tern/internal/imagegen"
 	"github.com/xuzhao123/tern/internal/llm"
 	"github.com/xuzhao123/tern/internal/memory"
 	"github.com/xuzhao123/tern/internal/permission"
@@ -515,6 +516,15 @@ func Run(ctx context.Context, config llm.Config, question string, images []llm.I
 			if img, ok := observation.Result.(llm.Image); ok {
 				img.Label = fmt.Sprintf("[Image #%d]", llm.LastImageNumber(conversation.Transcript)+1)
 				observation.Result, message.Images = img, []llm.Image{img}
+			}
+			// image_gen 一次给几张图：编号同样接着往后数，图随 tool 消息发给模型做视觉检查（不能看图的模型换成文字说明）。
+			if batch, ok := observation.Result.(imagegen.Result); ok {
+				next := llm.LastImageNumber(conversation.Transcript)
+				for j := range batch.Images {
+					next++
+					batch.Images[j].Label = fmt.Sprintf("[Image #%d]", next)
+				}
+				observation.Result, message.Images = batch, batch.Images
 			}
 			data, err := json.Marshal(observation)
 			if err != nil {

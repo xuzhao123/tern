@@ -97,6 +97,12 @@ export function toolResult(t) {
     box.append(userPictures([result]), el("pre", "", pretty(t.result)));
     return box;
   }
+  if (t.name === "image_gen" && Array.isArray(result?.images)) {
+    const box = el("div");
+    if (result.images.length) box.append(userPictures(result.images));
+    box.append(el("pre", "", pretty(t.result)));
+    return box;
+  }
   return t.name === "search_docs" && Array.isArray(result?.hits) ? retrievalPanel(result) : el("pre", t.state === "error" ? "err" : "", pretty(t.result));
 }
 
