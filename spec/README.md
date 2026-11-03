@@ -2,17 +2,18 @@
 
 新功能先在这里写设计，确认后交给 tern 实现（分工见 [AGENTS.md](../AGENTS.md)，交给 tern 的步骤见 [.claude/skills/tern-implement](../.claude/skills/tern-implement/SKILL.md)）。一份设计一个 Markdown 文件，结构参照已有的几份：为什么要改、改什么、按文件的改动（含不要改的）、这一期不做什么、验收。只有用户要求时才另配 HTML 页面，两者内容一致，有出入以 Markdown 为准。
 
-状态核对日期：2026-10-25。本轮代码已合入本地 `main`（`f2e4296`）。[Codex 对齐清单](codex-parity-plan.md)第 1–7 节的 40 个编号项已完成，第 8 节的 11 项终端体验仍暂缓；app-server 第三期桌面端尚未开发。实现完成不等于覆盖所有部署环境，验收证据与范围见 [收尾记录](archive/closeout-20261025.md)。
+状态核对日期：2026-11-03。`main` 在 `3b864cd`；`web-sidebar-polish` 分支上另有 4 个提交未合入 `main`（侧栏、草稿误报、工作面板标签、待发送区，见下表），工作区里还有 visualization 的改动未提交。[Codex 对齐清单](codex-parity-plan.md)第 1–7 节的 40 个编号项已完成，第 8 节的 11 项终端体验仍暂缓；app-server 第三期桌面端尚未开发。实现完成不等于覆盖所有部署环境，验收证据与范围见 [收尾记录](archive/closeout-20261025.md)。
 
 下面的索引只列还在用的设计；已完成的在文末“已归档”。文档正文中的问题背景、分期和验收步骤保留历史语境。未完成事项、已修复旧待办和现有限制分别列在索引之后。
 
 | 文档 | 内容 | 状态 |
 | --- | --- | --- |
-| [harness-next-phase.md](harness-next-phase.md) | **下一阶段迭代计划**：先稳住刚合并的网页功能，主线是 agent 质量的度量与回归（扩充编码评测、合并前回归门槛、按失败归因改进），并行收口网页产品、清旧账；流程回到“spec → tern 实现 → review”，小批次合并 | 计划（2026-10-29），用户已定：主线第 1 期，tern 实现，编码评测用 DeepSeek、通用评测用豆包 |
-| [web-queue-strip.md](web-queue-strip.md) | **待发送区（排队与插话）的样式**：每条四个大按钮改成悬停才出现的图标按钮；分区标题带图标、和消息分开；暂停原因不再说两遍；去掉显示成方框的“↳”；和输入框分开、限高 | 已实现（2026-11-01），未提交 |
-| [web-draft-conflict-fix.md](web-draft-conflict-fix.md) | **草稿误报冲突**：每次打开都提示“另一页面修改了这份草稿”；`ancestors` 截错方向（保留最旧的 64 个），改为保留最新的，并一次性清理旧版本留下的副本 | 已修复并验收（2026-10-31，Claude Code 直接修） |
-| [web-worktab-polish.md](web-worktab-polish.md) | **工作面板标签**：标题和关闭的 × 放进同一个标签框（原来两个按钮各带 `.ghost` 的边框，画成两个框）；× 只在当前、悬停、聚焦的标签上显示；放不下时先收窄再滚动，左边不露半个；面板内容区重复的“关闭”去掉 | 已实现并验收（2026-10-31，Claude Code 直接实现） |
-| [web-sidebar-polish.md](web-sidebar-polish.md) | **网页端侧栏样式打磨**：统一图标列、文字列和右端操作位的对齐；“项目”“对话”分区标题统一样式（修 CSS 覆盖顺序的 bug）；项目行和对话行同样式；未读点与“⋯”共用一个位置；“工具与更多”弹层不再把触发行带走 ；收起与展开侧栏是同一个按钮、同一个位置 | 已实现并验收（2026-10-31，Claude Code 直接实现） |
+| [harness-next-phase.md](harness-next-phase.md) | **下一阶段迭代计划**：先稳住刚合并的网页功能，主线是 agent 质量的度量与回归（扩充编码评测、合并前回归门槛、按失败归因改进），并行收口网页产品、清旧账；流程回到“spec → tern 实现 → review”，小批次合并 | 计划（2026-10-29），用户已定：主线第 1 期，tern 实现，编码评测用 DeepSeek、通用评测用豆包。剩下：用 20 道编码题跑新基线后做 1.3 下一轮归因；2.2 跨主机（要第二台 SSH 主机）；2.3 视觉对齐（要用户看截图）；网页预览 P1 的 macOS 实测 |
+| [visualization-full.md](visualization-full.md) | **完整支持 visualization skill**：全量迁入（含 examples、schemas、scripts），`load_skill` 放开 `examples/`；renderer 里用 `tern-image:N` 引用附图，网页端换成 data URL（原图标注）；新增 `image_gen` 工具与回答内图片显示（生成式配图）；`image_search` 待定 | 第 1、2 块已实现，第 3 块只有壳子（`internal/imagegen`，后端待接），第 4 块未做（2026-11-01，Claude Code 直接实现，未提交）；第 3、4 块卡在第五节的问题，等用户定。2026-11-03 visualization 与 book-writer、human-signal、product-manager 挪到个人目录 `~/.tern/skills/`，不再内置 |
+| [web-queue-strip.md](web-queue-strip.md) | **待发送区（排队与插话）的样式**：每条四个大按钮改成悬停才出现的图标按钮；分区标题带图标、和消息分开；暂停原因不再说两遍；去掉显示成方框的“↳”；和输入框分开、限高 | 已实现（2026-11-01），提交 `1568369`，未合入 `main` |
+| [web-draft-conflict-fix.md](web-draft-conflict-fix.md) | **草稿误报冲突**：每次打开都提示“另一页面修改了这份草稿”；`ancestors` 截错方向（保留最旧的 64 个），改为保留最新的，并一次性清理旧版本留下的副本 | 已修复并验收（2026-10-31，Claude Code 直接修），提交 `ad556ec`，未合入 `main` |
+| [web-worktab-polish.md](web-worktab-polish.md) | **工作面板标签**：标题和关闭的 × 放进同一个标签框（原来两个按钮各带 `.ghost` 的边框，画成两个框）；× 只在当前、悬停、聚焦的标签上显示；放不下时先收窄再滚动，左边不露半个；面板内容区重复的“关闭”去掉 | 已实现并验收（2026-10-31，Claude Code 直接实现），提交 `24e8d3b`，未合入 `main` |
+| [web-sidebar-polish.md](web-sidebar-polish.md) | **网页端侧栏样式打磨**：统一图标列、文字列和右端操作位的对齐；“项目”“对话”分区标题统一样式（修 CSS 覆盖顺序的 bug）；项目行和对话行同样式；未读点与“⋯”共用一个位置；“工具与更多”弹层不再把触发行带走 ；收起与展开侧栏是同一个按钮、同一个位置 | 已实现并验收（2026-10-31，Claude Code 直接实现），提交 `1295cf3`，未合入 `main` |
 | [web-product/](web-product/README.md) | **网页产品方案**：Codex 体验对齐，含界面、交互、子 agent、9 类日常工作流补充；共 47 项需求、42 个验收场景，已有能力与新增体验分开记录 | 开发中（2026-10-25），进度见 web-product/08-implementation.md；不计入旧功能完成数 |
 | [codex-parity-plan.md](codex-parity-plan.md) | **任务清单**：和 Codex 对齐的功能点，哪些没做、哪些做得不好，按优先级排；做某一条前先写它的 spec，填回这里 | 清单（2026-10-24），持续更新 |
 | [app-server-design.md](app-server-design.md) | 照 Codex 的 SSH 远程：常驻的 `tern app-server` 管对话，网页端、终端、以后的桌面端经 Unix socket 或 SSH 连它；`TERN_HOME` | 第一步（`TERN_HOME`、`-agent-server`）已实现（2026-10-23）；第一期（app-server、网页端与 chat 改成客户端、去掉租户账号、SSH 远程与重连）已实现（2026-10-24）。第二期另写在 app-server-phase2-design.md，已实现（2026-10-23）；第三期桌面端未做 |

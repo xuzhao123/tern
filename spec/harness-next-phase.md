@@ -1,6 +1,6 @@
 # 下一阶段迭代计划（2026-10-29 起）
 
-状态：计划，待用户定优先级。这份只排顺序、定每一期做到哪里算完；每一期动手前照惯例另写它自己的 spec。
+状态：计划，用户 2026-10-31 已定优先级（见第 4 节末尾）；进度见第 5 节，2026-11-03 核对时剩下 1.3 下一轮归因、2.2 跨主机、2.3 视觉对齐和网页预览 P1 的 macOS 实测。这份只排顺序、定每一期做到哪里算完；每一期动手前照惯例另写它自己的 spec。
 
 ## 1. 现在到哪了
 
@@ -11,7 +11,7 @@
 - **agent 本身的质量没有量**：评测集只有通用 10 题（`eval/cases.jsonl`，其中 2 道留出题默认不跑）、编码 5 题（`eval/coding-cases.jsonl`；两个文件里另有几行是注释）。`~/.tern/.data/eval/` 里最近一次评测是 2026-10-23 只跑 2 题的消融（`e20261023-152435`），在三大批改动之前。这期间 `react.go` 的插话、子 agent 的输入转发与继承、Goal 的 `task_status`/`report_goal` 工具、沙箱的完全访问都改了 agent 的主循环或工具，有没有让 agent 变差，现在不知道。
 - **验收脚本没法复用**：`spec/web-product/check-*` 共 26 个，22 个写死了端口 8095 和运行目录名 `.tern-web-product-qa`，只能在 GPT 当时那套环境里跑，换个临时目录就跑不起来。
 - **流程走偏了一次**：AGENTS.md 的分工是 Claude Code 写 spec、tern 照着实现、人 review。上一批由 GPT 直接实现，约 14k 行在工作区里一直没提交，合并前才一次性复审、拆分提交。
-- **spec 索引里还挂着的旧事**（[README.md](README.md#未完成与暂缓)）：删除对话后子 agent 检查点的清理待回归、Go 只读模块缓存的 stat cache 警告、`retrieval/corpus.md` 里的旧名称、`OBSERVER_TEST_*` 变量改名、`tern web` 从源码编译自动替换、桌面端。
+- **spec 索引里还挂着的旧事**（2026-11-03 注：除 `tern web` 从源码编译自动替换和桌面端外，都已在第 3 期做完，见 [cleanup-phase3.md](archive/cleanup-phase3.md) 和第 5 节进度）（[README.md](README.md#未完成与暂缓)）：删除对话后子 agent 检查点的清理待回归、Go 只读模块缓存的 stat cache 警告、`retrieval/corpus.md` 里的旧名称、`OBSERVER_TEST_*` 变量改名、`tern web` 从源码编译自动替换、桌面端。
 
 一句话：**功能面已经铺得很宽，缺的是“它到底好不好用、有没有变差”的度量和收口。** 下一阶段的重心建议从加功能转到量质量、收口和把流程拉回正轨。
 
@@ -95,7 +95,7 @@ harness 的价值最终看 agent 干活的成功率，而现在没有可信的�
 **模型（用户 2026-10-31 改定）**：不再用 Coconut。tern 实现和评测被测都用 DeepSeek 官方 API（`-provider deepseek`，模型 `deepseek-flash`，`.env` 的 `DEEPSEEK_API_KEY`）。程序本身的默认供应商（方舟）不改。Coconut flash 的两份基线（`e20261031-022357`、`e20261031-055901`）作废，在当前代码上用 DeepSeek 重跑基线。
 
 4. EXT-06：走"Chrome 自带沙箱 + 固定目标代理"，见 [19-web-preview.md](web-product/19-web-preview.md) 最后一节。
-5. 单元测试：规则不由 Claude Code 改，维持不写 `*_test.go`；第 1 期做到需要时再单独问。
+5. 单元测试：规则不由 Claude Code 改，维持不写 `*_test.go`；第 1 期做到需要时再单独问。（2026-11-03 用户同意放开：纯逻辑可以写 `*_test.go`，见 AGENTS.md。）
 6. B5：不在这四期里。
 
 需要用户本人参与、Claude Code 做不了主的项，做到那一步再找用户：
