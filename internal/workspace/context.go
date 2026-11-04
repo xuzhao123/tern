@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -177,11 +176,11 @@ func Reminders() []string {
 func git(args ...string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "git", append([]string{"-C", Dir}, args...)...).Output()
+	out, err := Git(ctx, args...)
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(out))
+	return strings.TrimSpace(out)
 }
 
 // BashMount 是同一份工作区在 bash 沙箱里的挂载点。由 main 在“开了 bash 沙箱、而且工作区挂了进去”时设成 /workspace：
@@ -200,7 +199,7 @@ func EnvironmentFields() []EnvField {
 	if Dir != "" {
 		fields = append(fields, EnvField{"工作区", Dir})
 		if BashMount != "" {
-			fields = append(fields, EnvField{"bash 里的工作区", fmt.Sprintf("%s（bash 命令里 cd、grep 都用这个路径；read_file、edit_file、write_file 等文件工具的 path 仍写相对工作区根目录的路径，不要带 %s 前缀）", BashMount, BashMount)})
+			fields = append(fields, EnvField{"bash 里的工作区", fmt.Sprintf("%s（bash 命令里 cd、grep 都用这个路径；read_file、edit_file、apply_patch 等文件工具的 path 仍写相对工作区根目录的路径，不要带 %s 前缀）", BashMount, BashMount)})
 		}
 		if branch := git("rev-parse", "--abbrev-ref", "HEAD"); branch != "" {
 			fields = append(fields, EnvField{"git 分支", fmt.Sprintf("%s（HEAD %s）", branch, git("log", "-1", "--format=%h %s"))})

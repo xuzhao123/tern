@@ -21,6 +21,7 @@ import (
 	"github.com/xuzhao123/tern/internal/protocol"
 	"github.com/xuzhao123/tern/internal/sandbox"
 	"github.com/xuzhao123/tern/internal/tenant"
+	"github.com/xuzhao123/tern/internal/workspace"
 )
 
 // 高风险操作的人工确认。执行器在执行前按程序规则判断风险，命中就经协议向界面上的人发 tool/requestApproval，
@@ -121,6 +122,7 @@ func approve(ctx context.Context, call llm.ToolCall, kind, reason string) string
 		return "allow"
 	}
 	fmt.Printf("Approval request [%s]: tool=%s risk=%s reason=%s\n", call.ID, call.Function.Name, kind, reason)
+	notifyHook("permission_prompt", "需要你批准 "+call.Function.Name+"："+reason)
 	record := audit.Record{Actor: "program", Event: "approval_request", CallID: call.ID, Tool: call.Function.Name, Risk: kind, Detail: reason}
 	record.Args(call.Function.Arguments)
 	if err := audit.Write(ctx, record); err != nil {
@@ -225,11 +227,11 @@ func readJournal(call llm.ToolCall) (llm.Observation, bool) {
 // 窗口抓的是“原地打转”。改过文件以后工作区已经变了，同一条命令再跑是在看新的结果，所以成功的文件编辑会清空窗口（见 clearOnEdit）。
 const actionWindow, actionLimit = 6, 3
 
-// clearOnEdit 在一批结果里有成功的 edit_file、write_file 时清空动作窗口，从下一批开始重新计数。
+// clearOnEdit 在一批结果里有成功的 edit_file、write_file、apply_patch 时清空动作窗口，从下一批开始重新计数。
 // 只看成功的：同一个失败的编辑原样重试 3 次，仍然是死循环。
 func clearOnEdit(p *progress, observations []llm.Observation) {
 	for _, o := range observations {
-		if o.Status == "ok" && (o.Tool == "edit_file" || o.Tool == "write_file") {
+		if o.Status == "ok" && workspace.Edits(o.Tool) {
 			p.Recent = nil
 			return
 		}

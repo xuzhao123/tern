@@ -29,6 +29,8 @@ var specs = map[string]Spec{
 	"update_plan":            {Serial: true},
 	"search_docs":            {ReadOnly: true, Repeatable: true},
 	"load_skill":             {ReadOnly: true, Repeatable: true},
+	"tool_search":            {ReadOnly: true, Repeatable: true},
+	"call_tool":              {Serial: true}, // 执行前已还原成原工具（toolsearch.go）；走到这里的是还原不了的错误调用
 	"read_output":            {ReadOnly: true, Repeatable: true},
 	"list_mcp_resources":     {ReadOnly: true, Repeatable: true, Outbound: true}, // 列 server 提供的资源，不改任何状态；问的是外面的 server，算外发
 	"read_mcp_resource":      {ReadOnly: true, Repeatable: true, Outbound: true}, // uri 会发给外面的 server，同样算外发
@@ -42,6 +44,7 @@ var specs = map[string]Spec{
 	"image_gen":              {Outbound: true}, // prompt 发给外面的图片 API，按次计费：不算只读、不可自动重复
 	"edit_file":              {Serial: true, Permission: "Edit"},
 	"write_file":             {Serial: true, Permission: "Edit"},
+	"apply_patch":            {Serial: true, Permission: "Edit"},                  // 补丁里的每个路径都按 Edit 规则检查，见 permission.subjects
 	"bash":                   {Serial: true, Private: "bash", Permission: "Bash"}, // 只在沙箱能读到用户文件时才算私有，见 trackPrivate
 	"web_search":             {ReadOnly: true, Repeatable: true, Outbound: true, Permission: "WebSearch"},
 	"open_page":              {ReadOnly: true, Repeatable: true, Outbound: true, Permission: "WebFetch"},
@@ -74,8 +77,8 @@ func specOf(name string) Spec {
 	case "spawn_agent":
 		spec.Timeout = SubagentTimeout
 	case "bash":
-		// 命令时限由沙箱按 -bash-timeout 自己判，不算命令停在代理里等人批准联网的时间；执行器多留出一次审批的等待。
-		spec.Timeout = sandbox.Timeout + sandbox.ApprovalWait + 30*time.Second
+		// 命令时限由沙箱按 -bash-timeout 或调用里的 timeout 自己判，不算命令停在代理里等人批准联网的时间；执行器多留出一次审批的等待。
+		spec.Timeout = sandbox.CommandLimit() + sandbox.ApprovalWait + 30*time.Second
 	case "request_network_access":
 		spec.Timeout = sandbox.ApprovalWait + 30*time.Second // 等人点按钮，工具自己会在 ApprovalWait 到时返回 pending
 	case "ask_user":

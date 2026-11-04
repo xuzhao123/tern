@@ -5,7 +5,8 @@ import "testing"
 func TestFullOutput(t *testing.T) {
 	cases := map[string]bool{
 		`{"id":"c1","tool":"load_skill","status":"ok","result":{"content":"..."}}`: true,
-		`{"id":"c2","tool":"read_file","status":"ok","result":"..."}`:              false,
+		`{"id":"c2","tool":"read_file","status":"ok","result":"..."}`:              true,
+		`{"id":"c3","tool":"bash","status":"ok","result":"..."}`:                   false,
 		`不是 JSON`: false,
 	}
 	for content, want := range cases {

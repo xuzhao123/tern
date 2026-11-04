@@ -315,9 +315,11 @@ func run() error {
 	flag.Var(&askRules, "ask", "询问规则，如 Edit(internal/agent/**)（可重复）")
 	flag.Var(&denyRules, "deny", "拒绝规则，如 Bash(git push *)、Read(.env)（可重复）；顺序 deny › ask › allow")
 	hooksConfig := flag.String("hooks", "", "生命周期 hooks 配置（Claude Code 的 hooks 格式）：JSON 原文或文件路径；命令在宿主机上运行，只由用户提供")
-	workspaceDir := flag.String("workspace", "", "增加编码工具 read_file、glob、grep、edit_file、write_file，只在这个仓库目录里读写")
+	workspaceDir := flag.String("workspace", "", "增加编码工具 read_file、glob、grep、edit_file、write_file、apply_patch，只在这个仓库目录里读写")
 	personalInstructions := flag.Bool("personal-instructions", true, "读 TERN_HOME 下的 AGENTS.md 作为个人指令放进系统提示词，排在项目指令前面，没选工作区也带上；评测关掉，结果才可比")
 	subagents := flag.Bool("subagents", false, "增加 spawn_agent：把独立子任务交给全新上下文的子 agent（子进程）")
+	flag.BoolVar(&agent.IsSubagent, "as-subagent", false, "spawn_agent 派出的子进程自己带上：结束前跑 SubagentStop hook 而不是 Stop")
+	agentType := flag.String("agent-type", "", "以某种子 agent 类型运行（spawn_agent 的 agent_type 传给子进程）：提示词追加到系统提示词，工具收窄到它列出的那些；类型定义见 README")
 	flag.IntVar(&agent.SubagentSteps, "subagent-steps", agent.SubagentSteps, "每个子 agent 的模型请求预算，1到20")
 	flag.Parse()
 	// 多租户：租户决定本进程读写哪棵数据目录（见 internal/tenant），要在读取任何检查点、记忆之前确定。
@@ -756,6 +758,7 @@ func run() error {
 			return err
 		}
 		llm.Tools = append(llm.Tools, workspace.Definitions...)
+		llm.Tools = append(llm.Tools, workspace.PatchDefinition)
 		fmt.Printf("Workspace: dir=%s（编码工具只在这里读写）\n", workspace.Dir)
 		if sandbox.Enabled {
 			// bash 看到的就是这个仓库；plan 模式挂成只读。macOS 上没有挂载，路径就是它的真实路径。
@@ -903,6 +906,8 @@ func run() error {
 	if mcp.HasResources() {
 		llm.Tools = append(llm.Tools, mcp.ResourceDefinitions...)
 	}
+	// MCP 工具多的时候按需加载：只列名字，用 tool_search 查、call_tool 调（见 agent/toolsearch.go）。
+	agent.DeferTools()
 	if *subagents {
 		// 子 agent 继承工具开关和运行参数；不继承长期记忆（子 agent 的“用户”是父 agent，不是真人）、
 		// 不继承 -subagents（只允许一层）、不继承续聊与整次时限（由父进程的 ctx 管）。
@@ -929,7 +934,7 @@ func run() error {
 				agent.SubagentArgs = append(agent.SubagentArgs, flagName, text)
 			}
 		}
-		llm.Tools = append(append(llm.Tools, agent.SpawnDefinition), agent.ControlDefinitions...)
+		llm.Tools = append(append(llm.Tools, agent.SpawnDefinition()), agent.ControlDefinitions...)
 	}
 	// 每次普通运行都写检查点，并在整个运行期间持有它的锁，同一任务不会被两个进程同时执行。
 	// 通信方式不存进检查点：之后在命令行续跑时，不该变成协议模式。
@@ -1014,6 +1019,13 @@ func run() error {
 	// 图片生成：接了后端（imagegen.Active 不为 nil）才提供 image_gen；现在只有壳子，后端见 spec/visualization-full.md。
 	if imagegen.Active != nil {
 		llm.Tools = append(llm.Tools, imagegen.Definition)
+	}
+	// 子 agent 类型最后收窄工具：前面加进来的工具都在清单里了，只留它列出的那些。
+	if *agentType != "" {
+		if err := agent.UseAgentType(*agentType); err != nil {
+			return err
+		}
+		fmt.Printf("Agent type: %s tools=%d\n", agent.AgentName, len(llm.Tools))
 	}
 	fmt.Printf("Checkpoint: id=%s file=%s（中断后用 -resume %s 续跑）\n", agent.CheckpointID, agent.CheckpointPath(agent.CheckpointID), agent.CheckpointID)
 	hooks.Session = first

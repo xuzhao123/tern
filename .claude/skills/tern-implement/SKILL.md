@@ -11,5 +11,4 @@ description: 让 tern（DeepSeek）照 spec/ 里的一份设计实现，再对�
 4. **任务写法**：读 AGENTS.md 和 spec，按“按文件的改动”逐个改；spec 没写到的先停下来说明；做完不需要真实模型的验收；不要提交。
 5. **review**：对照 spec 看 clone 里的 diff。tern 在沙箱里看不到工作区的 `.data/`（换成了空的 tmpfs），它说在那里删掉、没留下的东西，到沙箱外核对。spec 漏了的，先补 spec 并同步进 clone，再用 `POST /runs/<对话ID>/messages` 让 tern 接着补。
 6. **验收**：要真实模型的条目，用 clone 编出的程序在沙箱外跑（tern 在沙箱里连不到模型接口），`TERN_HOME` 设成临时目录（或者 `HOME` 指到临时目录），不碰 `~/.tern`。只导出需要的那个密钥，不要导出整个 `.env`。
-7. **回归**：改到 AGENTS.md「验证」里回归门槛列的那些包时，用 clone 编出的程序在源码目录跑编码评测和通用评测（`-baseline` 指当前基线，见 `spec/harness-next-phase.md` 进度），和基线比；掉了先查原因。只改网页、文档的跳过。
-8. **合并**：`git -C <clone> add -A && git -C <clone> diff --cached --binary <基线提交> -- . ':(exclude)spec' > <patch>`（不先 add，新建的文件不在 diff 里；中途在 clone 里提交过也照样从基线算），主仓库 `git apply`，再 gofmt、vet、build。最后取消登记工作区，删掉 clone 和临时文件；`rm` 用写死的绝对路径。
+7. **合并**：`git -C <clone> add -A && git -C <clone> diff --cached --binary <基线提交> -- . ':(exclude)spec' > <patch>`（不先 add，新建的文件不在 diff 里；中途在 clone 里提交过也照样从基线算），主仓库 `git apply`，再 gofmt、vet、build。最后取消登记工作区，删掉 clone 和临时文件；`rm` 用写死的绝对路径。

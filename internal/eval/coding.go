@@ -2,6 +2,7 @@ package eval
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/xuzhao123/tern/internal/workspace"
 )
 
 // 编码任务。题目带一份仓库快照：本仓库的某个提交（commit），或 eval/coding/ 下的一个小仓库（fixture）。
@@ -144,10 +147,21 @@ func runChecks(c Case, t *Trial, dir string) {
 
 // saveDiff 把模型的改动（相对起点，含新文件）存下来，返回路径。
 func saveDiff(recID, taskID, dir string) string {
-	if git(dir, "add", "-A") != nil {
+	// 模型刚在这个目录里工作过，这里又在沙箱外：不读仓库配置（见 workspace.SafeGitEnv）。
+	env, cleanup, err := workspace.SafeGitEnv(context.Background(), dir, dir, "")
+	if err != nil {
 		return ""
 	}
-	diff, err := exec.Command("git", "-C", dir, "diff", "--cached", "--stat", "--patch").Output()
+	defer cleanup()
+	run := func(args ...string) ([]byte, error) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir, cmd.Env = dir, env
+		return cmd.Output()
+	}
+	if _, err := run("add", "-A"); err != nil {
+		return ""
+	}
+	diff, err := run("diff", "--cached", "--stat", "--patch")
 	if err != nil {
 		return ""
 	}

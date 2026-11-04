@@ -2,9 +2,17 @@
 // 把当时的情况以 JSON 写进命令的 stdin，按退出码和 stdout 的 JSON 决定放行、拦截还是改写。
 // 配置格式沿用 Claude Code 的 settings.json 里的 hooks 段：
 //
-//	{"hooks": {"PreToolUse": [{"matcher": "edit_file|write_file", "hooks": [{"type": "command", "command": "...", "timeout": 30}]}]}}
+//	{"hooks": {"PreToolUse": [{"matcher": "edit_file|write_file|apply_patch", "hooks": [{"type": "command", "command": "...", "timeout": 30}]}]}}
 //
-// 事件  UserPromptSubmit（用户提交）· PreToolUse（工具执行前）· PostToolUse（工具成功后）· Stop（模型准备结束）
+// 事件  SessionStart（开始，matcher 匹配 startup、resume）· UserPromptSubmit（用户提交）· PreToolUse（工具执行前）·
+//
+//	PostToolUse（工具成功后）· Notification（等人审批或回答）· PreCompact（压缩上下文前，matcher 匹配 manual、auto）·
+//	Stop（主 agent 准备结束）· SubagentStop（子 agent 准备结束，matcher 匹配子 agent 类型）· SessionEnd（这一轮结束）
+//
+// 输出  除了各事件自己的字段，任何事件都可以返回 "continue": false（和 stopReason）让这一轮停下，
+//
+//	"systemMessage" 是给用户看的提示（显示在界面上，不给模型）。
+//
 // 退出码 0 = 成功，读 stdout 的 JSON（UserPromptSubmit 的纯文本 stdout 作为补充上下文）；
 //
 //	2 = 拦截，stderr 是原因；其他 = hook 自己出错，记一条日志后照常继续（不阻断）。
@@ -29,7 +37,10 @@ import (
 	"github.com/xuzhao123/tern/internal/protocol"
 )
 
-var Events = []string{"UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"}
+var Events = []string{"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "PreCompact", "Stop", "SubagentStop", "SessionEnd"}
+
+// matched 是 matcher 有意义的事件：工具名、开始方式、压缩触发方式、子 agent 类型。
+var matched = map[string]bool{"PreToolUse": true, "PostToolUse": true, "SessionStart": true, "PreCompact": true, "SubagentStop": true}
 
 type command struct {
 	Type    string `json:"type"`
@@ -38,7 +49,7 @@ type command struct {
 }
 
 type group struct {
-	Matcher string    `json:"matcher"` // 工具名的正则（整名匹配），空或 * 匹配全部；只用于 PreToolUse、PostToolUse
+	Matcher string    `json:"matcher"` // 正则（整名匹配），空或 * 匹配全部；匹配什么见 matched
 	Hooks   []command `json:"hooks"`
 	match   *regexp.Regexp
 }
@@ -92,8 +103,8 @@ func Parse(text string) (map[string][]group, error) {
 		for i := range groups {
 			g := &groups[i]
 			if g.Matcher != "" && g.Matcher != "*" {
-				if event == "UserPromptSubmit" || event == "Stop" {
-					return nil, fmt.Errorf("%s 不按工具匹配，去掉 matcher", event)
+				if !matched[event] {
+					return nil, fmt.Errorf("%s 没有 matcher，去掉它", event)
 				}
 				re, err := regexp.Compile("^(?:" + g.Matcher + ")$")
 				if err != nil {
@@ -124,12 +135,17 @@ type Result struct {
 	Decision string          // PreToolUse：allow、ask、deny；空表示 hook 没有意见
 	Input    json.RawMessage // PreToolUse 改写后的工具参数；nil 表示没改
 	Context  string          // 补充上下文：追加给模型看
+	Stop     bool            // 有 hook 返回 continue: false：这一轮停下
+	Why      string          // 停下的原因（stopReason），给人看
 }
 
 type output struct {
-	Decision string `json:"decision"`
-	Reason   string `json:"reason"`
-	Specific struct {
+	Decision      string `json:"decision"`
+	Reason        string `json:"reason"`
+	Continue      *bool  `json:"continue"`
+	StopReason    string `json:"stopReason"`
+	SystemMessage string `json:"systemMessage"`
+	Specific      struct {
 		PermissionDecision string          `json:"permissionDecision"`
 		DecisionReason     string          `json:"permissionDecisionReason"`
 		UpdatedInput       json.RawMessage `json:"updatedInput"`
@@ -137,7 +153,8 @@ type output struct {
 	} `json:"hookSpecificOutput"`
 }
 
-// Run 依次运行这个事件上匹配的 hook（按配置顺序，一个拦截就不再运行后面的）。
+// Run 依次运行这个事件上匹配的 hook（按配置顺序，一个拦截或要求停下就不再运行后面的）。
+// tool 是拿来和 matcher 比的值：工具名，或 SessionStart 的 source、PreCompact 的 trigger、SubagentStop 的子 agent 类型。
 // input 是事件特有的字段；公共字段（事件名、对话ID、工作目录）在这里补上。
 // PreToolUse 改写过参数后，后面的 hook 看到的是改写后的参数。
 func Run(ctx context.Context, event, tool string, input map[string]any) Result {
@@ -157,6 +174,15 @@ func Run(ctx context.Context, event, tool string, input map[string]any) Result {
 				outcome, reason = "block", firstNonEmpty(out.Specific.DecisionReason, out.Reason, "hook 拦截了这项操作")
 			}
 			report(ctx, event, tool, callID, h.Command, outcome, firstNonEmpty(reason, out.text()))
+			if out != nil && out.SystemMessage != "" {
+				// 给人看的提示：界面和 hook 的运行记录一起显示（结局记为 message），不进模型的上下文。
+				protocol.Event("hook/completed", "message", "Hook "+event+" message: "+out.SystemMessage, "event", event, "tool", tool, "call_id", callID, "command", h.Command, "output", out.SystemMessage)
+			}
+			if outcome == "ok" && out != nil && out.Continue != nil && !*out.Continue {
+				result.Stop, result.Why = true, firstNonEmpty(out.StopReason, "hook 要求停下")
+				result.Context = join(result.Context, out.context())
+				return result
+			}
 			switch outcome {
 			case "block":
 				result.Block, result.Reason, result.Decision = true, reason, "deny"
@@ -166,8 +192,8 @@ func Run(ctx context.Context, event, tool string, input map[string]any) Result {
 				continue
 			}
 			if out == nil {
-				// 纯文本 stdout：只有 UserPromptSubmit 把它当作补充上下文（和 Claude Code 一致），其他事件只进日志。
-				if event == "UserPromptSubmit" && reason != "" {
+				// 纯文本 stdout：只有 UserPromptSubmit、SessionStart 把它当作补充上下文（和 Claude Code 一致），其他事件只进日志。
+				if (event == "UserPromptSubmit" || event == "SessionStart") && reason != "" {
 					result.Context = join(result.Context, reason)
 				}
 				continue

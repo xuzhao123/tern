@@ -65,7 +65,7 @@ func forkHistory() *HistoryInput {
 	return &HistoryInput{Messages: messages, WithTools: true}
 }
 
-func startBackground(call llm.ToolCall, id, task string, history *HistoryInput, contextMode string) (any, error) {
+func startBackground(call llm.ToolCall, id, task string, history *HistoryInput, contextMode string, extra []string) (any, error) {
 	bgMu.Lock()
 	previous := -1
 	for i, b := range bgs {
@@ -89,7 +89,7 @@ func startBackground(call llm.ToolCall, id, task string, history *HistoryInput, 
 	bgMu.Unlock()
 	go func() {
 		defer close(b.done)
-		b.result, b.err = runSub(turnCtx, call.ID, id, task, history, contextMode, func(conn *protocol.Conn) {
+		b.result, b.err = runSub(turnCtx, call.ID, id, task, history, contextMode, extra, func(conn *protocol.Conn) {
 			b.mu.Lock()
 			b.conn = conn
 			b.mu.Unlock()

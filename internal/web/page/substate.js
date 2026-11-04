@@ -62,7 +62,7 @@ export function subActivity(r, item) {
   else if (state.key === "running") {
     const call = item.sub?.calls.findLast((c) => !c.compact && (!started || c.start >= started));
     const tool = call?.tools.find((t) => !t.done), message = call?.phase === "commentary" && call.choice?.message?.content;
-    const labels = { read_file: "读取文件", view_image: "查看图片", read_output: "读取输出", grep: "搜索代码", glob: "查找文件", bash: "执行命令", write_file: "写入文件", edit_file: "修改文件", agent_wait: "等待子任务", spawn_agent: "派发子任务" };
+    const labels = { read_file: "读取文件", view_image: "查看图片", read_output: "读取输出", grep: "搜索代码", glob: "查找文件", bash: "执行命令", write_file: "写入文件", edit_file: "修改文件", apply_patch: "应用补丁", agent_wait: "等待子任务", spawn_agent: "派发子任务" };
     subtitle = tool ? labels[tool.name] || "调用 " + tool.name : typeof message === "string" && message.trim() ? message.replace(/\s+/g, " ").trim() : "处理中";
   }
   if (group === "active") { at = started; clock = "elapsed"; }

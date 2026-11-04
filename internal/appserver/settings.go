@@ -634,7 +634,7 @@ func isGitRepo(path string) bool {
 }
 
 // workspace/add：登记本机上一个已存在的目录。默认只收 git 仓库（改坏了能用 git 回退）；
-// git 参数说不是 git 仓库时怎么办：init 先在目录里 git init，skip 照旧登记（撤销只能退 edit_file、write_file 改过的文件，也没有改动面板）。
+// git 参数说不是 git 仓库时怎么办：init 先在目录里 git init，skip 照旧登记（撤销只能退 edit_file、write_file、apply_patch 改过的文件，也没有改动面板）。
 func (c *conn) workspaceAdd(m protocol.Message) (any, *protocol.Error) {
 	var input struct {
 		Path string `json:"path"`

@@ -37,6 +37,7 @@ STEPS = [
     ("subcontrol", "check-subcontrol.py", ["--home", "{home}"], False),
     ("subresume", "check-subresume.py", ["--home", "{home}"], False),
     ("shell-access", "check-shell-access.py", ["--home", "{home}", "--binary", "{binary}"], False),
+    ("bash-cwd", "check-bash-cwd.py", ["--home", "{home}"], False),
     ("queue start", "check-queue.py", ["--home", "{home}", "--mode", "start"], False),
     ("queue finish", "check-queue.py", ["--home", "{home}", "--mode", "finish"], False),  # 脚本自己会重启 app-server 核对队列
     ("closeout-lifecycle", "check-closeout-lifecycle.py", ["--home", "{home}", "--binary", "{binary}"], False),

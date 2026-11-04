@@ -19,6 +19,7 @@ import (
 	"github.com/xuzhao123/tern/internal/protocol"
 	"github.com/xuzhao123/tern/internal/queue"
 	"github.com/xuzhao123/tern/internal/telemetry"
+	"github.com/xuzhao123/tern/internal/workspace"
 
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
@@ -498,7 +499,7 @@ func (r *Runner) startReplay(from string, rounds int, note string, n int, snap *
 			return nil, fmt.Errorf("试次 %s 没有存下工作区的 diff，无法还原工作区", from)
 		}
 		if j := slices.IndexFunc(r.rec.Trials[i].Tools, func(u ToolUse) bool {
-			return u.Round > rounds && u.Status == "ok" && (u.Name == "edit_file" || u.Name == "write_file")
+			return u.Round > rounds && u.Status == "ok" && workspace.Edits(u.Name)
 		}); j >= 0 {
 			return nil, fmt.Errorf("第 %d 轮还改过工作区文件，工作区只能还原到最终状态；回放点要选在最后一次改文件之后", r.rec.Trials[i].Tools[j].Round)
 		}

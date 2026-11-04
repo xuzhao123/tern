@@ -10,6 +10,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/xuzhao123/tern/internal/hooks"
 	"github.com/xuzhao123/tern/internal/llm"
 	"github.com/xuzhao123/tern/internal/protocol"
 	"github.com/xuzhao123/tern/internal/telemetry"
@@ -179,11 +180,12 @@ func (c *Context) Append(m llm.Message) {
 
 // fullOutput 判断这条工具结果要不要整份进视图、不受 ToolOutput 预算限制。load_skill 读的是操作指南，
 // 截成开头结尾等于只给了半份规则（模型多半不会再去 read_output）；skill 的每个文件在加载时已限制在 64KB 以内。
+// read_file 自己按 workspace.ReadBudget 分页（给 next_offset），再转存一次只会让模型拿到预览、多读一轮。
 func fullOutput(content string) bool {
 	var o struct {
 		Tool string `json:"tool"`
 	}
-	return json.Unmarshal([]byte(content), &o) == nil && o.Tool == "load_skill"
+	return json.Unmarshal([]byte(content), &o) == nil && (o.Tool == "load_skill" || o.Tool == "read_file")
 }
 
 func (c *Context) RecordReply(reply llm.Reply) {
@@ -260,6 +262,14 @@ func (c *Context) Prepare(ctx context.Context, client *llm.Client) (err error) {
 				err = nil
 			}
 		}()
+	}
+	// PreCompact：压缩前通知 hook（比如先把完整对话另存一份）；只通知，拦不住压缩。
+	if hooks.Has("PreCompact") {
+		trigger := "auto"
+		if force {
+			trigger = "manual"
+		}
+		hooks.Run(ctx, "PreCompact", trigger, map[string]any{"trigger": trigger, "context_tokens": before, "capacity": cap})
 	}
 	// 压缩单独一个 span；摘要请求（purpose=compact 的 chat span）挂在它下面。
 	ctx, span := telemetry.Begin(ctx, "compact_context", trace.SpanKindInternal, attribute.Int("agent.context.before", before), attribute.Int("agent.context.capacity", cap))

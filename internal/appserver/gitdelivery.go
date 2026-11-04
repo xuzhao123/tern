@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/xuzhao123/tern/internal/audit"
 	"github.com/xuzhao123/tern/internal/protocol"
+	"github.com/xuzhao123/tern/internal/workspace"
 )
 
 type gitPathState struct {
@@ -57,19 +58,8 @@ type gitActionRecord struct {
 	Reason      string `json:"reason,omitempty"`
 }
 
-func gitEnv(index string) []string {
-	env := []string{}
-	for _, pair := range os.Environ() {
-		if !strings.HasPrefix(pair, "GIT_") {
-			env = append(env, pair)
-		}
-	}
-	env = append(env, "GIT_OPTIONAL_LOCKS=0", "GIT_TERMINAL_PROMPT=0")
-	if index != "" {
-		env = append(env, "GIT_INDEX_FILE="+index)
-	}
-	return env
-}
+func gitEnv(index string) []string { return workspace.GitEnv(index) }
+
 func (c *conn) deliveryGit(dir, index, input string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(c.ctx, 30*time.Second)
 	defer cancel()

@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -323,9 +322,9 @@ func askVerifier(ctx context.Context, f *progressFeature, output string) (verdic
 	if verifierErr != nil {
 		return "", "", "", llm.Permanent(verifierErr)
 	}
-	diff, _ := exec.CommandContext(ctx, "git", "-C", workspace.Dir, "diff", "--stat", "HEAD").Output()
+	diff, _ := workspace.Git(ctx, "diff", "--stat", "HEAD")
 	prompt := fmt.Sprintf("功能描述：%s\n校验命令：%s\n退出码：0\n命令输出（可能截断）：\n%s\n\n工作区相对 HEAD 的改动：\n%s",
-		f.Desc, f.Check, telemetry.Clip(output, 6000), telemetry.Clip(string(diff), 2000))
+		f.Desc, f.Check, telemetry.Clip(output, 6000), telemetry.Clip(diff, 2000))
 	reply, err := verifierClient.Call(ctx, []llm.Message{{Role: "system", Content: verifierSystem}, {Role: "user", Content: prompt}}, false, "verify")
 	who = verifierClient.Config.Provider + "/" + verifierClient.Config.Model
 	if err != nil {

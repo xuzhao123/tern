@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -14,7 +15,7 @@ import (
 	"time"
 )
 
-// 文件快照：edit_file、write_file 改动文件之前，先把它当时的内容存一份；按轮撤销时据此把文件放回去。
+// 文件快照：edit_file、write_file、apply_patch 改动文件之前，先把它当时的内容存一份；按轮撤销时据此把文件放回去。
 // 快照按“轮”存放：一轮就是对话里的一次提问（一个检查点ID），目录是 <检查点目录>/<轮次ID>.files/：
 //
 //	changes/<任务ID>.json   这一轮里这个进程改过哪些文件：改之前的内容、最近一次写入后的内容
@@ -38,11 +39,12 @@ type Changes struct {
 
 // Change 记录一个文件在这一轮里的第一次改动之前和最后一次改动之后。中间改了几次不重要：撤销只需要“之前”，核对只需要“之后”。
 type Change struct {
-	Created bool      `json:"created,omitempty"` // 改之前不存在：撤销时删除
-	Before  string    `json:"before,omitempty"`  // 改之前内容的 sha256（blobs 里的文件名）
-	After   string    `json:"after,omitempty"`   // 最近一次写入后内容的 sha256；空表示写入结果没有确认（进程死在写入途中）
-	First   time.Time `json:"first"`             // 第一次快照的时间：几份清单改过同一个文件时，最早的那份“之前”才是这一段开始前的样子
-	Last    time.Time `json:"last"`              // 最近一次写入的时间：最晚的那份“之后”才是现在应有的样子
+	Created bool        `json:"created,omitempty"` // 改之前不存在：撤销时删除
+	Before  string      `json:"before,omitempty"`  // 改之前内容的 sha256（blobs 里的文件名）
+	Mode    fs.FileMode `json:"mode,omitempty"`    // 改之前的权限：文件被删了再恢复时用，可执行位不丢；旧清单没有这个字段，按 0644
+	After   string      `json:"after,omitempty"`   // 最近一次写入后内容的 sha256；空表示写入结果没有确认（进程死在写入途中）
+	First   time.Time   `json:"first"`             // 第一次快照的时间：几份清单改过同一个文件时，最早的那份“之前”才是这一段开始前的样子
+	Last    time.Time   `json:"last"`              // 最近一次写入的时间：最晚的那份“之后”才是现在应有的样子
 }
 
 func sha(data []byte) string {
@@ -108,6 +110,9 @@ func snapshot(path string, current []byte, exists bool) error {
 		c = &Change{Created: !exists, First: now}
 		if exists {
 			c.Before = sha(current)
+			if info, err := root.Stat(path); err == nil {
+				c.Mode = info.Mode().Perm()
+			}
 			blob := filepath.Join(SnapshotDir, "blobs", c.Before)
 			if _, err := os.Stat(blob); err != nil {
 				if err := writeAtomic(blob, current); err != nil {
@@ -130,6 +135,21 @@ func written(path string, content []byte) {
 	}
 	c := changes.Files[path]
 	c.After, c.Last = sha(content), time.Now().UTC()
+	if err := changes.save(changesPath()); err != nil {
+		fmt.Printf("Snapshot error: path=%s error=%v\n", path, err)
+	}
+}
+
+// deletedMark 记在 After 里，表示最近一次“写入”是删除（apply_patch 的 Delete File、改名的原文件）：撤销时核对它现在不存在。
+const deletedMark = "deleted"
+
+// removed 在删除成功之后调用（持有 mu），同 written。
+func removed(path string) {
+	if SnapshotDir == "" || changes == nil || changes.Files[path] == nil {
+		return
+	}
+	c := changes.Files[path]
+	c.After, c.Last = deletedMark, time.Now().UTC()
 	if err := changes.save(changesPath()); err != nil {
 		fmt.Printf("Snapshot error: path=%s error=%v\n", path, err)
 	}
@@ -336,7 +356,8 @@ type Plan struct {
 	Unsnapshotted []string `json:"unsnapshotted"` // 这几轮里 bash 改过的文件：没有快照，不会还原，单独列给人看
 
 	root *os.Root
-	from map[string]string // 要写回的文件 → 它的“之前”所在的 blob 路径
+	from map[string]string      // 要写回的文件 → 它的“之前”所在的 blob 路径
+	mode map[string]fs.FileMode // 要写回的文件 → 它原来的权限（文件已不存在时才用得上）
 }
 
 type merged struct {
@@ -385,7 +406,7 @@ func PlanRewind(dirs []string) (*Plan, error) {
 		}
 	}
 	sort.Strings(bashPaths)
-	plan := &Plan{Workspace: workspace, Restore: []string{}, Delete: []string{}, Unchanged: []string{}, Conflicts: []string{}, Unsnapshotted: append([]string{}, bashPaths...), from: map[string]string{}}
+	plan := &Plan{Workspace: workspace, Restore: []string{}, Delete: []string{}, Unchanged: []string{}, Conflicts: []string{}, Unsnapshotted: append([]string{}, bashPaths...), from: map[string]string{}, mode: map[string]fs.FileMode{}}
 	if len(files) == 0 {
 		return plan, nil
 	}
@@ -415,14 +436,17 @@ func PlanRewind(dirs []string) (*Plan, error) {
 			plan.Unchanged = append(plan.Unchanged, path)
 			continue
 		// 最后一次写入没有确认（进程死在写入途中）时不核对：那次写入正是我们自己做的。
-		case m.last.After != "" && (!exists || current != m.last.After):
+		case m.last.After == deletedMark && exists:
+			plan.Conflicts = append(plan.Conflicts, path)
+			continue
+		case m.last.After != "" && m.last.After != deletedMark && (!exists || current != m.last.After):
 			plan.Conflicts = append(plan.Conflicts, path)
 			continue
 		}
 		if m.first.Created {
 			plan.Delete = append(plan.Delete, path)
 		} else {
-			plan.Restore, plan.from[path] = append(plan.Restore, path), m.blob
+			plan.Restore, plan.from[path], plan.mode[path] = append(plan.Restore, path), m.blob, m.first.Mode
 		}
 	}
 	return plan, nil
@@ -467,7 +491,7 @@ func (p *Plan) Apply() error {
 				return err
 			}
 		}
-		if err := p.root.WriteFile(path, data, 0o644); err != nil {
+		if err := p.root.WriteFile(path, data, cmp.Or(p.mode[path], 0o644)); err != nil {
 			return fmt.Errorf("恢复 %s 失败：%w", path, err)
 		}
 	}
