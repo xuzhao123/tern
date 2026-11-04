@@ -1016,7 +1016,7 @@ func run() error {
 	if (workspace.Dir != "" || sandbox.Enabled) && config.Vision() {
 		llm.Tools = append(llm.Tools, agent.ViewImageDefinition)
 	}
-	// 图片生成：接了后端（imagegen.Active 不为 nil）才提供 image_gen；现在只有壳子，后端见 spec/visualization-full.md。
+	// 图片生成：接了后端（imagegen.Active 不为 nil）才提供 image_gen；现在只有壳子，后端见 spec/archive/visualization-full.md。
 	if imagegen.Active != nil {
 		llm.Tools = append(llm.Tools, imagegen.Definition)
 	}

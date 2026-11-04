@@ -104,12 +104,19 @@ func approve(ctx context.Context, call llm.ToolCall, kind, reason string) string
 		fmt.Printf("Approval skipped [%s]: tool=%s risk=%s（权限模式 full）\n", call.ID, call.Function.Name, kind)
 		return "allow"
 	}
-	scope := ""
-	if kind == "outbound" {
-		scope = grantScope(call)
+	var scopes []string
+	switch {
+	case kind == "outbound":
+		if s := grantScope(call); s != "" {
+			scopes = []string{s}
+		}
+	case kind == "permission" && strings.HasPrefix(reason, "权限模式"):
+		// 只有权限模式带来的确认才能“都允许”；用户写的 ask 规则和 hook 要求的确认，是每次都要问的。
+		scopes = permission.SessionScopes(call.Function.Name, specOf(call.Function.Name).Permission, call.Function.Arguments)
 	}
+	scope := strings.Join(scopes, "、")
 	grantMu.Lock()
-	known := scope != "" && slices.Contains(granted, scope)
+	known := len(scopes) > 0 && !slices.ContainsFunc(scopes, func(s string) bool { return !slices.Contains(granted, s) })
 	grantMu.Unlock()
 	if known {
 		record := audit.Record{Actor: "program", Event: "approval_decision", CallID: call.ID, Tool: call.Function.Name, Risk: kind, Decision: "allow_session", Detail: "本对话已允许：" + scope}
@@ -159,8 +166,10 @@ func approve(ctx context.Context, call llm.ToolCall, kind, reason string) string
 	if decision == "allow_session" {
 		record.Detail += "；本对话内都允许：" + scope
 		grantMu.Lock()
-		if !slices.Contains(granted, scope) {
-			granted = append(granted, scope)
+		for _, s := range scopes {
+			if !slices.Contains(granted, s) {
+				granted = append(granted, s)
+			}
 		}
 		grantMu.Unlock()
 		decision = "allow"

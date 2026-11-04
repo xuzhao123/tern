@@ -4,6 +4,7 @@ import { $, HOST, api, el, icon, ui } from "./util.js";
 import { openWorkTab } from "./workpanel.js";
 import { openProjectFile } from "./projectfiles.js";
 import { diffLines } from "./diff-lines.js";
+import { highlightSource, sourceLineFragment } from "./source-highlight.js";
 import { beginFeedback, feedbackEditor, feedbackList } from "./diff-feedback.js";
 
 export const DIFF_SCOPES = { workspace: "工作目录", unstaged: "未暂存", staged: "已暂存", branch: "分支提交" };
@@ -26,7 +27,7 @@ function paintDiffBadge(r, value) {
   badge.replaceChildren();
   if (!data || value.error) { badge.textContent = value.error ? "改动读取失败 · 点击重试" : "查看工作目录改动"; badge.title = value.error || "读取当前工作目录的改动"; return; }
   const incomplete = data.truncated || data.files.some((f) => f.truncated || f.notice || f.conflicted);
-  badge.append(el("span", "", `${!r.exit || value.loading ? "上次预览 · " : ""}${data.total_files || data.files.length} 个文件已更改`));
+  badge.append(el("span", "", `${data.total_files || data.files.length} 个文件已更改`));
   badge.append(el("span", "diff-count-add", `+${data.files.reduce((n, f) => n + f.added, 0)}`), el("span", "diff-count-delete", `−${data.files.reduce((n, f) => n + f.deleted, 0)}`));
   if (incomplete) badge.append(el("span", "", "部分预览"));
   badge.title = "工作目录范围，统计来自最近一次读取；点击重新核对。文本行数不含二进制或未完整预览内容。";
@@ -84,7 +85,7 @@ export function openDiff(r, files = [], scope = "") {
 const GIT_HEADER = /^(diff --(git|cc|combined) |index |--- |\+\+\+ |(new|deleted) file mode |old mode |new mode |similarity index |dissimilarity index |rename (from|to) |copy (from|to) )/;
 function diffBody(file, r, data, unavailable, shownEditors) {
   if (!file.diff) return el("div", "meta diff-empty", file.notice || (file.binary ? "二进制文件" : "没有文本内容变化"));
-  const pre = el("div", "diff-body");
+  const pre = el("div", "diff-body"), rows = [];
   // git 的文件头（diff --git、index、---/+++、mode）不进页面：文件名和状态已经在上面那一行。
   for (const line of diffLines(file).filter((l) => l.kind || l.old !== undefined || l.new !== undefined || !GIT_HEADER.test(l.text))) {
     const row = el("span", "diff-line numbered " + line.kind);
@@ -93,10 +94,27 @@ function diffBody(file, r, data, unavailable, shownEditors) {
       if (line[side] !== undefined) { number.disabled = unavailable || !file.version || file.conflicted; number.setAttribute("aria-label", `对${file.path}${side === "old" ? "旧侧" : "新侧"}第 ${line[side]} 行写反馈`); number.title = "对这一行写反馈"; }
       row.append(number);
     }
-    row.append(el("span", "diff-code", line.text)); pre.append(row);
+    // 行首的 +、-、空格单独一格：代码按语法着色，增删看底色和这个符号。
+    const code = el("span", "diff-code"), hasCode = line.old !== undefined || line.new !== undefined, marker = hasCode ? el("span", "diff-marker", line.text[0] || " ") : null;
+    if (hasCode) { code.append(marker, line.text.slice(1)); rows.push({ code, marker, text: line.text.slice(1) }); } else code.textContent = line.text;
+    row.append(code); pre.append(row);
     if (!shownEditors.has(file.path)) { const editor = feedbackEditor(r, file, data, unavailable, line); if (editor) { pre.append(editor); shownEditors.add(file.path); } }
   }
+  colorDiff(file.path, rows);
   return pre;
+}
+// 语法高亮：把一个文件 diff 里的代码行拼起来交给后台高亮，结果按内容缓存（面板经常重画，不能每次都闪一下原文）。
+const diffColors = new Map();
+function colorDiff(path, rows) {
+  if (!rows.length) return;
+  const text = rows.map((r) => r.text).join("\n"), key = path + "\0" + text;
+  const paint = (lines) => { if (lines) rows.forEach((r, i) => r.code.replaceChildren(r.marker, sourceLineFragment(lines[i]))); };
+  const known = diffColors.get(key);
+  if (known === null || Array.isArray(known)) return paint(known);
+  if (diffColors.size > 200) diffColors.clear();
+  const pending = known || highlightSource(path, text).then((result) => { diffColors.set(key, result.lines); return result.lines; });
+  diffColors.set(key, pending);
+  pending.then(paint);
 }
 function comparisonLabel(data, r) {
   const scope = data?.scope || "workspace", base = data?.base_ref || "HEAD";
@@ -128,13 +146,13 @@ export function renderDiffPanel() {
   const data = d.data, files = data?.files || [], stale = !!data && (!!d.err || d.loadedKey !== requestKey(d) || d.loading);
   const summary = el("div", "diff-summary"), info = el("details", "chrome-menu diff-info"), toggle = el("summary"), content = el("div", "chrome-menu-content"); toggle.setAttribute("aria-label", "比较详情"); toggle.innerHTML = icon("info");
   if (data) {
-    summary.append(el("span", "", `${stale ? "上次预览 · " : ""}${files.length}${data.total_files > files.length ? "/" + data.total_files : ""} 个文件`), el("span", "diff-totals", `文本 +${files.reduce((n, f) => n + f.added, 0)} −${files.reduce((n, f) => n + f.deleted, 0)}`));
+    summary.append(el("span", "", `${stale ? "可能已过期 · " : ""}${files.length}${data.total_files > files.length ? "/" + data.total_files : ""} 个文件`), el("span", "diff-totals", `文本 +${files.reduce((n, f) => n + f.added, 0)} −${files.reduce((n, f) => n + f.deleted, 0)}`));
     content.append(el("div", "", comparisonLabel(data, r)), el("div", "meta", data.dir), el("div", "meta", `分支：${data.branch || "分离 HEAD / 未记录"}`), el("div", "meta", `基准：${data.base_oid || "暂存区"}`), el("div", "meta", `目标：${data.target_oid || data.target || "工作目录"}`), el("div", "meta", "预览：" + (data.view_version || "版本未记录")));
     info.append(toggle, content); summary.append(info); nodes.push(summary, el("div", "diff-context meta", comparisonLabel(data, r)));
   }
   const body = el("div", "sp-body diff-content");
   if(data?.filter_notice)body.append(el("p","meta",data.filter_notice));
-  if (d.err) body.append(el("div", "meta err", (data ? "上次预览可能过期。" : "") + d.err));
+  if (d.err) body.append(el("div", "meta err", (data ? "显示的内容可能已过期。" : "") + d.err));
   else if (d.loading) body.append(el("div", "meta", data ? "正在核对最新改动…" : "正在读取改动…"));
   else if (!files.length) body.append(el("div", "empty", data?.filter_notice?"可核对范围没有改动；受限文件仍需另行检查":"所选范围没有改动"));
   const shownEditors = new Set();

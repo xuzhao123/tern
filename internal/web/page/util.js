@@ -9,6 +9,8 @@ export const HOST = (() => {
 })();
 export const hostAPI = (alias, path) => (alias ? `/h/${encodeURIComponent(alias)}` : "") + path;
 export function api(path) { return hostAPI(HOST, path); }
+// 这台主机上最近一次用的项目：新任务默认接着用；空串表示选的是“无工作区”。
+export const lastProjectKey = () => "tern.lastProject:" + (HOST || "");
 // 某台主机上一页的地址：换主机是整页跳转（页面里 ui.run 和各处缓存都假定只有一台主机）。
 export const hostURL = (alias, run) => hostAPI(alias, "/") + (run ? `?run=${encodeURIComponent(run)}` : "");
 export const HOST_STATE = { connected: "已连接", reconnecting: "重连中", failed: "连不上" };
@@ -92,8 +94,10 @@ export async function markUnread(alias, task) {
   catch (error) { readingError(error); }
 }
 export function notificationSettings() {
-  try { return JSON.parse(localStorage.getItem(`tern-notify-v2:${encodeURIComponent(ui.account || "")}`) || "{}"); }
-  catch { return {}; }
+  // 默认切走时通知：跑完、等审批、等回答都是要人回来的时候。
+  const defaults = { done: "background", approval: "background", question: "background" };
+  try { return { ...defaults, ...JSON.parse(localStorage.getItem(`tern-notify-v2:${encodeURIComponent(ui.account || "")}`) || "{}") }; }
+  catch { return defaults; }
 }
 export function setNotification(kind, mode) {
   try { const settings = notificationSettings(); settings[kind] = mode; localStorage.setItem(`tern-notify-v2:${encodeURIComponent(ui.account || "")}`, JSON.stringify(settings)); return true; }

@@ -52,7 +52,7 @@ async function loadFile(tab, r) {
         });
       } catch { s.note = "这是二进制文件或不支持的文本编码，不能按 UTF-8 源码预览。"; }
     }
-  } catch (error) { if (request === s.request) s.error = (s.data ? "上次预览可能过期。" : "") + (error.message.includes("没有这个方法") ? "当前服务版本不支持项目文件预览，请升级执行主机。" : error.message); }
+  } catch (error) { if (request === s.request) s.error = (s.data ? "显示的内容可能已过期。" : "") + (error.message.includes("没有这个方法") ? "当前服务版本不支持项目文件预览，请升级执行主机。" : error.message); }
   if (request === s.request) s.loading = false;
   if (ui.run?.id === r.id && workTab() === tab) redraw();
 }

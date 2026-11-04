@@ -7,7 +7,7 @@
 .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
 body { font-size:14px; letter-spacing:-.01em; }
 #app { grid-template-columns:clamp(248px,23vw,300px) minmax(0,1fr); }
-/* 侧栏：网格见 spec/web-sidebar-polish.md。每行左右各留 8px、行内 10px：图标列从 18 开始（16px），文字列从 42 开始，
+/* 侧栏：网格见 spec/archive/web-sidebar-polish.md。每行左右各留 8px、行内 10px：图标列从 18 开始（16px），文字列从 42 开始，
    行右端的操作位（⋯、未读点）宽 22、贴着行内边距。选择器都以 #sidebar 开头，不靠书写顺序压过 app.css 和 .chrome-menu。 */
 #sidebar { border-right:1px solid var(--line); padding-top:0; }
 #sidebar .brand { height:56px; flex:none; gap:2px; padding:0 15px 0 12px; font-size:16px; font-weight:600; }
@@ -193,7 +193,7 @@ body { font-size:14px; letter-spacing:-.01em; }
 #work-resize { position:absolute; left:-4px; top:0; bottom:0; width:7px; z-index:26; cursor:col-resize; touch-action:none; }
 #work-resize:hover, #work-resize:focus-visible { background:color-mix(in srgb,var(--accent) 30%,transparent); }
 .work-wide #work-resize { display:none; }
-/* 工作面板标签（spec/web-worktab-polish.md）：一个标签一个框 [图标 标题 ×]。两个按钮是 .ghost，去掉它自带的边框和底色，
+/* 工作面板标签（spec/archive/web-worktab-polish.md）：一个标签一个框 [图标 标题 ×]。两个按钮是 .ghost，去掉它自带的边框和底色，
    框只画在外层 .work-tab 上。× 只在当前、悬停、聚焦的标签上显示，隐藏时照样占位，标签不会因悬停变宽。
    放不下时标签先收窄到 min-width（标题至少露出四个汉字），再横向滚动；滚动位置由 workpanel.js 的 revealTab 定，手动滚动按标签左边吸附。 */
 #work-tabs { scroll-snap-type:x proximity; scrollbar-width:none; }
@@ -285,6 +285,22 @@ body { font-size:14px; letter-spacing:-.01em; }
 .diff-line.add { background:color-mix(in srgb,var(--ok) 8%,transparent); }
 .diff-line.del { background:color-mix(in srgb,var(--err) 8%,transparent); }
 .diff-line.hunk { padding:4px 0; background:var(--soft); }
+/* 长行折行，不用横向滚动；底色和符号表示增删，代码本身按语法着色。 */
+.diff-line.numbered { grid-template-columns:38px 38px minmax(0,1fr); color:var(--text); }
+.diff-line.hunk.numbered, .diff-line.numbered.hunk { color:var(--muted); }
+.diff-code { white-space:pre-wrap; overflow-wrap:anywhere; }
+.diff-marker { user-select:none; }
+.diff-line.add .diff-marker { color:var(--ok); }
+.diff-line.del .diff-marker { color:var(--err); }
+/* 语法高亮的颜色（source-highlight.js 给的类名）：用主题变量，深色模式跟着变。 */
+.hljs-keyword, .hljs-built_in, .hljs-selector-tag, .hljs-doctag, .hljs-meta { color:var(--think); }
+.hljs-string, .hljs-regexp, .hljs-template-variable, .hljs-addition, .hljs-attr, .hljs-symbol { color:var(--ok); }
+.hljs-comment, .hljs-quote { color:var(--muted); font-style:italic; }
+.hljs-number, .hljs-literal, .hljs-type, .hljs-variable { color:var(--warn); }
+.hljs-title, .hljs-function, .hljs-name, .hljs-property, .hljs-section, .hljs-attribute, .hljs-selector-class, .hljs-selector-id { color:var(--accent); }
+.hljs-deletion { color:var(--err); }
+.hljs-strong { font-weight:600; }
+.hljs-emphasis { font-style:italic; }
 .diff-empty { margin:5px 8px 14px; font-size:12px; }
 .feedback-line { border:0; border-radius:0; padding:0 7px 0 0; background:none; font:inherit; font-size:10px; }
 .feedback-line:hover:not(:disabled) { background:color-mix(in srgb,var(--accent) 18%,transparent); color:var(--accent); }

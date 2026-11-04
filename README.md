@@ -255,7 +255,7 @@ tern -question '计算 1231+23123'
 | `/init` | 命令 | 看一遍工作区，生成或更新根目录的 `AGENTS.md`（项目是什么、构建与测试命令、约定） |
 | `code-review` | skill | 按“先构建、再看逻辑”的固定顺序评审 Go 代码；模型判断任务相关时用 load_skill 加载 |
 
-`image_gen`（生成配图）目前只有壳子（[internal/imagegen](internal/imagegen/)）：没接后端时不提供这个工具。接后端的做法见 [spec/visualization-full.md](spec/visualization-full.md)。
+`image_gen`（生成配图）目前只有壳子（[internal/imagegen](internal/imagegen/)）：没接后端时不提供这个工具。接后端的做法见 [spec/archive/visualization-full.md](spec/archive/visualization-full.md)。
 
 ### 子 agent 类型
 

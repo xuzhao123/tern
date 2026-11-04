@@ -1,6 +1,6 @@
 import { renderPending } from "./activity.js";
 import { agentCard, collaborationSummary, renderSubPanel } from "./agents.js";
-import { analyze, endLabel, tokenParts, toolResult } from "./analysis.js";
+import { analyze, endLabel, modelProblem, tokenParts, toolResult } from "./analysis.js";
 import { WEB_TOOLS, webCard } from "./browser.js";
 import { start } from "./composer.js";
 import { diffFileCounts, openDiff } from "./diff.js";
@@ -57,12 +57,10 @@ function memoryCard(r, turn, phase) {
 // 本轮启用的 skill 与 MCP：快照来自网页端的 start/continue 事件，实际结果来自 agent 启动时的终端行。
 function capsSummary(r, turn) {
   const logs = r.caps.filter((l) => l.turn === turn);
-  const loaded = logs.find((l) => l.kind === "skills_loaded");
   const tools = logs.filter((l) => l.kind === "mcp_register").length;
   const errors = logs.filter((l) => ["skill_error", "mcp_error", "mcp_skip"].includes(l.kind)).length;
   const hookRuns = logs.filter((l) => l.kind === "hook").length, command = logs.find((l) => l.kind === "command");
   const parts = [];
-  if (r.skills.length) parts.push(`Skills ${loaded ? loaded.count : "?"}/${r.skills.length}`);
   if (r.mcp.length) parts.push(`MCP ${r.mcp.length} 个 · ${tools} 个工具`);
   if (errors) parts.push(`${errors} 条跳过`);
   if (hookRuns) parts.push(`hook ${hookRuns} 次`);
@@ -71,7 +69,8 @@ function capsSummary(r, turn) {
 // 同 Claude Code 只在启动时报一次能力、出问题时再提：续聊各轮和上一轮一样（没有斜杠命令）就不再显示。
 function capsCard(r, turn) {
   const { logs, errors, command, parts } = capsSummary(r, turn);
-  if (!logs.length) return null;
+  // 启动一切正常就不占位（同 Claude Code、Codex）；详情在“观测”里。
+  if (!logs.length || (!parts.length && !command && !r.skillRefs?.[turn]?.length)) return null;
   if (turn > 1 && !command && parts.join() === capsSummary(r, turn - 1).parts.join()) return null;
   if (command) parts.push(command.text.replace(/^Command: /, "命令 "));
   const rows = [];
@@ -336,7 +335,7 @@ export function renderCall(outer, r, c, last) {
     return box.append(slot.wait);
   }
   if (!c.choice) {
-    if (c.status === 499) return box.append(step("e" + c.n, [ico("", "stop"), el("span", "", `请求已取消（agent 停止）· ${sec(c.ms)}`)], [el("pre", "", c.errorText || "")]));
+    if (c.status === 499) return; // 人按了停止：结尾那行“已停止”已经说明了
     return box.append(step("e" + c.n, [ico("bad", "error"), el("span", "bad", `模型请求失败 · HTTP ${c.status}`)], [el("pre", "err", c.errorText || pretty(c.res))]));
   }
   if (m.reasoning_content) {
@@ -606,17 +605,26 @@ function drawChat() {
   const last = r.calls.filter((c) => !c.compact).at(-1);
   const answered = last && last.choice && !last.tools.length && last.choice.message.content;
   if (r.exit && (r.exit !== "exit 0" || !answered)) {
-    const card = el("div", "stopcard");
-    card.append(el("div", "err", r.source && r.exit === "exit 0" ? "记录在这里结束：最后一次请求之后没有回答" : (r.stopRequested ? "已按停止按钮中断：" : "agent 已停止：") + endLabel(r)));
-    // 不正常结束时 harness 自己跑的收尾检查（Stop hook 的命令），告诉人留下的状态能不能用。
-    if (r.finalCheck) card.append(r.finalCheck.passed ? el("div", "meta", "收尾检查通过（Stop hook）") : fold("收尾检查没通过（Stop hook）", r.finalCheck.detail || "", true));
-    if (r.checkpoint) card.append(el("div", "meta", "检查点已保存，可以直接继续提问"));
-    const tail = r.logs.filter((l) => !(l.text || "").startsWith("用户续聊：")).slice(-6);
-    if (tail.length) card.append(fold("最后几行输出", tail.map((l) => l.text).join("\n")));
-    const link = el("button", "link", "完整终端输出");
-    link.onclick = () => { observeAt("end"); };
-    card.append(link);
-    box.append(card);
+    const failedCheck = r.finalCheck && !r.finalCheck.passed ? fold("收尾检查没通过（Stop hook）", r.finalCheck.detail || "", true) : null;
+    // 人自己停的不是出错：一行说明就够，详情在“观测”里。
+    if (r.stopRequested && r.exit !== "exit 0") {
+      box.append(el("div", "meta", r.checkpoint ? "已停止，可以继续提问" : "已停止"));
+      if (failedCheck) box.append(failedCheck);
+    } else {
+      const card = el("div", "stopcard"), problem = modelProblem(r);
+      card.append(el("div", "err", r.source && r.exit === "exit 0" ? "记录在这里结束：最后一次请求之后没有回答" : problem ? endLabel(r) : "agent 已停止：" + endLabel(r)));
+      // 不正常结束时 harness 自己跑的收尾检查（Stop hook 的命令），告诉人留下的状态能不能用。
+      if (r.finalCheck) card.append(failedCheck || el("div", "meta", "收尾检查通过（Stop hook）"));
+      if (problem) card.append(el("div", "meta", problem.hint));
+      else if (r.checkpoint) card.append(el("div", "meta", "可以直接继续提问"));
+      const tail = r.logs.filter((l) => !(l.text || "").startsWith("用户续聊：")).slice(-6);
+      const detail = [problem ? r.termination : "", ...tail.map((l) => l.text)].filter(Boolean);
+      if (detail.length) card.append(fold("详细信息", detail.join("\n")));
+      const link = el("button", "link", "完整日志");
+      link.onclick = () => { observeAt("end"); };
+      card.append(link);
+      box.append(card);
+    }
   }
   // 计划模式下的一轮正常结束：一键批准，切到 edit 并让 agent 按计划执行（的“下一轮切到 edit”）。
   if (r.exit === "exit 0" && answered && r.permission === "plan" && !r.source && !ui.replay) {

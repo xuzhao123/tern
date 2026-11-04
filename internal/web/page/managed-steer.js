@@ -1,7 +1,7 @@
 import { $, api, el, stripHead, ui } from "./util.js";
 import { loadRuns } from "./shell.js";
 
-const labels = { received: "服务端已接收，等待送达", sending: "正在送达", accepted: "已送达，等待采纳", deferred: "将安排到下一轮", unconsumed: "未被本轮采纳，正在转交", unknown: "结果待确认", blocked: "已被提交规则拦下" };
+const labels = { received: "发送中", sending: "发送中", accepted: "做完这一步就会看到", deferred: "下一轮处理", unconsumed: "这一轮没用上，转到下一轮", unknown: "不确定有没有送达", blocked: "已被提交规则拦下" };
 function action(label, fn, disabled, primary = false) { const b = el("button", primary ? "sa primary" : "sa", label); b.type = "button"; b.disabled = disabled; b.onclick = fn; return b; }
 function changed() { document.dispatchEvent(new Event("tern:managed-steer-changed")); }
 async function call(r, path, body) {
@@ -18,10 +18,11 @@ export function managedSteerSection(r) {
   const items = r.managedSteers || [];
   if (!items.length && !r.steerError) return [];
   const disabled = !!ui.managedSteerBusy || !!ui.streamDisconnected || !!ui.connectionLost || !!ui.historyReplaying;
-  const head = stripHead("steer", "插话", `当前轮补充 ${items.length} 条`);
-  head.append(action("核对状态", () => call(r, "/steer/refresh", {}), disabled));
+  const head = stripHead("steer", "插话", `${items.length} 条`);
+  // 只有状态真的不确定时才要人核对。
+  if (r.steerError || items.some((item) => item.state === "unknown")) head.append(action("核对状态", () => call(r, "/steer/refresh", {}), disabled));
   const pending = items.filter((item) => item.turn === r.steerTurnSeq && item.state !== "blocked");
-  if (!r.exit && pending.length) head.append(action("停止并发送未采纳内容", () => call(r, "/stop", { steer_ids: pending.map((item) => item.id), steer_turn: r.steerTurnSeq }), disabled, true));
+  if (!r.exit && pending.length) head.append(action("停下并立即发送", () => call(r, "/stop", { steer_ids: pending.map((item) => item.id), steer_turn: r.steerTurnSeq }), disabled, true));
   const nodes = [head];
   if (r.steerError) nodes.push(el("div", "meta err", r.steerError));
   for (const item of items) {

@@ -1,6 +1,7 @@
 package appserver
 
 import (
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -94,7 +95,7 @@ func (c *conn) workspaceFileCandidates(dir string) ([]string, *protocol.Error) {
 	return files, nil
 }
 
-// matchWorkspaceFiles 按四档打分：文件名以 query 开头、文件名里有连续的 query、路径里有连续的 query、只是子序列；
+// matchWorkspaceFiles 按四档打分：文件名以 query 开头、文件名里有连续的 query、路径里有连续的 query、只是子序列（前三档都没有时才用）；
 // 同一档里路径短的在前，再按字母序。query 为空时按路径排序给前面的。最多给 maxWorkspaceFiles 个。
 func matchWorkspaceFiles(files []string, query string) []string {
 	q := strings.ToLower(strings.Join(strings.Fields(query), ""))
@@ -128,6 +129,10 @@ func matchWorkspaceFiles(files []string, query string) []string {
 		if rank >= 0 {
 			hits = append(hits, hit{name, rank})
 		}
+	}
+	// 有名字或路径里连续命中的，就不要只是凑巧能拼出来的子序列（搜 perm 不该冒出 spec/README.md）。
+	if slices.ContainsFunc(hits, func(h hit) bool { return h.rank < 3 }) {
+		hits = slices.DeleteFunc(hits, func(h hit) bool { return h.rank == 3 })
 	}
 	sort.Slice(hits, func(i, j int) bool {
 		if hits[i].rank != hits[j].rank {

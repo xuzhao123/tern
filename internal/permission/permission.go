@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -204,7 +205,8 @@ func modeDefault(category, name, value string) string {
 }
 
 // 只读命令：只看不改的常用命令（参考 Claude Code 内置的只读命令集）。带重定向的不算，一段不在名单里就不算。
-var readOnlyCommands = map[string]bool{"ls": true, "cat": true, "head": true, "tail": true, "wc": true, "grep": true, "find": true,
+// cd 只换目录：模型习惯写 cd /workspace && git status，不能因为它把整条判成要确认。
+var readOnlyCommands = map[string]bool{"cd": true, "ls": true, "cat": true, "head": true, "tail": true, "wc": true, "grep": true, "find": true,
 	"pwd": true, "echo": true, "stat": true, "du": true, "diff": true, "which": true, "file": true, "tree": true}
 var readOnlyGit = map[string]bool{"status": true, "diff": true, "log": true, "show": true, "branch": true, "blame": true, "ls-files": true}
 
@@ -221,6 +223,62 @@ func gitSubcommand(args []string) string {
 		}
 	}
 	return ""
+}
+
+// 能跑任意代码或别的命令的程序：允许了它等于什么都允许了，所以不提供“本对话内都允许”。
+var openEnded = map[string]bool{"sh": true, "bash": true, "zsh": true, "dash": true, "fish": true, "python": true, "python3": true, "node": true, "deno": true, "bun": true, "ruby": true, "perl": true, "php": true, "lua": true,
+	"eval": true, "exec": true, "source": true, ".": true, "env": true, "sudo": true, "su": true, "xargs": true, "find": true, "awk": true, "sed": true, "timeout": true, "nohup": true, "nice": true, "time": true, "watch": true, "ssh": true, "command": true, "builtin": true}
+
+// 这些程序按“程序 子命令”算范围：允许 go build 不等于允许 go run。
+var subcommanded = map[string]bool{"git": true, "go": true, "npm": true, "pnpm": true, "yarn": true, "npx": true, "cargo": true, "docker": true, "kubectl": true, "make": true, "gh": true, "uv": true, "pip": true, "pip3": true}
+
+// SessionScopes 返回“本对话内都允许”覆盖的范围；空表示这次调用不提供这个选项。全部范围都允许过的调用才不再询问。
+// Edit 一个范围管所有文件（同 Claude Code 的“本次会话允许所有编辑”）。Bash 每一段各算一个范围，
+// 所以允许过 go build 之后，go build && curl … 还会问。解析不了的写法（命令替换、重定向、后台、子 shell）不提供。
+func SessionScopes(name, category, arguments string) []string {
+	switch category {
+	case "Edit":
+		return []string{"编辑文件"}
+	case "Bash":
+		var args struct{ Command string }
+		_ = json.Unmarshal([]byte(arguments), &args)
+		return bashScopes(args.Command)
+	}
+	return []string{name}
+}
+
+func bashScopes(command string) []string {
+	plain := strings.NewReplacer("2>&1", "", "2>/dev/null", "", "&&", "").Replace(command)
+	if strings.ContainsAny(plain, "`$()<>{}&") {
+		return nil
+	}
+	var scopes []string
+	for _, part := range segments(command) {
+		fields := strings.Fields(strings.NewReplacer("2>&1", "", "2>/dev/null", "").Replace(part))
+		if len(fields) == 0 || fields[0] == "cd" {
+			continue
+		}
+		scope := fields[0]
+		switch {
+		case openEnded[scope] || strings.Contains(scope, "="):
+			return nil
+		case scope == "git":
+			sub := gitSubcommand(fields[1:])
+			if sub == "" {
+				return nil
+			}
+			scope += " " + sub
+		case subcommanded[scope]:
+			if len(fields) < 2 || strings.HasPrefix(fields[1], "-") {
+				return nil
+			}
+			scope += " " + fields[1]
+		}
+		if !slices.Contains(scopes, scope) {
+			scopes = append(scopes, scope)
+		}
+	}
+	return scopes
 }
 
 func readOnly(command string) bool {
