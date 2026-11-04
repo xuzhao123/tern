@@ -58,6 +58,18 @@ export async function highlightSource(path, text) {
   });
 }
 
+// 画面经常重画（diff 面板、流式回答），同样的内容只高亮一次，已有结果当场画上，不闪一下原文。paint 收到 lines（高亮不了时不调用）。
+const highlighted = new Map();
+export function highlightCached(path, text, paint) {
+  const key = path + "\0" + text, known = highlighted.get(key);
+  if (known === null) return;
+  if (Array.isArray(known)) { paint(known); return; }
+  if (highlighted.size > 300) highlighted.clear();
+  const pending = known || highlightSource(path, text).then((result) => { highlighted.set(key, result.lines); return result.lines; });
+  highlighted.set(key, pending);
+  pending.then((lines) => { if (lines) paint(lines); });
+}
+
 // 高亮器和源文件的字符串都不作为 DOM 标记解析，属性也只接受固定样式类。
 export function sourceLineFragment(tokens) {
   const fragment = document.createDocumentFragment();

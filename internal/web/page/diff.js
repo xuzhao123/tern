@@ -4,7 +4,7 @@ import { $, HOST, api, el, icon, ui } from "./util.js";
 import { openWorkTab } from "./workpanel.js";
 import { openProjectFile } from "./projectfiles.js";
 import { diffLines } from "./diff-lines.js";
-import { highlightSource, sourceLineFragment } from "./source-highlight.js";
+import { highlightCached, sourceLineFragment } from "./source-highlight.js";
 import { beginFeedback, feedbackEditor, feedbackList } from "./diff-feedback.js";
 
 export const DIFF_SCOPES = { workspace: "工作目录", unstaged: "未暂存", staged: "已暂存", branch: "分支提交" };
@@ -26,9 +26,10 @@ function paintDiffBadge(r, value) {
   wrap.hidden = (!!data && !data.files.length && !value.error && !value.loading) || (cardShown(r) && !value.error);
   badge.replaceChildren();
   if (!data || value.error) { badge.textContent = value.error ? "改动读取失败 · 点击重试" : "查看工作目录改动"; badge.title = value.error || "读取当前工作目录的改动"; return; }
-  const incomplete = data.truncated || data.files.some((f) => f.truncated || f.notice || f.conflicted);
+  const added = data.files.reduce((n, f) => n + f.added, 0), deleted = data.files.reduce((n, f) => n + f.deleted, 0);
+  const incomplete = data.truncated || data.files.some((f) => !f.binary && (f.truncated || f.notice || f.conflicted));
   badge.append(el("span", "", `${data.total_files || data.files.length} 个文件已更改`));
-  badge.append(el("span", "diff-count-add", `+${data.files.reduce((n, f) => n + f.added, 0)}`), el("span", "diff-count-delete", `−${data.files.reduce((n, f) => n + f.deleted, 0)}`));
+  if (added > 0 || deleted > 0) badge.append(el("span", "diff-count-add", `+${added}`), el("span", "diff-count-delete", `−${deleted}`));
   if (incomplete) badge.append(el("span", "", "部分预览"));
   badge.title = "工作目录范围，统计来自最近一次读取；点击重新核对。文本行数不含二进制或未完整预览内容。";
 }
@@ -103,18 +104,10 @@ function diffBody(file, r, data, unavailable, shownEditors) {
   colorDiff(file.path, rows);
   return pre;
 }
-// 语法高亮：把一个文件 diff 里的代码行拼起来交给后台高亮，结果按内容缓存（面板经常重画，不能每次都闪一下原文）。
-const diffColors = new Map();
+// 语法高亮：把一个文件 diff 里的代码行拼起来交给后台高亮。
 function colorDiff(path, rows) {
   if (!rows.length) return;
-  const text = rows.map((r) => r.text).join("\n"), key = path + "\0" + text;
-  const paint = (lines) => { if (lines) rows.forEach((r, i) => r.code.replaceChildren(r.marker, sourceLineFragment(lines[i]))); };
-  const known = diffColors.get(key);
-  if (known === null || Array.isArray(known)) return paint(known);
-  if (diffColors.size > 200) diffColors.clear();
-  const pending = known || highlightSource(path, text).then((result) => { diffColors.set(key, result.lines); return result.lines; });
-  diffColors.set(key, pending);
-  pending.then(paint);
+  highlightCached(path, rows.map((r) => r.text).join("\n"), (lines) => rows.forEach((r, i) => r.code.replaceChildren(r.marker, sourceLineFragment(lines[i]))));
 }
 function comparisonLabel(data, r) {
   const scope = data?.scope || "workspace", base = data?.base_ref || "HEAD";

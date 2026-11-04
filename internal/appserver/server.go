@@ -148,7 +148,7 @@ type run struct {
 
 type toolWait struct {
 	rpc                                                int64
-	Task, Tool, Risk, Arguments, Scope, OriginalCallID string // Scope：外发类可以“本对话内都允许”的范围，由 agent 给出
+	Task, Tool, Risk, Arguments, Scope, OriginalCallID string // Scope：可以“本对话内都允许”的范围，由 agent 给出
 }
 
 // agent 子进程：默认执行正在运行的自己（/proc/self/exe），与 app-server 同一份代码、不需要编译、在哪台机器运行就是哪台机器的格式；
@@ -2272,7 +2272,7 @@ func (s *Server) decideNetwork(ctx context.Context, r *run, name, by, domain str
 }
 
 // 高风险操作确认。agent 发来 tool/requestApproval 后暂停；人在界面上点“允许 / 拒绝”，这里当场回复。
-// 只对正在等待的调用有效：下一项操作要重新确认。外发类的请求带范围时，人可以选“本对话内都允许”（allow_session），
+// 只对正在等待的调用有效：下一项操作要重新确认。请求带范围时，人可以选“本对话内都允许”（allow_session），
 // 由 agent 记下范围，之后同一范围不再询问。决定记进对话记录，界面重开后仍能看到。
 func (s *Server) decideTool(ctx context.Context, r *run, name, by, callID string, allow, session bool) (any, *protocol.Error) {
 	if callID == "" || len(callID) > 256 {
@@ -2292,7 +2292,7 @@ func (s *Server) decideTool(ctx context.Context, r *run, name, by, callID string
 		decision = "allow"
 	}
 	if allow && session {
-		if wait.Risk != "outbound" || wait.Scope == "" {
+		if wait.Scope == "" { // 能不能“都允许”由 agent 决定：给了范围才有这个选项
 			r.mu.Lock()
 			r.toolWaits[callID] = wait
 			r.mu.Unlock()

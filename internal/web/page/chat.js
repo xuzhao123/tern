@@ -269,12 +269,24 @@ const GOAL_STATE = { continue: "继续", blocked: "受阻", waiting_user: "等�
 const PROGRESS_ACTION = { read: "读取", init: "建立清单", note: "写交接说明", fix_check: "更正校验命令" };
 // 子任务的工具行用子任务的标题（派它时的任务说明），找不到就用编号的末尾一段。
 const subTitle = (id) => clip(Object.values(ui.run?.subCalls || {}).find((x) => x.task === id)?.text || String(id || "").split("-").at(-1), 50);
+// edit_file 的新旧片段常带几行上下文：只数真正变了的行，和改动卡片（git diff）对得上。
+function changedLines(oldText, newText) {
+  const a = (oldText || "").split("\n"), b = (newText || "").split("\n");
+  if (a.length * b.length > 4e6) return [b.length, a.length]; // 特别大的片段不值得算
+  let row = new Array(b.length + 1).fill(0); // 最长公共子序列：中间夹着没变的行也不算
+  for (const line of a) {
+    const next = [0];
+    for (let j = 0; j < b.length; j++) next.push(line === b[j] ? row[j] + 1 : Math.max(row[j + 1], next[j]));
+    row = next;
+  }
+  return [b.length - row[b.length], a.length - row[b.length]];
+}
 const lineCount = (s) => typeof s === "string" && s ? s.split("\n").length - (s.endsWith("\n") ? 1 : 0) : 0;
 function toolLabel(t) {
   const args = parse(t.args) || {}, out = parse(t.result)?.result || {};
   const count = (add, del) => [el("span", "diff-count-add", "+" + add), ...(del === undefined ? [] : [el("span", "diff-count-delete", "−" + del)])];
   switch (t.name) {
-    case "edit_file": return args.path && { verb: "编辑", target: args.path, counts: count(lineCount(args.new_string), lineCount(args.old_string)) };
+    case "edit_file": return args.path && { verb: "编辑", target: args.path, counts: count(...changedLines(args.old_string, args.new_string)) };
     case "apply_patch": {
       const files = out.files || [];
       if (!files.length) return { verb: "应用补丁", target: "" };
@@ -534,14 +546,6 @@ function drawChat() {
       u.append(bubble); box.append(u); group = null;
       const tools = el("div", "utools");
       // 问题下面的信息与操作悬停时才出现（同 claude.ai 用户消息下的操作，见 app.css）。
-      // 续聊的代价：闲置时长与第一次请求的缓存命中，未命中的 token 数在悬停提示里。
-      const first = turn?.firstUsage;
-      if (first && first.prompt_tokens && turn.idle) {
-        const cached = (first.prompt_tokens_details && first.prompt_tokens_details.cached_tokens) || 0, hit = Math.round(100 * cached / first.prompt_tokens);
-        const info = el("span", "meta", `闲置 ${idleText(turn.idle)} · 缓存命中 ${hit}%`);
-        info.title = `这一轮第一次请求的输入 ${hit}% 命中提示词缓存，${kfmt(first.prompt_tokens - cached)} token 没命中，按全价重新处理`;
-        tools.append(info);
-      }
       // 有工作区的对话，每一轮都可以撤销（连同之后各轮）；正在运行、回放中、导入的对话不行。
       // 分叉时带过来的轮次只能到原对话里撤销（agent 的撤销会顺着续接链走进原对话）。
       if (turn?.checkpoint && !turn.rewound && !turn.inherited && r.workspace && r.exit && !r.source && !ui.replay && !ui.loading) {

@@ -1,6 +1,7 @@
 import { render } from "./render.js";
 import { $, el, esc, parse, refURL, ui } from "./util.js";
 import { openProjectFile, projectReference } from "./projectfiles.js";
+import { highlightCached, sourceLineFragment } from "./source-highlight.js";
 // ---------- 对话流：从同一批模型请求还原用户消息、思考、工具和回答 ----------
 // 只渲染少量 Markdown：先转义再替换，模型输出不能注入 HTML。
 // visual 为真时（对话里的模型回答），visualization skill 的 ```echarts 与 ```html type="renderer" 块换成 vizSlot，由 renderChat 放入沙箱 iframe。
@@ -20,6 +21,16 @@ function tex(src, display) {
   return display ? `<pre><code>${esc(src)}</code></pre>` : `<code>${esc(src)}</code>`;
 }
 export function mathLoaded() { if (ui.run) render(); }
+// 代码块按围栏写的语言着色。常见的语言全名换成扩展名，认不出来的显示原文。
+const FENCE_ALIAS = { golang: "go", javascript: "js", typescript: "ts", python: "py", python3: "py", shell: "sh", console: "sh", ruby: "rb", rust: "rs", "c++": "cpp", kotlin: "kt", perl: "pl", markdown: "md" };
+function colorCode(code) {
+  const lang = code.dataset.lang.toLowerCase();
+  highlightCached("x." + (FENCE_ALIAS[lang] || lang), code.textContent, (lines) => {
+    const out = document.createDocumentFragment();
+    lines.forEach((line, i) => { if (i) out.append("\n"); out.append(sourceLineFragment(line)); });
+    code.replaceChildren(out);
+  });
+}
 export function md(text, visual) {
   const lines = String(text || "").split("\n"), out = [];
   // 行内代码和公式先换成占位符：里面的地址不变成链接、* 不变成粗体，代码两边的 ** 仍能配成粗体。
@@ -56,7 +67,7 @@ export function md(text, visual) {
       const closed = i++ < lines.length, info = line.slice(fence.length).trim(); // 流式输出中未闭合的块先按代码显示
       const kind = info === "echarts" ? "echarts" : /^html\b.*\btype=["']?renderer\b/.test(info) ? "renderer" : "";
       if (visual && closed && kind) out.push(vizSlot(kind, code.join("\n")));
-      else out.push(`<pre><code>${esc(code.join("\n"))}</code></pre>`);
+      else out.push(`<pre><code${closed && info ? ` data-lang="${esc(info.split(/\s/)[0])}"` : ""}>${esc(code.join("\n"))}</code></pre>`); // 没闭合的还在流式输出，闭合了再着色
     } else if (/^\s*(\\\[|\$\$)/.test(line)) {
       // 公式块：\[ 或 $$ 开头，到对应的 \] 或 $$ 为止（可以在同一行）；流式输出中还没闭合的先按源码显示。
       const open = line.trim().slice(0, 2), close = open === "$$" ? "$$" : "\\]";
@@ -92,6 +103,7 @@ export function md(text, visual) {
   }
   const box = el("div", "md");
   box.innerHTML = out.join("");
+  box.querySelectorAll("code[data-lang]").forEach(colorCode);
   box.addEventListener("click", (event) => { const link = event.target.closest("a[data-project-reference]"); if (link) { event.preventDefault(); openProjectFile(decodeURIComponent(link.dataset.projectReference)); } });
   return box;
 }
