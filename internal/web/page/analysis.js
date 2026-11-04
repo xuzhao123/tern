@@ -11,9 +11,21 @@ function isEmpty(v) {
 }
 // 的 turn/completed 带结局（max_steps 等）；进程退出码只说明“不是正常结束”，界面优先显示结局，看得出是没做完还是出错。
 const OUTCOME_LABEL = { max_steps: "请求预算用完", context_error: "上下文放不下", hook_blocked: "被 hook 拦下", no_progress: "无进展熔断", repeated_action: "重复动作熔断",
-  invalid_tool_calls: "工具调用格式错误", checkpoint_error: "检查点写入失败", encoding_error: "编码错误", permanent: "不可重试的错误", permission: "权限拒绝", unknown_not_repeatable: "结果未知且不可重做", cancelled: "已取消", error: "出错" };
+  invalid_tool_calls: "工具调用格式错误", checkpoint_error: "检查点写入失败", encoding_error: "编码错误", permanent: "不可重试的错误", permission: "权限拒绝", unknown_not_repeatable: "结果未知且不可重做", cancelled: "已取消", error: "出错", model_error: "模型请求失败" };
+// 模型接口的常见错误翻译成人话和下一步；原始报错收在“详细信息”里。认不出来返回 null。
+export function modelProblem(r) {
+  const text = r.termination || "";
+  if (!text.startsWith("model_error")) return null;
+  if (/HTTP 402|insufficient.?(balance|quota)|余额/i.test(text)) return { short: "余额不足", title: "模型账户余额不足", hint: "充值后直接继续提问，就能接着做。" };
+  if (/HTTP 40[13]|invalid.{0,12}api.?key|unauthorized/i.test(text)) return { short: "API key 无效", title: "模型的 API key 无效或没有权限", hint: "改好 key 后直接继续提问，就能接着做。" };
+  if (/HTTP 429|rate.?limit/i.test(text)) return { short: "被限流", title: "模型服务限流了", hint: "等一会儿再继续提问，就能接着做。" };
+  if (/HTTP 5\d\d|timeout|timed out|超时|connection refused|connection reset|no such host|EOF/i.test(text)) return { short: "服务不可用", title: "模型服务暂时不可用", hint: "稍后继续提问，就能接着做。" };
+  return null;
+}
 export function endLabel(r, short) {
   if (!r.exit || r.exit === "exit 0" || !r.termination) return r.exit;
+  const problem = modelProblem(r);
+  if (problem) return short ? problem.short : problem.title;
   const at = r.termination.indexOf("："), outcome = at < 0 ? r.termination : r.termination.slice(0, at);
   const detail = at < 0 ? "" : r.termination.slice(at + 1).replace(/^未完成：/, "");
   return (OUTCOME_LABEL[outcome] || outcome) + (detail && !short ? "（" + detail + "）" : "");

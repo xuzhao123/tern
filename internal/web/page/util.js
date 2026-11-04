@@ -9,6 +9,8 @@ export const HOST = (() => {
 })();
 export const hostAPI = (alias, path) => (alias ? `/h/${encodeURIComponent(alias)}` : "") + path;
 export function api(path) { return hostAPI(HOST, path); }
+// 这台主机上最近一次用的项目：新任务默认接着用；空串表示选的是“无工作区”。
+export const lastProjectKey = () => "tern.lastProject:" + (HOST || "");
 // 某台主机上一页的地址：换主机是整页跳转（页面里 ui.run 和各处缓存都假定只有一台主机）。
 export const hostURL = (alias, run) => hostAPI(alias, "/") + (run ? `?run=${encodeURIComponent(run)}` : "");
 export const HOST_STATE = { connected: "已连接", reconnecting: "重连中", failed: "连不上" };

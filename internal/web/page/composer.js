@@ -5,10 +5,10 @@ import { queueSection, hasQueueStatus, refreshQueueEditor } from "./queue.js";
 import { show } from "./follow.js";
 import { openSettings } from "./pages.js";
 import { autosize, loadRuns, loadWsSettings, modelVision, syncComposer } from "./shell.js";
-import { $, FULL_ACCESS_NOTE, HOST, MAX_IMAGES, api, el, permChoice, refURL, stripHead, ui } from "./util.js";
+import { $, FULL_ACCESS_NOTE, HOST, MAX_IMAGES, api, el, lastProjectKey, permChoice, refURL, stripHead, ui } from "./util.js";
 import { attachToDraft, captureDraft, currentDraftKey, finishDelivery, pendingDelivery, rememberDelivery, saveDraft, savePendingSteers } from "./drafts.js";
 // 插话、排队、! 命令被服务端接受后显示在输入框下面的提示；runs.js 在这一轮结束时据此清掉已经过时的两条。
-export const HINTS = { queue: "已排到下一轮", steer: "补充已由服务端接收，采纳结果见待发区", shell: "命令已执行，结果见命令记录" };
+export const HINTS = { queue: "已排到下一轮", steer: "", shell: "命令已执行，结果见命令记录" };
 export async function start(url, body, kind = "message") {
   if (ui.sending) return;
   if (pendingDelivery()) { await checkDelivery(); return; }
@@ -186,6 +186,7 @@ $("composer").onsubmit = (ev) => {
   const perm = permChoice($("perm").value);
   const body = ui.run ? { query, compact: !!ui.compactNext, permission: perm.permission, sandbox: perm.sandbox, effort: $("effort").value } : { query, provider: $("provider").value, model: $("model").hidden ? "" : $("model").value, workspace: $("workspace").disabled ? "" : $("workspace").value, permission: perm.permission, sandbox: perm.sandbox, effort: $("effort").value };
   body.skill_refs = selectedSkills();
+  if (!ui.run) localStorage.setItem(lastProjectKey(), $("workspace").value); // 下一个新任务默认接着这个项目
   start(ui.run ? `/runs/${ui.run.id}/messages` : "/runs", images.length ? { ...body, images } : body);
 };
 // ! 命令：在这条对话的沙箱里跑一条（POST /runs/<id>/shell），和模型的 bash 同一个沙箱；卡片出现在对话里，

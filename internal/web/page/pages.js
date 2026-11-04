@@ -282,16 +282,11 @@ export async function openSettings() {
   hooksBox.oninput = () => { values.hooks = hooksBox.value; };
   const hooksWrap = el("div", "set-box"); hooksWrap.append(hooksBox, tag("hooks"));
   panel.append(hooksWrap);
-  const actions = el("div", "set-actions"), mine = el("button", "ghost", "保存为我的设置"), reset = el("button", "ghost", "恢复继承");
+  const actions = el("div", "set-actions"), mine = el("button", "ghost", "保存"), reset = el("button", "ghost", "恢复默认");
   const saveTo = async (url, body) => { try { await hubCall("PUT", url, body); await loadSettings(); openSettings(); } catch (err) { alert(err.message); } };
   mine.onclick = () => saveTo("/settings", values);
-  reset.onclick = () => { if (confirm("清掉你的个人设置，改用平台默认？")) saveTo("/settings", {}); };
+  reset.onclick = () => { if (confirm("清掉你改过的设置，恢复默认？")) saveTo("/settings", {}); };
   actions.append(mine, reset);
-  const plat = el("button", "ghost", "保存为平台默认");
-  plat.title = "所有账号没单独设过的项都跟着变";
-  plat.onclick = () => saveTo("/settings/platform", values);
-  actions.append(plat);
-  actions.append(el("span", "meta", "只保存和上一层不同的项；标签显示每项来自哪一层"));
   panel.append(actions);
   panel.append(el("h3", "", "通知"));
   const notifyWrap = el("div", "set-box"), prefs = notificationSettings();

@@ -9,7 +9,7 @@ import { pickWorkspace } from "./pages.js";
 import { render } from "./render.js";
 import { apply, newRun } from "./runs.js";
 import { leaveDraft, switchDraft } from "./drafts.js";
-import { $, HOST, HOST_STATE, MAX_IMAGES, api, clip, el, hostAPI, hostURL, isUnread, markSeen, markUnread, permChoice, permValue, runKey, save, shortTitle, ui } from "./util.js";
+import { $, HOST, HOST_STATE, MAX_IMAGES, api, clip, el, hostAPI, hostURL, isUnread, lastProjectKey, markSeen, markUnread, permChoice, permValue, runKey, save, shortTitle, ui } from "./util.js";
 // 工作区下拉的最后一项：选了它就去浏览目录登记一个新的。值不会和工作区名撞上（名字是小写字母或数字开头的目录名）。
 import { updateActivity } from "./activity.js";
 import { leaveWorkPanel, openWorkTab, showWorkPanel } from "./workpanel.js";
@@ -59,9 +59,9 @@ export function renderShell() {
   goal.classList.toggle("empty", !goalText);
   $("goal-text").textContent = goalText ? "目标：" + goalText : "＋ 定个目标";
   $("goal-edit").hidden = !goalText;
-  document.title = (ui.waiting ? `(${ui.waiting}) ` : "") + (r ? `tern · ${r.id}` : "tern");
+  document.title = (ui.waiting ? `(${ui.waiting}) ` : "") + (r ? `${r.name || shortTitle(r.query) || r.id} · tern` : "tern");
   const status = $("status");
-  status.className = r && r.exit && r.exit !== "exit 0" ? "bad" : r && !r.exit ? "run" : "";
+  status.className = r && r.exit && r.exit !== "exit 0" && !r.stopRequested ? "bad" : r && !r.exit ? "run" : "";
   const nSub = r ? Object.values(r.subs).reduce((n, s) => n + s.calls.length, 0) : 0;
   const calls = r ? `${r.calls.length + r.aux.length + nSub} 次请求` : "";
   // 正常完成不显示状态（同 Claude Code）；请求次数放在悬停提示里。
@@ -259,7 +259,11 @@ export function syncComposer() {
   }
   const codingOK = !!s && s.values.coding === "on" && !("coding" in s.blocked);
   if (r) ws.value = r.workspace || "";
-  else if (!ui.picked.workspace && s) ws.value = codingOK && names.includes(s.values.workspace) ? s.values.workspace : "";
+  else if (!ui.picked.workspace && s) {
+    // 设置里定了默认工作区就用它；否则接着上次的项目（选过“无工作区”也算），没记录时只有一个项目就是它。
+    const last = localStorage.getItem(lastProjectKey()), wanted = s.values.workspace || (names.includes(last) ? last : last === "" ? "" : names.length === 1 ? names[0] : "");
+    ws.value = codingOK && names.includes(wanted) ? wanted : "";
+  }
   ws.disabled = !!r || !codingOK;
   // 编码工具可用时一直显示：没登记过也显示，人才能看到可以在这里添加。
   ws.hidden = !!r || !codingOK;
@@ -493,7 +497,10 @@ function groupRows(h, runs, grouped) {
 const closedProjects = new Set();
 $("add-project").onclick = async () => {
   const name = await pickWorkspace();
-  if (name) { await loadSettings(); loadRuns(); }
+  if (!name) return;
+  ui.wsSettings = {}; // 各工作区缓存的设置里还没有新项目，下拉框按它画就选不中
+  await loadSettings(); loadRuns();
+  if (newChat() !== false) await startInProject(name); // 添加项目就是要在里面干活
 };
 function projectGroup(h, project) {
   const key = runKey(h.alias, project.id), group = el("details", "project-group"), summary = el("summary"), name = el("span", "q", project.name);
@@ -502,6 +509,12 @@ function projectGroup(h, project) {
   summary.insertAdjacentHTML("beforeend", `<span class="proj-ico">${chromeIcon("folder")}${chromeIcon("chevron")}</span>`);
   summary.append(name, el("small", "meta", project.historical ? "历史" : project.git ? "Git" : "目录"));
   group.append(summary);
+  // 点名字在这个项目里开新任务；展开收起留给左边的箭头，操作菜单不受影响。
+  if (!project.historical) summary.onclick = (ev) => {
+    if (ev.target.closest(".proj-ico, .runmenu")) return;
+    ev.preventDefault();
+    newProjectTask(h, project);
+  };
   group.ontoggle = () => { if (group.open) closedProjects.delete(key); else closedProjects.add(key); };
   if (!project.historical) {
     summary.append(rowActions("项目操作：" + project.name, [["新任务", () => newProjectTask(h, project)], ["改名", () => renameProject(h, project)], ["移除", () => removeProject(h, project)]], h.state !== "connected"));
@@ -514,9 +527,14 @@ async function newProjectTask(h, project) {
   if (h.alias !== HOST) { location.href = hostURL(h.alias) + "?project=" + encodeURIComponent(project.id); return; }
   if (newChat() === false) return;
   await loadSettings();
+  await startInProject(project.name);
+}
+async function startInProject(name) {
   if (ui.settings?.effective?.values.coding !== "on" || ui.settings?.effective?.blocked?.coding) { ui.hint = "当前编码工具不可用，请在设置中启用后再从项目创建任务"; syncComposer(); return; }
-  ui.picked.workspace = true; $("workspace").value = project.name;
-  await loadWsSettings(project.name, true); syncComposer(); switchDraft(null); $("query").focus();
+  syncComposer(); // 刚添加的项目要先进下拉框
+  ui.picked.workspace = true; $("workspace").value = name;
+  localStorage.setItem(lastProjectKey(), name);
+  await loadWsSettings(name, true); syncComposer(); switchDraft(null); $("query").focus();
 }
 async function renameProject(h, project) {
   const name = prompt("项目名称（小写字母、数字、-、_，最多 32 字符）：", project.name);
@@ -998,6 +1016,7 @@ $("new-chat").onclick = () => newChat();
     const name = await pickWorkspace();
     if (!name) { syncComposer(); return; }
     ui.picked.workspace = true;
+    ui.wsSettings = {}; // 同“添加项目”：缓存里还没有新项目
     await loadSettings();
     ws.value = name;
     switchDraft(null);
