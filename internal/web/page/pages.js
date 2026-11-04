@@ -303,6 +303,7 @@ export async function openSettings() {
       if (!setNotification(kind, wanted)) { select.value = notificationSettings()[kind] || "off"; note.textContent = "保存失败，请检查浏览器存储。"; return; }
       note.textContent = wanted !== "off" && !navigator.locks ? "浏览器不支持多页面去重，系统通知暂停，请查看活动中心。" : "已保存";
     };
+    if (select.value !== "off" && typeof Notification !== "undefined" && Notification.permission === "denied") note.textContent = "浏览器禁止了通知，请在站点设置中开启。";
     row.append(el("strong", "", label), select, note); notifyWrap.append(row);
   }
   notifyWrap.append(el("p", "meta", "按当前账号、本浏览器保存。关闭所有网页后不保证收到通知；活动中心仍保留真实待处理状态。"));

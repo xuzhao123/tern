@@ -130,6 +130,56 @@ func readPassword() (string, error) {
 type session struct {
 	user    user
 	expires time.Time
+	secret  string // 账号口令哈希的指纹：改了密码，之前的登录就作废
+}
+
+// 登录记录存盘，重启网页端不用重新登录。键和 sessions 一样是令牌的 SHA-256，文件泄漏也拿不到能用的令牌。
+const sessionsPath = ".data/web-sessions.json"
+
+type savedSession struct {
+	User    string    `json:"user"`
+	Expires time.Time `json:"expires"`
+	Secret  string    `json:"secret"`
+}
+
+// saveSessions 在持有 a.mu 时调用。写不进去只影响重启后要重新登录，不影响这次使用。
+func (a *auth) saveSessions() {
+	saved := map[string]savedSession{}
+	now := time.Now()
+	for key, s := range a.sessions {
+		if now.Before(s.expires) {
+			saved[key] = savedSession{User: s.user.Name, Expires: s.expires, Secret: s.secret}
+		}
+	}
+	data, err := json.Marshal(saved)
+	if err == nil {
+		err = os.WriteFile(sessionsPath+".tmp", data, 0o600)
+	}
+	if err == nil {
+		err = os.Rename(sessionsPath+".tmp", sessionsPath)
+	}
+	if err != nil {
+		fmt.Printf("Session save error: %v\n", err)
+	}
+}
+
+// loadSessions 读回没过期的登录；账号没了、改过密码或是租户账号的不要。
+func (a *auth) loadSessions() {
+	data, err := os.ReadFile(sessionsPath)
+	if err != nil {
+		return
+	}
+	saved := map[string]savedSession{}
+	if json.Unmarshal(data, &saved) != nil {
+		return
+	}
+	now := time.Now()
+	for key, s := range saved {
+		acc, ok := a.accounts[s.User]
+		if ok && acc.LegacyTenant == "" && now.Before(s.Expires) && s.Secret == tokenKey(acc.Hash) {
+			a.sessions[key] = session{user: user{Name: acc.Name}, expires: s.Expires, secret: s.Secret}
+		}
+	}
 }
 
 type auth struct {
@@ -146,7 +196,7 @@ type failure struct {
 
 const (
 	cookieName = "tern_session"
-	sessionTTL = 12 * time.Hour
+	sessionTTL = 30 * 24 * time.Hour
 	lockAfter  = 5 // 连续失败几次后锁定这个用户名
 	lockFor    = time.Minute
 )
@@ -173,6 +223,7 @@ func loadAuth() (*auth, error) {
 	if len(a.accounts) == 0 {
 		return nil, errors.New(usersPath + " 里没有账号")
 	}
+	a.loadSessions()
 	return a, nil
 }
 
@@ -222,7 +273,8 @@ func (a *auth) login(name, password string) (token string, u user, err error) {
 	}
 	token = newToken()
 	u = user{Name: acc.Name}
-	a.sessions[tokenKey(token)] = session{user: u, expires: time.Now().Add(sessionTTL)}
+	a.sessions[tokenKey(token)] = session{user: u, expires: time.Now().Add(sessionTTL), secret: tokenKey(acc.Hash)}
+	a.saveSessions()
 	return token, u, nil
 }
 
@@ -247,6 +299,7 @@ func (a *auth) logout(req *http.Request) {
 	if cookie, err := req.Cookie(cookieName); err == nil {
 		a.mu.Lock()
 		delete(a.sessions, tokenKey(cookie.Value))
+		a.saveSessions()
 		a.mu.Unlock()
 	}
 }

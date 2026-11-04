@@ -4,6 +4,7 @@ import { $, HOST, api, el, icon, ui } from "./util.js";
 import { openWorkTab } from "./workpanel.js";
 import { openProjectFile } from "./projectfiles.js";
 import { diffLines } from "./diff-lines.js";
+import { highlightSource, sourceLineFragment } from "./source-highlight.js";
 import { beginFeedback, feedbackEditor, feedbackList } from "./diff-feedback.js";
 
 export const DIFF_SCOPES = { workspace: "工作目录", unstaged: "未暂存", staged: "已暂存", branch: "分支提交" };
@@ -84,7 +85,7 @@ export function openDiff(r, files = [], scope = "") {
 const GIT_HEADER = /^(diff --(git|cc|combined) |index |--- |\+\+\+ |(new|deleted) file mode |old mode |new mode |similarity index |dissimilarity index |rename (from|to) |copy (from|to) )/;
 function diffBody(file, r, data, unavailable, shownEditors) {
   if (!file.diff) return el("div", "meta diff-empty", file.notice || (file.binary ? "二进制文件" : "没有文本内容变化"));
-  const pre = el("div", "diff-body");
+  const pre = el("div", "diff-body"), rows = [];
   // git 的文件头（diff --git、index、---/+++、mode）不进页面：文件名和状态已经在上面那一行。
   for (const line of diffLines(file).filter((l) => l.kind || l.old !== undefined || l.new !== undefined || !GIT_HEADER.test(l.text))) {
     const row = el("span", "diff-line numbered " + line.kind);
@@ -93,10 +94,27 @@ function diffBody(file, r, data, unavailable, shownEditors) {
       if (line[side] !== undefined) { number.disabled = unavailable || !file.version || file.conflicted; number.setAttribute("aria-label", `对${file.path}${side === "old" ? "旧侧" : "新侧"}第 ${line[side]} 行写反馈`); number.title = "对这一行写反馈"; }
       row.append(number);
     }
-    row.append(el("span", "diff-code", line.text)); pre.append(row);
+    // 行首的 +、-、空格单独一格：代码按语法着色，增删看底色和这个符号。
+    const code = el("span", "diff-code"), hasCode = line.old !== undefined || line.new !== undefined, marker = hasCode ? el("span", "diff-marker", line.text[0] || " ") : null;
+    if (hasCode) { code.append(marker, line.text.slice(1)); rows.push({ code, marker, text: line.text.slice(1) }); } else code.textContent = line.text;
+    row.append(code); pre.append(row);
     if (!shownEditors.has(file.path)) { const editor = feedbackEditor(r, file, data, unavailable, line); if (editor) { pre.append(editor); shownEditors.add(file.path); } }
   }
+  colorDiff(file.path, rows);
   return pre;
+}
+// 语法高亮：把一个文件 diff 里的代码行拼起来交给后台高亮，结果按内容缓存（面板经常重画，不能每次都闪一下原文）。
+const diffColors = new Map();
+function colorDiff(path, rows) {
+  if (!rows.length) return;
+  const text = rows.map((r) => r.text).join("\n"), key = path + "\0" + text;
+  const paint = (lines) => { if (lines) rows.forEach((r, i) => r.code.replaceChildren(r.marker, sourceLineFragment(lines[i]))); };
+  const known = diffColors.get(key);
+  if (known === null || Array.isArray(known)) return paint(known);
+  if (diffColors.size > 200) diffColors.clear();
+  const pending = known || highlightSource(path, text).then((result) => { diffColors.set(key, result.lines); return result.lines; });
+  diffColors.set(key, pending);
+  pending.then(paint);
 }
 function comparisonLabel(data, r) {
   const scope = data?.scope || "workspace", base = data?.base_ref || "HEAD";

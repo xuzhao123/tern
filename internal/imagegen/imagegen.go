@@ -1,6 +1,6 @@
 // Package imagegen 是 image_gen 工具的壳子：参数校验、并发调用后端、把生成的图存成附件。
 // 真正调用哪家图片生成 API 由 Backend 决定；Active 为 nil（还没接后端）时 main 不提供这个工具，
-// visualization skill 按正文的降级规则改用 HTML/SVG 示意图。设计见 spec/visualization-full.md 第二节（三）。
+// visualization skill 按正文的降级规则改用 HTML/SVG 示意图。设计见 spec/archive/visualization-full.md 第二节（三）。
 package imagegen
 
 import (

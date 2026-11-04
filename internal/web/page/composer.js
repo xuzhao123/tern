@@ -187,6 +187,8 @@ $("composer").onsubmit = (ev) => {
   const body = ui.run ? { query, compact: !!ui.compactNext, permission: perm.permission, sandbox: perm.sandbox, effort: $("effort").value } : { query, provider: $("provider").value, model: $("model").hidden ? "" : $("model").value, workspace: $("workspace").disabled ? "" : $("workspace").value, permission: perm.permission, sandbox: perm.sandbox, effort: $("effort").value };
   body.skill_refs = selectedSkills();
   if (!ui.run) localStorage.setItem(lastProjectKey(), $("workspace").value); // 下一个新任务默认接着这个项目
+  // 通知权限只能在人操作时申请；第一次发消息就是这个时候，问过一次浏览器就记住了。
+  if (typeof Notification !== "undefined" && Notification.permission === "default") Notification.requestPermission().catch(() => {});
   start(ui.run ? `/runs/${ui.run.id}/messages` : "/runs", images.length ? { ...body, images } : body);
 };
 // ! 命令：在这条对话的沙箱里跑一条（POST /runs/<id>/shell），和模型的 bash 同一个沙箱；卡片出现在对话里，

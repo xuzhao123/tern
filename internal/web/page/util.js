@@ -94,8 +94,10 @@ export async function markUnread(alias, task) {
   catch (error) { readingError(error); }
 }
 export function notificationSettings() {
-  try { return JSON.parse(localStorage.getItem(`tern-notify-v2:${encodeURIComponent(ui.account || "")}`) || "{}"); }
-  catch { return {}; }
+  // 默认切走时通知：跑完、等审批、等回答都是要人回来的时候。
+  const defaults = { done: "background", approval: "background", question: "background" };
+  try { return { ...defaults, ...JSON.parse(localStorage.getItem(`tern-notify-v2:${encodeURIComponent(ui.account || "")}`) || "{}") }; }
+  catch { return defaults; }
 }
 export function setNotification(kind, mode) {
   try { const settings = notificationSettings(); settings[kind] = mode; localStorage.setItem(`tern-notify-v2:${encodeURIComponent(ui.account || "")}`, JSON.stringify(settings)); return true; }
