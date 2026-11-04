@@ -339,6 +339,9 @@ function organizeSettings(panel, grid, actions) {
   theme.setAttribute("aria-label", "界面主题"); theme.append(new Option("跟随系统", "system"), new Option("浅色", "light"), new Option("深色", "dark")); theme.value = $("theme").value;
   theme.onchange = () => { $("theme").value = theme.value; $("theme").dispatchEvent(new Event("change")); };
   general.prepend(el("h3", "", "外观"), theme, el("p", "meta", "快捷键：Ctrl/⌘ Shift P 操作面板；Ctrl/⌘ Shift F 任务内查找；空输入 Alt ↑ 恢复上一条输入；Tab 移动焦点。"));
+  const logout = el("button", "ghost", "退出登录");
+  logout.type = "button"; logout.onclick = () => $("logout").click();
+  general.append(el("h3", "", "账号"), el("p", "meta", "当前账号：" + (ui.account || "")), logout);
   const connection = sections.get("连接"), about = sections.get("关于"), versions = el("div");
   about.append(el("h3", "", "运行版本"), versions, el("p", "meta", "版本来自正在运行的进程。修改源码不会自动更新 Web；刷新网页也不会替换服务进程。+dirty 表示构建时有未提交改动。"));
   async function refreshVersions() {

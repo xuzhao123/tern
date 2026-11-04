@@ -38,9 +38,9 @@ export function initLayout() {
   $("activity-open").innerHTML = chromeIcon("activity"); $("activity-open").append(el("span", "sr-only", "活动")); $("activity-open").lastChild.id = "activity-label"; $("activity-open").className = "chrome-icon"; $("activity-open").title = "活动";
   brandActions.append($("activity-open"), $("command-menu")); brand.append(brandActions);
   $("add-project").innerHTML = chromeIcon("plus"); $("add-project").title = "添加项目"; $("add-project").setAttribute("aria-label", "添加项目");
-  // “工具与更多”：触发的这一行留在原地，弹层是另一层（.nav-tools-menu），外观选择放在弹层最后。
+  // “工具与更多”：和设置同一行的图标，触发的按钮留在原地，弹层是另一层（.nav-tools-menu），外观选择放在弹层最后。
   const tools = document.querySelector(".nav-tools"), toolsSummary = tools.querySelector("summary"), toolsMenu = el("div", "nav-tools-menu");
-  toolsSummary.innerHTML = `<span class="ico">${chromeIcon("more")}</span>工具与更多`;
+  toolsSummary.innerHTML = `<span class="ico">${chromeIcon("more")}</span>`; toolsSummary.title = "工具与更多"; toolsSummary.setAttribute("aria-label", "工具与更多");
   toolsMenu.append(...[...tools.children].filter((c) => c !== toolsSummary), document.querySelector(".theme-control"));
   tools.append(toolsMenu);
   const filter = menu("项目", "sidebar-filter-menu"), navlabel = document.querySelector(".navlabel");

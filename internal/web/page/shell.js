@@ -9,7 +9,7 @@ import { pickWorkspace } from "./pages.js";
 import { render } from "./render.js";
 import { apply, newRun } from "./runs.js";
 import { leaveDraft, switchDraft } from "./drafts.js";
-import { $, HOST, HOST_STATE, MAX_IMAGES, api, clip, el, hostAPI, hostURL, isUnread, lastProjectKey, markSeen, markUnread, permChoice, permValue, runKey, save, shortTitle, ui } from "./util.js";
+import { $, HOST, HOST_STATE, MAX_IMAGES, api, clip, el, hostAPI, hostURL, isUnread, lastProjectKey, markSeen, markUnread, permChoice, relativeTime, permValue, runKey, save, shortTitle, ui } from "./util.js";
 // 工作区下拉的最后一项：选了它就去浏览目录登记一个新的。值不会和工作区名撞上（名字是小写字母或数字开头的目录名）。
 import { updateActivity } from "./activity.js";
 import { leaveWorkPanel, openWorkTab, showWorkPanel } from "./workpanel.js";
@@ -322,13 +322,7 @@ export function syncComposer() {
   renderSteers();
 }
 // 列表显示最后一次活动的时间：服务端给 Unix 毫秒时间戳，这里按看的人所在的时区格式化。
-function relTime(r) {
-  const t = new Date(r.updated_at ?? r.created_at ?? NaN);
-  if (isNaN(t)) return "";
-  const p = (n) => String(n).padStart(2, "0");
-  const today = new Date().toDateString() === t.toDateString();
-  return (today ? "" : `${p(t.getMonth() + 1)}-${p(t.getDate())} `) + `${p(t.getHours())}:${p(t.getMinutes())}`;
-}
+function relTime(r) { return relativeTime(r.updated_at ?? r.created_at ?? NaN); }
 // 左侧列表：只连一台主机时和原来一样；连了几台时按主机分组，当前主机排在最上面。
 // 同一台的对话点了就地打开；别的主机的整页跳到那台的地址——页面状态（ui.run、各处的缓存）都假定只有一台主机。
 let listVersion = 0;
@@ -472,7 +466,8 @@ function groupRows(h, runs, grouped) {
     box.append(name);
   }
   const list = (runs || []).filter((r) => !r.eval && wsKeep(r, h)).reverse();
-  const active = list.filter((r) => !r.archived), pinned = active.filter((r) => r.pinned);
+  // 最近有动静的在前：任务和项目都这样排，正在做的总在上面。
+  const active = list.filter((r) => !r.archived).sort((a, b) => (b.updated_at || 0) - (a.updated_at || 0)), pinned = active.filter((r) => r.pinned);
   if (pinned.length) box.append(el("div", "project-label", "置顶"), ...pinned.map((r) => runRow(r, h)));
   const registered = ui.projects?.[h.alias], projects = new Map((registered || []).map((p) => [p.id, { ...p, tasks: [] }]));
   for (const task of active) {
@@ -485,11 +480,12 @@ function groupRows(h, runs, grouped) {
   // 只有一台主机时侧栏上方那一行就是“项目”（筛选菜单与添加项目），这里不再重复一个标题。
   if (grouped || !runs) box.append(el("div", "project-label", "项目"));
   if (registered === null) box.append(el("div", "meta", "项目列表暂不可用，历史任务仍可查看"));
-  for (const p of projects.values()) if (wsFilter === "" || p.tasks.length || runKey(h.alias, p.id) === wsFilter) box.append(projectGroup(h, p));
+  const lastActive = (p) => p.tasks[0]?.updated_at || 0;
+  for (const p of [...projects.values()].sort((a, b) => lastActive(b) - lastActive(a))) if (wsFilter === "" || p.tasks.length || runKey(h.alias, p.id) === wsFilter) box.append(projectGroup(h, p));
   if (!projects.size) box.append(el("div", "meta", "尚未添加项目"));
   // 项目里的任务已经列在项目下面；这里只放不属于任何项目的对话，同一条不在侧栏出现两次。
   const loose = active.filter((r) => !r.workspace && !r.workspace_id && !r.pinned).slice(0, 30);
-  if (loose.length) box.append(el("div", "project-label", "对话"), ...loose.map((r) => runRow(r, h)));
+  if (loose.length) box.append(el("div", "project-label", "对话"), ...limitedRows(runKey(h.alias, "loose"), loose, h));
   const archived = list.filter((r) => r.archived);
   if (archived.length) box.append(archivedGroup(archived, h));
   return box;
@@ -502,6 +498,21 @@ $("add-project").onclick = async () => {
   await loadSettings(); loadRuns();
   if (newChat() !== false) await startInProject(name); // 添加项目就是要在里面干活
 };
+// 每组默认只列最近几条，别把后面的项目挤下去；正在看的、还在跑的、等人处理的不收起来。
+const ROW_LIMIT = 5, expandedGroups = new Set();
+function limitedRows(key, tasks, h) {
+  const open = expandedGroups.has(key);
+  const shown = open ? tasks : tasks.filter((r, i) => i < ROW_LIMIT || r.id === ui.run?.id || !r.done || r.waiting);
+  const rows = shown.map((r) => runRow(r, h));
+  const hidden = tasks.length - shown.length;
+  if (hidden > 0 || (open && tasks.length > ROW_LIMIT)) {
+    const more = el("button", "show-more", hidden > 0 ? `显示更多（${hidden}）` : "收起");
+    more.type = "button";
+    more.onclick = () => { if (open) expandedGroups.delete(key); else expandedGroups.add(key); loadRuns(); };
+    rows.push(more);
+  }
+  return rows;
+}
 function projectGroup(h, project) {
   const key = runKey(h.alias, project.id), group = el("details", "project-group"), summary = el("summary"), name = el("span", "q", project.name);
   group.open = !closedProjects.has(key); name.title = project.path || "历史记录未保存执行目录";
@@ -519,7 +530,8 @@ function projectGroup(h, project) {
   if (!project.historical) {
     summary.append(rowActions("项目操作：" + project.name, [["新任务", () => newProjectTask(h, project)], ["改名", () => renameProject(h, project)], ["移除", () => removeProject(h, project)]], h.state !== "connected"));
   }
-  group.append(...project.tasks.map((r) => runRow(r, h)));
+  // 置顶的已经列在最上面，同一条不出现两次。
+  group.append(...limitedRows(key, project.tasks.filter((r) => !r.pinned), h));
   if (!project.tasks.length) group.append(el("div", "project-empty", "还没有任务"));
   return group;
 }

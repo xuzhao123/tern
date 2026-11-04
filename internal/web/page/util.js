@@ -9,6 +9,18 @@ export const HOST = (() => {
 })();
 export const hostAPI = (alias, path) => (alias ? `/h/${encodeURIComponent(alias)}` : "") + path;
 export function api(path) { return hostAPI(HOST, path); }
+// 侧栏的时间：相对时间好扫一眼，超过一周才写日期。
+export function relativeTime(at, now = Date.now()) {
+  const t = new Date(at);
+  if (isNaN(t)) return "";
+  const minutes = Math.floor((now - t) / 60000);
+  if (minutes < 1) return "刚刚";
+  if (minutes < 60) return `${minutes} 分钟`;
+  if (minutes < 1440) return `${Math.floor(minutes / 60)} 小时`;
+  if (minutes < 10080) return `${Math.floor(minutes / 1440)} 天`;
+  const date = `${t.getMonth() + 1}-${t.getDate()}`;
+  return t.getFullYear() === new Date(now).getFullYear() ? date : `${t.getFullYear()}-${date}`;
+}
 // 这台主机上最近一次用的项目：新任务默认接着用；空串表示选的是“无工作区”。
 export const lastProjectKey = () => "tern.lastProject:" + (HOST || "");
 // 某台主机上一页的地址：换主机是整页跳转（页面里 ui.run 和各处缓存都假定只有一台主机）。

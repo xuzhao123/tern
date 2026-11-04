@@ -22,7 +22,7 @@ body { font-size:14px; letter-spacing:-.01em; }
 .sidebar-collapsed #topbar > #menu.sidebar-toggle { display:grid; }
 @media (max-width:760px) { #topbar > #menu.sidebar-toggle { display:grid; margin-left:0; } #sidebar .brand { height:52px; } }
 
-#sidebar .navbtn { min-height:34px; margin:1px 8px; padding:6px 10px; gap:8px; font-size:14px; color:var(--text); }
+#sidebar .navbtn { min-height:30px; margin:1px 8px; padding:4px 10px; gap:8px; font-size:13px; color:var(--text); }
 #sidebar .navbtn .ico, #sidebar .navbtn .ico .i { width:16px; height:16px; }
 #command-menu kbd { display:none; }
 
@@ -42,17 +42,30 @@ body { font-size:14px; letter-spacing:-.01em; }
 #run-filter { width:100%; }
 #run-search { margin:5px 0; }
 
-/* 行：对话、项目、项目下的任务同一行高、字号与颜色。 */
-#sidebar .runitem, #sidebar .project-group > summary { min-height:34px; padding:6px 10px; gap:6px; border-radius:8px; font-size:14px; color:var(--text); }
+/* 行：对话、项目、项目下的任务同一行高和字号；项目名淡一些，任务才是主角。 */
+#sidebar .runitem, #sidebar .project-group > summary { min-height:30px; padding:4px 10px; gap:6px; border-radius:8px; font-size:13px; color:var(--text); }
+#sidebar .runitem { position:relative; }
+#sidebar .project-group > summary { color:var(--muted); font-weight:500; }
+#sidebar .project-group + .project-group { margin-top:6px; }
 #sidebar .runitem button { gap:8px; align-items:center; }
 #sidebar .runitem button > .i { width:16px; height:16px; flex:none; color:var(--muted); }
 #sidebar .runitem.active .q { font-weight:500; }
-#sidebar .runitem small { font-size:11px; opacity:0; }
-#sidebar .runitem:hover small, #sidebar .runitem:focus-within small { opacity:.7; }
-/* 未读点和“⋯”共用行右端的操作位：平时是点，悬停或选中时换成“⋯”。点的外宽连同间距加起来是 0，不挤占标题。 */
-#sidebar .runitem .runmenu { order:1; }
-#sidebar .runitem .unread { order:2; margin:0 8px 0 -20px; pointer-events:none; }
-#sidebar .runitem:hover .unread, #sidebar .runitem:focus-within .unread, #sidebar .runitem.active .unread { visibility:hidden; }
+#sidebar .runitem small { font-size:11px; opacity:.65; }
+/* 行右端一个位置轮流用：平时是时间，有未读时是圆点，悬停或键盘聚焦时是“⋯”。都叠在同一处，不占标题的宽度。
+   不用 transform 居中：菜单是 fixed 定位，祖先有 transform 就定位错了。 */
+#sidebar .runitem .runmenu { position:absolute; top:0; bottom:0; right:6px; align-items:center; }
+#sidebar .runitem .more { opacity:0; }
+#sidebar .runitem:is(:hover, :has(:focus-visible), :has(.runmenu-box:not([hidden]))) .more { opacity:1; }
+#sidebar .runitem:is(:hover, :has(:focus-visible), :has(.runmenu-box:not([hidden])), :has(.unread):not(.active)) small { visibility:hidden; }
+#sidebar .runitem .unread { position:absolute; top:50%; right:14px; margin-top:-3px; pointer-events:none; }
+#sidebar .runitem:is(:hover, :has(:focus-visible), .active) .unread { visibility:hidden; }
+/* 触屏没有悬停：选中的那一行直接给“⋯”，否则菜单打不开。 */
+@media (hover:none) {
+  #sidebar .runitem.active .more { opacity:1; }
+  #sidebar .runitem.active small { visibility:hidden; }
+}
+#sidebar .show-more { display:block; width:100%; padding:3px 10px 3px 34px; border:0; border-radius:8px; background:none; color:var(--muted); font-size:12px; text-align:left; }
+#sidebar .show-more:hover { color:var(--text); background:var(--hover); }
 
 #sidebar .project-group { margin:0; }
 #sidebar .project-group > summary { display:flex; align-items:center; gap:8px; height:34px; padding-top:0; padding-bottom:0; list-style:none; }
@@ -84,9 +97,11 @@ body { font-size:14px; letter-spacing:-.01em; }
 #sidebar .archived-toggle::after { content:""; width:5px; height:5px; margin-top:-2px; border-right:1.5px solid currentColor; border-bottom:1.5px solid currentColor; transform:rotate(-45deg); transition:transform .15s; }
 #sidebar .archived-toggle.on::after { margin-top:-4px; transform:rotate(45deg); }
 
-/* 底部：设置、工具与更多两行同一样式；工具与更多的弹层另起一层，触发行留在原地。 */
-#sidebar .sidebar-footer { border-top:0; padding:6px 0; position:relative; }
-#sidebar .nav-tools { position:relative; margin:0; max-height:none; overflow:visible; }
+/* 底部一行：左边设置，右边“工具与更多”的图标；弹层相对整个底部摆放，宽度和侧栏对齐。 */
+#sidebar .sidebar-footer { display:flex; align-items:center; gap:2px; border-top:0; padding:6px 8px; position:relative; }
+#sidebar .sidebar-footer > #settings { flex:1; min-width:0; margin:0; }
+#sidebar .nav-tools { position:static; flex:none; margin:0; max-height:none; overflow:visible; }
+#sidebar .nav-tools > summary { justify-content:center; width:30px; min-height:30px !important; margin:0 !important; padding:0 !important; }
 #sidebar .nav-tools > summary { display:flex; align-items:center; gap:8px; min-height:34px; margin:1px 8px; padding:6px 10px; border-radius:8px; list-style:none; cursor:pointer; font-size:14px; color:var(--text); }
 #sidebar .nav-tools > summary::-webkit-details-marker { display:none; }
 #sidebar .nav-tools > summary:hover, #sidebar .nav-tools[open] > summary { background:var(--hover); }
@@ -96,10 +111,8 @@ body { font-size:14px; letter-spacing:-.01em; }
 #sidebar .nav-tools-menu .navbtn { width:calc(100% - 10px); margin:1px 5px; }
 #sidebar .nav-tools-menu .theme-control { margin-top:5px; padding:8px 15px 4px; border-top:1px solid var(--line); }
 
-/* 账号：头像中心对齐图标列，“退出”悬停才出现，右边对齐行的内边距。 */
-#sidebar .whoami { border-top:0; padding:8px 18px 12px 14px; font-size:13px; }
-#sidebar .whoami #logout { opacity:0; margin-right:-8px; }
-#sidebar .whoami:hover #logout, #sidebar .whoami:focus-within #logout { opacity:1; }
+/* 账号和退出在设置页；这里的元素只留着给 main.js 用（设置页的“退出登录”点的就是它）。 */
+#sidebar .whoami { display:none; }
 #topbar:has(#execution-context), #topbar { height:56px; min-height:56px; padding:0 18px; gap:8px; border-bottom:0; flex-wrap:nowrap; }
 #heading { min-width:0; display:block; }
 #title { font-size:14px; font-weight:500; max-width:100%; }
