@@ -146,7 +146,7 @@ export async function openSettings() {
       ? `个人指令：${inst.path}（${inst.chars} 字），每个对话都会带上；直接编辑这个文件，下一个新对话生效。`
       : `个人指令：${inst.path} 还不存在。写在这里的约定每个对话都会带上（类似 ~/.codex/AGENTS.md）。`));
   }
-  panel.append(el("h3", "", "工作区"), el("p", "meta", "对话里只能选这里登记的目录（一般是本机上的 git 仓库）。编码工具只在所选目录里读写，bash 在沙箱里把它挂到 /workspace；不是 git 仓库的目录也能登记，只是撤销只能退回 edit_file、write_file 改过的文件，也看不了改动面板。"));
+  panel.append(el("h3", "", "工作区"), el("p", "meta", "对话里只能选这里登记的目录（一般是本机上的 git 仓库）。编码工具只在所选目录里读写，bash 在沙箱里把它挂到 /workspace；不是 git 仓库的目录也能登记，只是撤销只能退回 edit_file、write_file、apply_patch 改过的文件，也看不了改动面板。"));
   const wsBox = el("div", "set-box");
   if (!e.workspaces.length) wsBox.append(el("div", "set-row", e.blocked.coding ? "编码工具不可用：" + e.blocked.coding : "还没有登记工作区"));
   for (const w of e.workspaces) {
@@ -278,7 +278,7 @@ export async function openSettings() {
   // hooks 在本机以网页端的身份运行命令，不在沙箱里，所以只从平台设置读；个人设置里不生效。
   panel.append(el("h3", "", "Hooks"), el("p", "meta", "在固定时刻运行本机命令：用户提交（UserPromptSubmit）、工具执行前（PreToolUse）、工具成功后（PostToolUse）、模型准备结束（Stop）。格式同 Claude Code 的 hooks 段；填配置原文，或相对 agent 目录的文件路径（如 hooks/hooks.json）。对话开始时读成原文拍进快照。命令不在沙箱里运行，只有平台设置里的 hooks 生效。"));
   const hooksBox = el("textarea"); hooksBox.rows = 3; hooksBox.style.width = "100%"; hooksBox.value = values.hooks;
-  hooksBox.placeholder = "hooks/hooks.json\n或 {\"hooks\": {\"PostToolUse\": [{\"matcher\": \"edit_file|write_file\", \"hooks\": [{\"type\": \"command\", \"command\": \"...\"}]}]}}";
+  hooksBox.placeholder = "hooks/hooks.json\n或 {\"hooks\": {\"PostToolUse\": [{\"matcher\": \"edit_file|write_file|apply_patch\", \"hooks\": [{\"type\": \"command\", \"command\": \"...\"}]}]}}";
   hooksBox.oninput = () => { values.hooks = hooksBox.value; };
   const hooksWrap = el("div", "set-box"); hooksWrap.append(hooksBox, tag("hooks"));
   panel.append(hooksWrap);
@@ -438,7 +438,7 @@ export async function pickWorkspace() {
   add.onclick = () => register("");
   init.onclick = () => register("init");
   skip.onclick = () => {
-    if (!confirm("这个目录不是 git 仓库：撤销只能退回 edit_file、write_file 改过的文件，bash 改的退不回来，也看不了改动面板。仍然登记？")) return;
+    if (!confirm("这个目录不是 git 仓库：撤销只能退回 edit_file、write_file、apply_patch 改过的文件，bash 改的退不回来，也看不了改动面板。仍然登记？")) return;
     register("skip");
   };
   // 可能要找的仓库：app-server 扫一遍已登记工作区的上一级和家目录下的几个常见目录，只列还没登记的 git 仓库。

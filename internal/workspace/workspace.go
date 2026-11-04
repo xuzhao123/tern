@@ -25,12 +25,13 @@ import (
 
 // 输出预算：工具结果最终还要经过上下文的工具输出上限，这里先按“模型能用”的粒度切好，并告诉它怎么读下一段。
 const (
-	defaultLines = 200     // read_file 默认读多少行
+	defaultLines = 2000    // read_file 默认读多少行（同 Claude Code 的 Read）；实际还受 ReadBudget 限制
 	maxLines     = 2000    // read_file 一次最多读多少行
 	maxLineChars = 2000    // 单行超过就截断（和 Claude Code 的 Read 一样）；HTML 一行常有几百字符，截断了 edit_file 就没法原样复制
 	maxFileBytes = 2 << 20 // 超过 2MB 的文件不整份读，请用 grep 定位
 	maxGlob      = 200     // glob 最多返回多少个路径
-	maxMatches   = 100     // grep 最多返回多少处
+	maxMatches   = 100     // grep 最多返回多少处（content 模式；带上下文时按匹配处计）
+	maxContext   = 10      // grep 的 context 最多前后几行
 	maxDiffLines = 60      // edit_file 返回的改动片段最多多少行
 )
 
@@ -42,11 +43,21 @@ var (
 	// read_file 读到它的八成就停下、给出 next_offset：结果不会因为太长被转存给 read_output，行号也不会印两遍。
 	OutputBudget = 2000
 
+	// ReadBudget 是 read_file 一次最多给多少 token：代码要整段看才改得对，分 200 行一页读大文件太碎（Claude Code 的 Read 是 2000 行、约 25k token）。
+	// read_file 的结果不受 OutputBudget 转存限制（见 agent 的 fullOutput），读到这里的八成就停下给 next_offset。
+	ReadBudget = 10000
+
 	mu   sync.Mutex            // 保护 seen，并让“核对 + 写入”成为一步：并行的两次编辑不会互相覆盖
 	seen = map[string]string{} // 路径 → 模型最近一次读到（或自己写入）的内容哈希
 )
 
+// Edits 判断一个工具是不是改工作区文件的编码工具（有快照、可撤销、会跑编辑 hook）。
+func Edits(name string) bool {
+	return name == "edit_file" || name == "write_file" || name == "apply_patch"
+}
+
 // 不进入的目录：版本库内部、运行数据和依赖缓存，内容大且不是要改的代码。
+// 工作区是 git 仓库时，glob、grep 另外跳过 .gitignore 忽略的文件和目录（见 ignored）。
 var skipDirs = map[string]bool{".git": true, ".data": true, "node_modules": true}
 
 func object(properties map[string]any, required ...string) map[string]any {
@@ -54,22 +65,24 @@ func object(properties map[string]any, required ...string) map[string]any {
 }
 
 var Definitions = []map[string]any{
-	{"name": "read_file", "description": "读取工作区里的文本文件，每行前面带行号（行号与制表符不属于文件内容）。默认从第1行读200行，内容太长时会提前停下；没读完时结果里有 next_offset，用它继续读。改文件之前必须先读。",
+	{"name": "read_file", "description": "读取工作区里的文本文件，每行前面带行号（行号与制表符不属于文件内容）。默认从第1行读最多2000行，内容太长时会提前停下；没读完时结果里有 next_offset，用它继续读。一般整份读，文件很大时再用 offset、limit 只读需要的部分。改文件之前必须先读。",
 		"parameters": object(map[string]any{
 			"path":   map[string]string{"type": "string", "description": "相对工作区根目录的路径"},
 			"offset": map[string]string{"type": "integer", "description": "从第几行开始，默认1"},
-			"limit":  map[string]string{"type": "integer", "description": "读多少行，默认200，最多2000；内容太长时会提前停下并给出 next_offset"},
+			"limit":  map[string]string{"type": "integer", "description": "读多少行，默认也是最多2000；内容太长时会提前停下并给出 next_offset"},
 		}, "path")},
-	{"name": "glob", "description": "按文件名模式查找工作区里的文件，返回相对路径（最多200个，按路径排序）。* 不跨目录，** 跨任意层目录；模式里没有 / 时只匹配文件名，如 *.go。",
+	{"name": "glob", "description": "按文件名模式查找工作区里的文件，返回相对路径（最多200个，按路径排序）。* 不跨目录，** 跨任意层目录；模式里没有 / 时只匹配文件名，如 *.go。跳过 .gitignore 忽略的文件（构建产物、依赖目录等）：没列出来不代表不存在，要看被忽略的文件用 read_file 直接读。",
 		"parameters": object(map[string]any{
 			"pattern": map[string]string{"type": "string", "description": "如 **/*.go、internal/*/README.md、*_test.go"},
 		}, "pattern")},
-	{"name": "grep", "description": "用 Go 正则表达式（RE2 语法）搜索工作区文件内容，返回“路径:行号:内容”（最多100处）。可以限定子目录和文件名模式。跳过二进制文件和超过2MB的文件。",
+	{"name": "grep", "description": "用 Go 正则表达式（RE2 语法）搜索工作区文件内容。默认返回“路径:行号:内容”（最多100处），context 给出前后几行（上下文行写成“路径-行号-内容”，不相连的段之间用 -- 隔开）；只想知道哪些文件有、各有几处时用 output_mode。可以限定子目录和文件名模式。跳过 .gitignore 忽略的文件、二进制文件和超过2MB的文件；要搜被忽略的文件，用 path 直接指定它。",
 		"parameters": object(map[string]any{
 			"pattern":     map[string]string{"type": "string", "description": "正则表达式，如 func Run\\("},
 			"path":        map[string]string{"type": "string", "description": "只搜这个子目录或文件，默认整个工作区"},
 			"glob":        map[string]string{"type": "string", "description": "只搜文件名符合这个模式的文件，规则同 glob 工具"},
 			"ignore_case": map[string]string{"type": "boolean", "description": "忽略大小写"},
+			"context":     map[string]string{"type": "integer", "description": "content 模式下每处匹配前后各带几行，0 到 10，默认 0"},
+			"output_mode": map[string]any{"type": "string", "enum": []string{"content", "files_with_matches", "count"}, "description": "content（默认）：匹配的行；files_with_matches：只列有匹配的文件（最多200个）；count：每个文件匹配几行"},
 		}, "pattern")},
 	{"name": "edit_file", "description": "把文件里的 old_string 替换成 new_string。old_string 要从 read_file 的输出里原样复制（不含行号前缀，空格与缩进一致），并且在文件中只出现一次；要替换所有出现处时设 replace_all=true。只差空白（行尾空格、缩进、行内对齐的空格数）时会按宽松规则匹配，结果里的 matched 注明是哪种；还是对不上时会给出文件里最接近的原文。改之前必须先 read_file，文件在那之后被改过会被拒绝。返回改动处的片段。",
 		"parameters": object(map[string]any{
@@ -103,10 +116,12 @@ func Open(dir string) error {
 	return nil
 }
 
-// Rules 写进系统提示词：告诉模型工作区在哪、文件工具怎么配合使用。
+// Rules 写进系统提示词：告诉模型工作区在哪、文件工具怎么配合使用，以及编码任务的做事方式。
+// 编码指引参照 Codex（core/gpt-5.2-codex_prompt.md 的编辑约束、验证、最终回答）和 Claude Code 的做法，
+// 只写行为上的要求，工具各自的用法在工具描述里。
 func Rules() string {
-	base := "\n工作区：" + Dir + "。read_file、glob、grep、edit_file、write_file 的 path 都相对这个目录。"
-	guide := "先用 glob、grep 找到位置，用 read_file 看清内容再改；局部修改用 edit_file，old_string 从 read_file 的输出原样复制（不含行号前缀）并保证唯一；新建文件或整体重写才用 write_file。改完说明改了哪些文件、哪几处。"
+	base := "\n工作区：" + Dir + "。read_file、glob、grep、edit_file、write_file、apply_patch 的 path 都相对这个目录。"
+	guide := codingGuide
 	switch PromptVariant {
 	case "minimal":
 		return base
@@ -116,12 +131,25 @@ func Rules() string {
 	return base + guide
 }
 
+const codingGuide = `
+
+# 编码任务怎么做
+- 判断用户要什么：要你改代码、修问题、加功能的，一直做到改完并验证过再结束，中途不停下来问“要不要继续”；只是提问、要方案或要你评审的，回答就好，不擅自改文件。
+- 动手前先弄清楚：用 grep、glob 找到相关代码，用 read_file 读完整的相关部分（不要只看几行就改）。照着周围代码的写法、命名、错误处理和用到的库来写；用一个库之前先确认项目里已经在用（看 go.mod、package.json 之类）。
+- 改动范围：只做任务需要的改动，从根上修，不绕过问题；不顺手重构、改名、改格式或修无关的问题（看到了可以在回答里提）。不加解释改动过程的注释，只在代码本身不好懂的地方写为什么。
+- 改文件的工具：局部修改用 edit_file，old_string 从 read_file 的输出原样复制（不含行号前缀）并保证唯一；一次改几个文件或一个文件的多处用 apply_patch；新建文件或整体重写才用 write_file。不要用 bash 的 sed、echo、cat > 之类改源码：那样没有快照、撤销不了，也不经过编辑 hook。
+- 互不依赖的读取和搜索放在同一次回复里一起发出。
+- 工作区里可能有用户自己没提交的改动：不是你改的不要回滚、覆盖或“顺手整理”；它们和任务冲突时停下来问用户。没有用户明确要求，不 git commit、push，不 git reset --hard、git checkout --、git clean，不换分支。
+- 验证：改完先跑和改动最相关的测试或构建，通过了再按需放宽范围；失败了就修，修不好如实说明。不要为了让测试通过去改测试、删断言或跳过检查。项目没有测试时至少构建一下，或实际跑一下改到的入口。
+- 需求有歧义、几种理解都说得通时，先少量查看确认范围，仍不清楚就问一句（有 ask_user 时用它），不要猜着做很多步；有风险或删不回来的操作（删数据、改线上配置、大范围重写）先问。
+- 最终回答简洁，先说结果：改了哪些文件、做了什么、怎么验证的、结果如何。没验证过的写明没验证，没做完的写明还差什么，不把推测写成结论。不要把已经写进文件的大段代码再贴一遍；提到代码位置时写成 path:行号。`
+
 // 消融：编码提示词的三种写法。minimal 只说工作区在哪（减法：去掉用法指引）；default 是现在的；
 // extended 再加架构评估与复查里的候选（三句、的“该问就问”、的“没验证的不写成结论”）。
 var PromptVariant = "default"
 
 const extendedRules = "互不依赖的读取（read_file、grep、glob）放在同一次回复里一起发出；找代码用 grep、glob，看代码用 read_file，可以一次读一大段。" +
-	"工作区文件只用 edit_file、write_file 改，bash 用来构建、运行和检查。" +
+	"工作区文件只用 edit_file、write_file、apply_patch 改，bash 用来构建、运行和检查。" +
 	"需求有歧义、几种理解都说得通时，先少量查看确认范围，仍不清楚就向用户问一句（有 ask_user 时用它），不要猜着做很多步。" +
 	"没有验证过的推断不要写成结论；用户给出原文时照原文用。"
 
@@ -137,10 +165,13 @@ func Run(ctx context.Context, name, arguments string) (any, error) {
 		Pattern    string `json:"pattern"`
 		Glob       string `json:"glob"`
 		IgnoreCase bool   `json:"ignore_case"`
+		Context    int    `json:"context"`
+		OutputMode string `json:"output_mode"`
 		OldString  string `json:"old_string"`
 		NewString  string `json:"new_string"`
 		ReplaceAll bool   `json:"replace_all"`
 		Content    string `json:"content"`
+		Input      string `json:"input"`
 	}
 	if err := json.Unmarshal([]byte(arguments), &args); err != nil {
 		return nil, llm.Permanent(fmt.Errorf("参数类型不对：%v", err))
@@ -151,11 +182,13 @@ func Run(ctx context.Context, name, arguments string) (any, error) {
 	case "glob":
 		return globFiles(ctx, args.Pattern)
 	case "grep":
-		return grep(ctx, args.Pattern, args.Path, args.Glob, args.IgnoreCase)
+		return grep(ctx, args.Pattern, args.Path, args.Glob, args.IgnoreCase, args.Context, args.OutputMode)
 	case "edit_file":
 		return editFile(args.Path, args.OldString, args.NewString, args.ReplaceAll)
 	case "write_file":
 		return writeFile(args.Path, args.Content)
+	case "apply_patch":
+		return applyPatch(args.Input)
 	}
 	return nil, llm.Permanent(fmt.Errorf("未知工具：%s", name))
 }
@@ -251,7 +284,7 @@ func readFile(p string, offset, limit int) (any, error) {
 		return nil, llm.Permanent(fmt.Errorf("offset=%d 超过文件总行数 %d", offset, len(lines)))
 	}
 	last := min(offset-1+limit, len(lines))
-	budget := OutputBudget * 4 / 5 // 留出外层字段的余量
+	budget := max(ReadBudget, OutputBudget) * 4 / 5 // 留出外层字段的余量
 	var b strings.Builder
 	end, used, cut := offset-1, 0, 0
 	for ; end < last; end++ {
@@ -316,6 +349,7 @@ func pattern(glob string) (*regexp.Regexp, bool, error) {
 
 // walk 遍历工作区里的普通文件（经 os.Root 的 FS，不跟随符号链接），跳过 skipDirs。
 func walk(ctx context.Context, start string, visit func(path string) bool) error {
+	skip := ignored(ctx)
 	return fs.WalkDir(root.FS(), start, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			if path == start {
@@ -327,12 +361,12 @@ func walk(ctx context.Context, start string, visit func(path string) bool) error
 			return ctx.Err()
 		}
 		if d.IsDir() {
-			if path != start && skipDirs[d.Name()] {
+			if path != start && (skipDirs[d.Name()] || skip[path+"/"]) {
 				return fs.SkipDir
 			}
 			return nil
 		}
-		if !d.Type().IsRegular() {
+		if !d.Type().IsRegular() || (path != start && skip[path]) {
 			return nil
 		}
 		if !visit(path) {
@@ -377,9 +411,18 @@ func globFiles(ctx context.Context, glob string) (any, error) {
 	return result, nil
 }
 
-func grep(ctx context.Context, expr, under, glob string, ignoreCase bool) (any, error) {
+func grep(ctx context.Context, expr, under, glob string, ignoreCase bool, context int, mode string) (any, error) {
 	if strings.TrimSpace(expr) == "" {
 		return nil, llm.Permanent(errors.New("pattern 不能为空"))
+	}
+	if mode == "" {
+		mode = "content"
+	}
+	if mode != "content" && mode != "files_with_matches" && mode != "count" {
+		return nil, llm.Permanent(errors.New("output_mode 只能是 content、files_with_matches、count"))
+	}
+	if context < 0 || context > maxContext {
+		return nil, llm.Permanent(fmt.Errorf("context 是 0 到 %d", maxContext))
 	}
 	if ignoreCase {
 		expr = "(?i)" + expr
@@ -402,7 +445,7 @@ func grep(ctx context.Context, expr, under, glob string, ignoreCase bool) (any, 
 		}
 	}
 	hits := []string{}
-	files, more := 0, false
+	files, matched, more := 0, 0, false
 	err = walk(ctx, start, func(path string) bool {
 		if filter != nil && !matches(filter, nameOnly, path) {
 			return true
@@ -416,29 +459,98 @@ func grep(ctx context.Context, expr, under, glob string, ignoreCase bool) (any, 
 			return true
 		}
 		files++
-		for i, line := range strings.Split(string(data), "\n") {
-			if !re.MatchString(line) {
-				continue
+		lines := strings.Split(string(data), "\n")
+		var found []int
+		for i, line := range lines {
+			if re.MatchString(line) {
+				found = append(found, i)
 			}
-			if len(hits) == maxMatches {
+		}
+		if len(found) == 0 {
+			return true
+		}
+		switch mode {
+		case "files_with_matches", "count":
+			if len(hits) == maxGlob {
 				more = true
 				return false
 			}
-			if r := []rune(line); len(r) > 200 {
-				line = string(r[:200]) + "…"
+			if mode == "count" {
+				hits = append(hits, fmt.Sprintf("%s:%d", path, len(found)))
+			} else {
+				hits = append(hits, path)
 			}
-			hits = append(hits, fmt.Sprintf("%s:%d:%s", path, i+1, line))
+			matched += len(found)
+			return true
+		}
+		// content：匹配行写“路径:行号:内容”，上下文行写“路径-行号-内容”，不相连的段之间放一行 --（同 grep、rg）。
+		last := -1 // 已经写出的最后一行
+		for _, i := range found {
+			if matched == maxMatches {
+				more = true
+				return false
+			}
+			matched++
+			from, to := max(i-context, last+1), min(i+context, len(lines)-1)
+			if context > 0 && last >= 0 && from > last+1 {
+				hits = append(hits, "--")
+			} else if context > 0 && last < 0 && len(hits) > 0 {
+				hits = append(hits, "--") // 换了文件
+			}
+			for j := from; j <= to; j++ {
+				line := lines[j]
+				if r := []rune(line); len(r) > 200 {
+					line = string(r[:200]) + "…"
+				}
+				sep := "-"
+				if re.MatchString(lines[j]) {
+					sep = ":"
+				}
+				hits = append(hits, fmt.Sprintf("%s%s%d%s%s", path, sep, j+1, sep, line))
+			}
+			last = max(last, to)
 		}
 		return true
 	})
 	if err != nil {
 		return nil, err
 	}
-	result := map[string]any{"matches": hits, "count": len(hits), "files_scanned": files}
+	result := map[string]any{"count": matched, "files_scanned": files}
+	switch mode {
+	case "content":
+		result["matches"] = hits
+	case "files_with_matches":
+		result["files"], result["count"] = hits, len(hits)
+	case "count":
+		result["counts"] = hits
+		result["total"] = matched
+		delete(result, "count")
+	}
 	if more {
-		result["truncated"] = fmt.Sprintf("超过 %d 处，只列出前 %d 处；请缩小 path、glob 或改写正则", maxMatches, maxMatches)
+		if mode == "content" {
+			result["truncated"] = fmt.Sprintf("超过 %d 处，只列出前 %d 处；请缩小 path、glob 或改写正则，或先用 output_mode=files_with_matches 看在哪些文件", maxMatches, maxMatches)
+		} else {
+			result["truncated"] = fmt.Sprintf("超过 %d 个文件，只列出前 %d 个；请缩小 path、glob", maxGlob, maxGlob)
+		}
 	}
 	return result, nil
+}
+
+// ignored 列出工作区里被 .gitignore（含 .git/info/exclude）忽略、又没被跟踪的文件和目录，
+// 目录带结尾的 /。工作区不是 git 仓库或 git 不可用时返回空：退回只跳过 skipDirs。
+// 每次 glob、grep 现查一次：.gitignore 可能在对话中被改，查一次在常见仓库里只要几十毫秒。
+func ignored(ctx context.Context) map[string]bool {
+	out, err := Git(ctx, "ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z")
+	if err != nil {
+		return nil
+	}
+	set := map[string]bool{}
+	for _, p := range strings.Split(out, "\x00") {
+		if p != "" {
+			set[p] = true
+		}
+	}
+	return set
 }
 
 // Seen 返回账本的副本，由 agent 随本轮检查点保存：续聊是新进程，靠它接上上一轮读过哪些文件。
@@ -485,13 +597,24 @@ func lineOf(text string, i int) int {
 	return strings.Count(text[:i], "\n") + 1
 }
 
+// guarded 拒绝编辑工具不能写的路径：harness 自己维护的文件和 .git。
+func guarded(path string) error {
+	if why, ok := Protected[path]; ok {
+		return llm.Permanent(errors.New(why))
+	}
+	if inGitDir(path) {
+		return llm.Permanent(fmt.Errorf("%s 在 .git 里，不能用编辑工具改（和 bash 一样只读）", path))
+	}
+	return nil
+}
+
 func editFile(p, oldString, newString string, replaceAll bool) (any, error) {
 	path, err := clean(p)
 	if err != nil {
 		return nil, err
 	}
-	if why, ok := Protected[path]; ok {
-		return nil, llm.Permanent(errors.New(why))
+	if err := guarded(path); err != nil {
+		return nil, err
 	}
 	if oldString == "" {
 		return nil, llm.Permanent(errors.New("old_string 不能为空；新建文件或整体重写请用 write_file"))
@@ -597,8 +720,8 @@ func writeFile(p, content string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if why, ok := Protected[path]; ok {
-		return nil, llm.Permanent(errors.New(why))
+	if err := guarded(path); err != nil {
+		return nil, err
 	}
 	mu.Lock()
 	defer mu.Unlock()

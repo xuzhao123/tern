@@ -5,8 +5,10 @@ package sandbox
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -79,14 +81,14 @@ var signalNote = "进程被系统结束：多半是超出了内存上限（" + m
 
 // ruleText 是 Rules 里平台相关的那一段：工作目录、能写哪里、资源限制，以及沙箱里能用哪些前端工具。
 func ruleText() string {
-	limits := "内存、进程数有限，单条命令最多 " + Timeout.String() + "（到时被终止，返回终止前的输出）。"
-	rule := "\n可以用 bash 在 Linux 沙箱里执行命令：工作目录 /workspace（整个对话内保留文件，包括之前几轮写的和用户上传的），每次调用是新的 shell；只能写 /workspace 和 /tmp（/tmp 每次调用都是空的）；" + limits
+	limits := "内存、进程数有限，单条命令默认最多 " + Timeout.String() + "，bash 的 timeout 参数可以设得更长（到时被终止，返回终止前的输出）。"
+	rule := "\n可以用 bash 在 Linux 沙箱里执行命令：工作目录 /workspace（整个对话内保留文件，包括之前几轮写的和用户上传的）；只能写 /workspace 和 /tmp（/tmp 每次调用都是空的）；" + limits
 	if Project != "" {
 		access := "可写"
 		if !ProjectWrite {
 			access = "只读（plan 模式）"
 		}
-		rule = "\n可以用 bash 在 Linux 沙箱里执行命令：/workspace 就是对话所选的工作区（" + access + "，和文件工具看到的是同一份代码；.git 只读，.env 与 .data 看不到）；/scratch 是本对话的临时目录（整个对话内保留，用户上传的文件在这里）。每次调用是新的 shell；只能写这两处和 /tmp（/tmp 每次调用都是空的，要留到下一次调用的放 /scratch）；" + limits + "有 Go 工具链，离线编译（模块缓存只读，GOPROXY=off）。改工作区的源码用 edit_file、write_file（有快照可以撤销，会跑编辑 hook），bash 用来构建、测试和查看；bash 改的文件没有快照，撤销时不会还原。"
+		rule = "\n可以用 bash 在 Linux 沙箱里执行命令：/workspace 就是对话所选的工作区（" + access + "，和文件工具看到的是同一份代码；.git 只读，.env 与 .data 看不到）；/scratch 是本对话的临时目录（整个对话内保留，用户上传的文件在这里）。只能写这两处和 /tmp（/tmp 每次调用都是空的，要留到下一次调用的放 /scratch）；" + limits + "有 Go 工具链，离线编译（模块缓存只读，GOPROXY=off）。改工作区的源码用 edit_file、write_file、apply_patch（有快照可以撤销，会跑编辑 hook），bash 用来构建、测试和查看；bash 改的文件没有快照，撤销时不会还原。"
 	}
 	if ProjectRO {
 		rule += "项目目录只读挂在 /project。"
@@ -269,6 +271,7 @@ func kill(cmd *exec.Cmd, unit string) {
 
 // cleanup 删掉为沙箱准备、退出时要清掉的临时内容（/etc 的最小版本）。
 func cleanup() {
+	unmaskGit()
 	if etcDir != "" {
 		os.RemoveAll(etcDir)
 	}
@@ -317,8 +320,13 @@ func bwrapArgs(ctx context.Context, workspace string, selfMount []string, comman
 		}
 		args = append(args, mode, Project, "/workspace")
 		// 版本库历史只读：命令能看 diff、log，不能提交、改写历史；密钥和运行数据换成空的。
-		if info, err := os.Stat(filepath.Join(Project, ".git")); err == nil && info.IsDir() {
-			args = append(args, "--ro-bind", filepath.Join(Project, ".git"), "/workspace/.git")
+		// 不是 git 仓库时也占住 .git（空的只读目录，挂载点由 unmaskGit 收走）：命令造出来的 .git 带着配置和 hook，
+		// 人之后在工作区跑 git 就成了沙箱外的命令。worktree 的 .git 是文件，同样只读。
+		dotGit := filepath.Join(Project, ".git")
+		if _, err := os.Stat(dotGit); err == nil {
+			args = append(args, "--ro-bind", dotGit, "/workspace/.git")
+		} else if _, err := os.Lstat(dotGit); errors.Is(err, fs.ErrNotExist) && writable {
+			args = append(args, "--tmpfs", "/workspace/.git", "--remount-ro", "/workspace/.git")
 		}
 		for _, hidden := range []string{".data", ".cache"} {
 			if info, err := os.Stat(filepath.Join(Project, hidden)); err == nil && info.IsDir() {

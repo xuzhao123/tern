@@ -78,20 +78,29 @@ var front = sync.OnceValue(func() (t frontTools) {
 // 输出保留开头和结尾各 128KB：过长的结果由上下文存成文件，这里只防内存被撑爆。
 const outputLimit = 128 << 10
 
-// Timeout 是一条命令最多跑多久：bash 单条命令的时限（-bash-timeout），由 main 设置，写进工具描述与提示词。
+// Timeout 是一条命令默认最多跑多久：bash 单条命令的时限（-bash-timeout），由 main 设置，写进工具描述与提示词。
+// 模型可以给单条命令设 timeout（毫秒），最多 MaxTimeout（同 Claude Code 的 Bash）。
 var Timeout = 30 * time.Second
+
+const MaxTimeout = 10 * time.Minute
+
+// CommandLimit 是模型能给单条前台命令设的最长时限：默认时限本身更长时（专用服务）以它为准。
+func CommandLimit() time.Duration { return max(MaxTimeout, Timeout) }
+
+// cwdNote 写进工具描述与提示词：工作目录保留，其余 shell 状态不保留。
+const cwdNote = "工作目录在调用之间保留，之后几轮对话也接着用（cd 之后下一条命令还在那个目录，离开工作区会被重置回根目录）；环境变量、shell 变量和函数不保留，每次调用是新的 shell。尽量用绝对路径或相对工作区根目录的路径，少用 cd。"
 
 // Definitions 在 Project 定下之后调用：有没有工作区，bash 里的路径不是同一个，描述要和 Rules 一致。
 func Definitions() []map[string]any {
 	var bash string
 	if Host {
-		bash = hostIntro() + "每次调用是新的 shell（cd 和环境变量不保留）。" +
-			"单条命令最多 " + Timeout.String() + "，到时整条命令被终止，返回终止前的输出。要跑得更久的（长时间构建、监视）设 background=true：立刻返回 job_id，用 bash_output 读输出，用 bash_kill 停掉。" +
+		bash = hostIntro() + cwdNote +
+			"单条命令默认最多 " + Timeout.String() + "，可以用 timeout 设得更长（最多 " + CommandLimit().String() + "），到时整条命令被终止，返回终止前的输出。要跑得更久的（长时间构建、监视）设 background=true：立刻返回 job_id，用 bash_output 读输出，用 bash_kill 停掉。" +
 			"要回答提示的程序（交互式安装、python -i 一类）用 background=true（需要终端的加 tty=true），再用 bash_input 写输入；前台命令的标准输入是 /dev/null，读不到输入。" +
 			"每条命令（包括后台命令）都在宿主机上直接跑，能看到、也能连上本机的进程与服务；后台命令只活到这一轮结束。"
 	} else {
-		bash = bashIntro() + "每次调用是新的 shell（cd 和环境变量不保留），" + tmpNote + "不能写其他位置，默认不能联网。" +
-			"单条命令最多 " + Timeout.String() + "，到时整条命令被终止，返回终止前的输出。要跑得更久的（长时间构建、监视）设 background=true：立刻返回 job_id，用 bash_output 读输出，用 bash_kill 停掉。" +
+		bash = bashIntro() + cwdNote + tmpNote + "不能写其他位置，默认不能联网。" +
+			"单条命令默认最多 " + Timeout.String() + "，可以用 timeout 设得更长（最多 " + CommandLimit().String() + "），到时整条命令被终止，返回终止前的输出。要跑得更久的（长时间构建、监视）设 background=true：立刻返回 job_id，用 bash_output 读输出，用 bash_kill 停掉。" +
 			"要回答提示的程序（交互式安装、python -i 一类）用 background=true（需要终端的加 tty=true），再用 bash_input 写输入；前台命令的标准输入是 /dev/null，读不到输入。" +
 			"每条命令（包括后台命令）都在自己的沙箱里" + processView + "：之后的命令看不到、也连不上后台命令和它起的服务。" + serviceNote
 	}
@@ -100,9 +109,11 @@ func Definitions() []map[string]any {
 		{"name": "bash", "description": bash, "parameters": map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"command":    map[string]string{"type": "string"},
-				"background": map[string]string{"type": "boolean", "description": "true 时在后台运行、立刻返回 job_id，不等它结束；后台命令只活到这一轮结束，最多同时 4 个"},
-				"tty":        map[string]string{"type": "boolean", "description": "background=true 时给命令一个伪终端（它以为自己在终端里，能显示提示）；默认 false，标准输入是管道"},
+				"command":     map[string]string{"type": "string"},
+				"description": map[string]string{"type": "string", "description": "用 5 到 10 个字说明这条命令做什么（如“运行单元测试”“列出改动的文件”），显示给用户看"},
+				"timeout":     map[string]string{"type": "integer", "description": "这条命令的时限，毫秒；不给用默认的 " + Timeout.String() + "，最多 " + fmt.Sprint(CommandLimit().Milliseconds()) + "。只对前台命令有效"},
+				"background":  map[string]string{"type": "boolean", "description": "true 时在后台运行、立刻返回 job_id，不等它结束；后台命令只活到这一轮结束，最多同时 4 个"},
+				"tty":         map[string]string{"type": "boolean", "description": "background=true 时给命令一个伪终端（它以为自己在终端里，能显示提示）；默认 false，标准输入是管道"},
 			},
 			"required": []string{"command"},
 		}},
@@ -191,13 +202,14 @@ func Run(ctx context.Context, callID, name, arguments string) (any, error) {
 		return nil, llm.Permanent(errors.New("沙箱只支持 Linux（bubblewrap）与 macOS（sandbox-exec）"))
 	}
 	var args struct {
-		Command, Domain, Reason, Text string
-		Background, Tty, Close        bool
-		JobID                         string `json:"job_id"`
-		Wait                          int
+		Command, Domain, Reason, Text, Description string
+		Background, Tty, Close                     bool
+		JobID                                      string `json:"job_id"`
+		Wait                                       int
+		Timeout                                    int64
 	}
 	if err := json.Unmarshal([]byte(arguments), &args); err != nil {
-		return nil, llm.Permanent(errors.New("参数类型不对：command、domain、reason、job_id、text 是字符串，background、tty、close 是布尔值，wait 是整数"))
+		return nil, llm.Permanent(errors.New("参数类型不对：command、description、domain、reason、job_id、text 是字符串，background、tty、close 是布尔值，wait、timeout 是整数"))
 	}
 	switch name {
 	case "bash_output":
@@ -245,10 +257,36 @@ func Run(ctx context.Context, callID, name, arguments string) (any, error) {
 		return nil, llm.Permanent(errors.New("command 需要是1到16KB的非空字符串"))
 	}
 	if args.Background {
-		return startJob(ctx, callID, command, args.Tty)
+		return startJob(ctx, callID, withCwd(command, Host, false), args.Tty)
 	}
-	return execute(ctx, callID, command, ProjectWrite, Timeout, Host)
+	limit := Timeout
+	if args.Timeout < 0 || time.Duration(args.Timeout)*time.Millisecond > CommandLimit() {
+		return nil, llm.Permanent(fmt.Errorf("timeout 是毫秒数，0 到 %d", CommandLimit().Milliseconds()))
+	}
+	if args.Timeout > 0 {
+		limit = max(time.Duration(args.Timeout)*time.Millisecond, time.Second)
+	}
+	// 包上 cd 与 EXIT trap 的命令在锁里执行，读回目录也在锁里：两条 bash 不会交错改 cwd。
+	cwdMu.Lock()
+	defer cwdMu.Unlock()
+	prepareCwd()
+	result, err := execute(ctx, callID, withCwd(command, Host, true), ProjectWrite, limit, Host)
+	if err != nil {
+		return nil, err
+	}
+	m := result.(map[string]any)
+	dir, note := recordCwd(Host)
+	if dir != "" {
+		m["cwd"] = dir
+	}
+	if note != "" {
+		m["cwd_note"] = note
+	}
+	return m, nil
 }
+
+// cwdMu 让“准备记录、执行、读回目录”成为一体（execute 自己的锁只管执行）。
+var cwdMu sync.Mutex
 
 // Shell 是人在界面上自己发起的一条命令（网页端的 !命令，见 agent 的 -shell）：
 // 和 bash 工具走同一条可写路径，工作区按权限模式挂成可写或只读（plan 模式只读）；
@@ -303,6 +341,9 @@ func execute(ctx context.Context, callID, command string, writable bool, limit t
 	if ServiceLog {
 		serviceOutput = io.MultiWriter(out, os.Stdout)
 	}
+	if !host {
+		defer unmaskGit()
+	}
 	cmd, unit, err := launch(ctx, callID, command, serviceOutput, nil, false, writable, host)
 	if err != nil {
 		return nil, err
@@ -318,7 +359,7 @@ func execute(ctx context.Context, callID, command string, writable bool, limit t
 		// 整条命令连同它起的进程都已结束（cgroup 或进程组整体杀掉，并等到退出），后台不会还在跑，
 		// 所以如实交回终止前的输出，执行器不必记成“结果未知”。终止前已经做了的事照样算数。
 		why := "timeout"
-		killed = "超过单条命令的时限 " + Timeout.String()
+		killed = "超过单条命令的时限 " + limit.String() + "；要跑得更久，设更长的 timeout 或放到后台"
 		if !errors.Is(cause, context.DeadlineExceeded) {
 			killed, why = "任务被停止", "cancelled"
 		}
@@ -404,6 +445,15 @@ wait:
 	deniedMu.Unlock()
 	fmt.Printf("Bash [%s]: exit=%d bytes=%d duration=%s\n", callID, cmd.ProcessState.ExitCode(), total, time.Since(start).Round(time.Millisecond))
 	return result, nil
+}
+
+// unmaskGit 收走占位 .git 的挂载点：bwrap 在工作区里建的空目录，留着会让工作区看起来像 git 仓库。
+// Rmdir 只删空目录，真的仓库（非空目录）和 worktree 的 .git 文件都不受影响。还在跑的后台命令的挂载不受影响，
+// 它们结束时不收：可能正赶上下一条命令建挂载点，留到下一条前台命令或进程退出时收。
+func unmaskGit() {
+	if Project != "" {
+		syscall.Rmdir(filepath.Join(Project, ".git"))
+	}
 }
 
 // launchSpec 是一次沙箱执行的启动参数，由 launch_linux.go、launch_darwin.go 拼出来：

@@ -218,22 +218,22 @@ tern -question '计算 1231+23123'
 | `-skills-list` | false | 只扫描内置的与 `skills/`，stdout 输出每个 skill 的元数据、正文与校验错误（JSON），不请求模型；须单独使用 |
 | `-timeout` | 0 | 整次运行的时限，如 `2m`；0 不限，仍可 Ctrl+C |
 | `-tool-timeout` | 30s | 其他工具单次尝试的时限；到时记为结果未知，只读工具才重试（bash 用 `-bash-timeout`） |
-| `-bash-timeout` | 2m | bash 单条命令的时限，大于 0、不超过 `10m`；到时沙箱终止整条命令，返回终止前的输出；写在 bash 的工具描述里 |
+| `-bash-timeout` | 2m | bash 单条命令的时限，大于 0、不超过 `10m`；到时沙箱终止整条命令，返回终止前的输出；写在 bash 的工具描述里；模型可以给单条命令设 `timeout`（毫秒，最多 10 分钟） |
 | `-task-id` | 随机 UUID | 检查点ID（字母、数字和 `._-`）；已存在时拒绝启动，提示改用 `-resume` |
 | `-resume` | 空 | 从该ID的检查点续跑，配置取自检查点；须单独使用；已完成的直接返回存档答案 |
-| `-subagents` | false | 增加 spawn_agent：把独立子任务交给全新上下文的子 agent（子进程），每次运行最多4个 |
+| `-subagents` | false | 增加 spawn_agent：把独立子任务交给全新上下文的子 agent（子进程），每次运行最多4个；`agent_type` 选子 agent 类型（见下面“子 agent 类型”），子进程带 `-as-subagent`（结束时跑 SubagentStop hook）和 `-agent-type` |
 | `-tenant` | 空 | 多租户：本任务所属的租户，数据都在 `.data/tenants/<租户>/` 下；带 `tenant` 的队列任务自动加上（app-server 启动 agent 时不加，这一版只有平台空间）；可与 `-resume` 一起用 |
 | `-private-input` | false | 任务输入已含私有数据，外发类工具执行前要确认；父 agent 派出子任务时自动加上，一般不手动使用 |
 | `-subagent-steps` | 6 | 每个子 agent 的模型请求预算，1到20 |
 | `-provider` | ark | 模型路由：`ark`（豆包，方舟 Coding Plan）、`deepseek`、`deepseekanthropic`（DeepSeek 的 Anthropic 接口）或 `coconut`（本机 Responses 服务）；子 agent 继承，续跑沿用 |
 | `-model` | 空 | 这家供应商下的具体模型，优先于 `LLM_MODEL` / `DEEPSEEK_MODEL`；写进检查点的启动参数，子 agent 继承，续跑与回放沿用 |
-| `-bash` | false | 增加 bash 与 request_network_access，命令在沙箱里执行（Linux 用 bubblewrap，macOS 用 sandbox-exec）；工作目录按对话保留，续聊各轮共用，网页端可上传、下载 |
+| `-bash` | false | 增加 bash 与 request_network_access，命令在沙箱里执行（Linux 用 bubblewrap，macOS 用 sandbox-exec）；工作目录按对话保留，续聊各轮共用，网页端可上传、下载；`cd` 的结果带到下一条命令，之后几轮对话也接着用（同 Claude Code，离开工作区会重置回根目录），环境变量不保留；参数 `description` 是给人看的一句说明，显示在工具行上 |
 | `-bash-host` | false | 配合 `-bash`：命令直接在宿主机上跑（完全访问，没有沙箱）。网页端的权限下拉选「完全访问」时带这个参数；`tern chat`、`tern mcp-server` 这类只给权限、不说在哪跑的入口，app-server 按权限推：`full` 在宿主机，其余在沙箱；也可以单独与任意 `-permission-mode` 组合。校验命令（`-check`、`verify_feature`）仍进沙箱 |
-| `-workspace` | 空 | 增加 read_file、glob、grep、edit_file、write_file，只在这个仓库目录里读写；子 agent 继承。配合 `-bash` 时 bash 的 `/workspace` 就是这个仓库（`.git` 只读，`.env`、`.data` 看不到），本对话目录改挂 `/scratch` |
+| `-workspace` | 空 | 增加 read_file、glob、grep、edit_file、write_file、apply_patch（Codex 的补丁格式，一次新建、删除、改名、修改多个文件，要么全部生效要么都不改，可撤销），只在这个仓库目录里读写；子 agent 继承。配合 `-bash` 时 bash 的 `/workspace` 就是这个仓库（`.git` 只读，`.env`、`.data` 看不到），本对话目录改挂 `/scratch`；glob、grep 跳过 `.gitignore` 忽略的文件，grep 有 `context`（前后几行）和 `output_mode`（content、files_with_matches、count）；read_file 一次最多 2000 行、约 1 万 token |
 | `-personal-instructions` | true | 读 `TERN_HOME` 下的 `AGENTS.md`（默认 `~/.tern/AGENTS.md`）作为个人指令放进系统提示词，排在项目指令前面，没选工作区也带上；`TERN_HOME` 就是工作区根目录时这个文件已作为项目指令读了，不再读一遍。评测传 `false`，结果才可比；子 agent 继承 |
 | `-permission-mode` | edit | plan（只读计划）、ask（改动都问）、edit（工作区内编辑与沙箱 bash 直接执行）、full（不问，含高风险确认，由程序放行并写审计；deny、ask 规则照常）。命令是否在沙箱里由 `-bash-host` 决定，full 不自动关沙箱 |
 | `-allow` / `-ask` / `-deny` | 空 | 权限规则，可重复，如 `-allow "Bash(go build *)"`、`-deny "Bash(git push *)"`、`-ask "Edit(internal/agent/**)"`；顺序 deny › ask › allow；子 agent 继承 |
-| `-hooks` | 空 | 生命周期 hooks 配置（Claude Code 的 hooks 格式），JSON 原文或文件路径，如 `-hooks hooks/hooks.json`；命令在宿主机上运行，只由用户提供；子 agent 继承。问题以 `/名字` 开头时按内置的、`TERN_HOME` 的 `commands/`、工作区的 `.agents/commands/` 模板展开（同名时后面的覆盖前面的） |
+| `-hooks` | 空 | 生命周期 hooks 配置（Claude Code 的 hooks 格式），事件有 SessionStart、UserPromptSubmit、PreToolUse、PostToolUse、Notification、PreCompact、Stop、SubagentStop、SessionEnd，任何事件都可以返回 `continue: false` 停下这一轮、`systemMessage` 给用户看的提示，JSON 原文或文件路径，如 `-hooks hooks/hooks.json`；命令在宿主机上运行，只由用户提供；子 agent 继承。问题以 `/名字` 开头时按内置的、`TERN_HOME` 的 `commands/`、工作区的 `.agents/commands/` 模板展开（同名时后面的覆盖前面的） |
 | `-bash-project-ro` | false | 配合 `-bash`：项目只读挂到 `/project`（`.env`、`.data`、`.git`、`bin` 除外） |
 | `-net-allow` | 空 | 配合 `-bash`：沙箱可经代理访问的域名（含子域名，可重复），由用户批准后添加；网页端由设置里的“沙箱联网白名单”（`net_allow`）和审批生成。不在白名单的域名，有界面时代理当场请人批准 |
 | `-browser` | false | 增加 web_search 与 open_page，用无头 Chrome 查资料；环境变量 `CHROME_PATH` 指定浏览器，系统不支持 Chrome 沙箱时设 `CHROME_NO_SANDBOX=1` |
@@ -256,6 +256,22 @@ tern -question '计算 1231+23123'
 | `code-review` | skill | 按“先构建、再看逻辑”的固定顺序评审 Go 代码；模型判断任务相关时用 load_skill 加载 |
 
 `image_gen`（生成配图）目前只有壳子（[internal/imagegen](internal/imagegen/)）：没接后端时不提供这个工具。接后端的做法见 [spec/visualization-full.md](spec/visualization-full.md)。
+
+### 子 agent 类型
+
+开了 `-subagents` 时，`spawn_agent` 可以用 `agent_type` 选一种专门的子 agent（同 Claude Code 的 subagent）：一个 Markdown 文件定义一种，frontmatter 写 `name`（和文件名一致）、`description`（什么时候用，写给父 agent 看）、可选的 `tools`（逗号分隔，只给这些工具；`read_output` 总是保留）和 `model`（同一家供应商下的另一个模型），正文是它的提示词，追加在子 agent 的系统提示词后面。不选就是和父 agent 一样的通用子 agent。
+
+| 层 | 位置 |
+| --- | --- |
+| 内置 | [internal/agent/agents/](internal/agent/agents/)：`explore`（只读搜索，返回结论和代码位置）、`plan`（只读，给出实现方案） |
+| 个人 | `TERN_HOME/agents/<名字>.md` |
+| 项目 | `<工作区>/.agents/agents/<名字>.md` |
+
+同名时后面的整份覆盖前面的。
+
+### 按需加载的工具
+
+MCP 工具的说明合计超过约 2000 token 时，不把它们放进工具列表：系统提示词里只列名字和一句用途，模型用 `tool_search` 查完整的参数说明（关键词或 `select:名字`），再用 `call_tool` 调用（同 Claude Code 的 ToolSearch）。工具列表从第一次请求起不变，提示缓存的前缀不受影响；`call_tool` 执行前还原成原来的工具，hook、权限规则、审计都按原工具名。
 
 命令与 skill 都分三层，同名时后面的整份覆盖前面的：
 

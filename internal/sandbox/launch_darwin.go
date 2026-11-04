@@ -52,15 +52,15 @@ const writeWorkspaceRules = `(allow file-write* (subpath (param "WORKSPACE")))
 // ruleText 是 Rules 里平台相关的那一段：工作目录、能写哪里、资源限制。
 func ruleText() string {
 	scratch, _ := filepath.Abs(Dir)
-	limits := "没有内存、CPU 与进程数限制，单条命令最多 " + Timeout.String() + "（到时被终止，返回终止前的输出）。"
-	rule := "\n可以用 bash 在 macOS 沙箱（Seatbelt）里执行命令：工作目录 " + scratch + "（整个对话内保留文件，包括之前几轮写的和用户上传的），每次调用是新的 shell；只能写这个目录、" + os.TempDir() + " 与设备文件；" + limits
+	limits := "没有内存、CPU 与进程数限制，单条命令默认最多 " + Timeout.String() + "，bash 的 timeout 参数可以设得更长（到时被终止，返回终止前的输出）。"
+	rule := "\n可以用 bash 在 macOS 沙箱（Seatbelt）里执行命令：工作目录 " + scratch + "（整个对话内保留文件，包括之前几轮写的和用户上传的）；只能写这个目录、" + os.TempDir() + " 与设备文件；" + limits
 	if Project != "" {
 		access := "可写"
 		if !ProjectWrite {
 			access = "只读（plan 模式）"
 		}
 		project, _ := filepath.Abs(Project)
-		rule = "\n可以用 bash 在 macOS 沙箱（Seatbelt）里执行命令：" + project + " 就是对话所选的工作区（" + access + "，和文件工具看到的是同一份代码；.git 只读，.env 与 .data 看不到）；本对话的临时目录是 " + scratch + "（整个对话内保留，用户上传的文件在这里）。每次调用是新的 shell；只能写这两处、" + os.TempDir() + " 与设备文件；" + limits + "有宿主机的 Go 工具链（模块缓存与构建缓存是空的）。改工作区的源码用 edit_file、write_file（有快照可以撤销，会跑编辑 hook），bash 用来构建、测试和查看；bash 改的文件没有快照，撤销时不会还原。"
+		rule = "\n可以用 bash 在 macOS 沙箱（Seatbelt）里执行命令：" + project + " 就是对话所选的工作区（" + access + "，和文件工具看到的是同一份代码；.git 只读，.env 与 .data 看不到）；本对话的临时目录是 " + scratch + "（整个对话内保留，用户上传的文件在这里）。只能写这两处、" + os.TempDir() + " 与设备文件；" + limits + "有宿主机的 Go 工具链（模块缓存与构建缓存是空的）。改工作区的源码用 edit_file、write_file、apply_patch（有快照可以撤销，会跑编辑 hook），bash 用来构建、测试和查看；bash 改的文件没有快照，撤销时不会还原。"
 	}
 	if front().Node {
 		rule += "改了网页或脚本，交付前在沙箱里实际检查一次：`node --check 文件.js` 查语法。"

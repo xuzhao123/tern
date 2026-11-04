@@ -21,13 +21,14 @@ import (
 
 // 按工具名分发：检索、记忆、skill、浏览器与 MCP 在各自的包里。
 // offered 报告这个工具在不在本轮发给模型的工具列表里。
+// 按需加载的工具（toolsearch.go 的 Deferred）不在列表里，但同样是本轮允许的工具。
 func offered(name string) bool {
 	for _, definition := range llm.Tools {
 		if definition["name"] == name {
 			return true
 		}
 	}
-	return false
+	return deferredTool(name) != nil
 }
 
 func runTool(ctx context.Context, call llm.ToolCall) (result any, err error) {
@@ -49,6 +50,10 @@ func runTool(ctx context.Context, call llm.ToolCall) (result any, err error) {
 		return nil, llm.Permanent(errors.New("工具参数需要是有效 JSON 对象"))
 	}
 	switch call.Function.Name {
+	case "tool_search":
+		return toolSearch(call.Function.Arguments)
+	case "call_tool":
+		return nil, callToolError(call.Function.Arguments) // 能还原的在 ExecuteBatch 里已经还原了
 	case "task_status", "update_plan", "report_goal":
 		return taskControl(ctx, call)
 	case "search_docs":
@@ -115,12 +120,12 @@ func runTool(ctx context.Context, call llm.ToolCall) (result any, err error) {
 				shown = shown[:30]
 			}
 			out["workspace_changes"] = shown
-			out["workspace_note"] = fmt.Sprintf("这条 bash 改了工作区里 %d 个文件。bash 的改动没有快照，撤销这一轮时不会还原，之后再用编码工具改它们，撤销会因冲突被拒；也没经过编辑工具的 hook。改源码请用 edit_file、write_file，bash 用来构建、测试和查看。", len(changed))
+			out["workspace_note"] = fmt.Sprintf("这条 bash 改了工作区里 %d 个文件。bash 的改动没有快照，撤销这一轮时不会还原，之后再用编码工具改它们，撤销会因冲突被拒；也没经过编辑工具的 hook。改源码请用 edit_file、write_file、apply_patch，bash 用来构建、测试和查看。", len(changed))
 		}
 		return result, err
 	case "request_network_access", "bash_output", "bash_kill", "bash_input":
 		return sandbox.Run(ctx, call.ID, call.Function.Name, call.Function.Arguments)
-	case "read_file", "glob", "grep", "edit_file", "write_file":
+	case "read_file", "glob", "grep", "edit_file", "write_file", "apply_patch":
 		return workspace.Run(ctx, call.Function.Name, call.Function.Arguments)
 	case "web_search", "open_page":
 		return browser.Run(ctx, call.ID, call.Function.Name, call.Function.Arguments)

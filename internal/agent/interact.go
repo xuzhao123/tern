@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/xuzhao123/tern/internal/hooks"
 	"github.com/xuzhao123/tern/internal/llm"
 	"github.com/xuzhao123/tern/internal/protocol"
 )
@@ -184,6 +185,7 @@ func askUser(ctx context.Context, call llm.ToolCall) (any, error) {
 		return nil, llm.Permanent(errors.New("options 最多 4 个"))
 	}
 	fmt.Printf("Ask user [%s]: %s\n", call.ID, args.Question)
+	notifyHook("ask_user", "需要你回答："+args.Question)
 	waitCtx, cancel := context.WithTimeout(ctx, AskWait)
 	defer cancel()
 	var answer struct {
@@ -202,6 +204,14 @@ func askUser(ctx context.Context, call llm.ToolCall) (any, error) {
 	}
 	fmt.Printf("Ask user [%s]: answered\n", call.ID)
 	return map[string]any{"answered": true, "answer": answer.Answer}, nil
+}
+
+// notifyHook 在要等人的时候跑 Notification hook（如桌面通知、发消息到手机）：只通知，不等它、不看结果。
+func notifyHook(kind, message string) {
+	if !hooks.Has("Notification") {
+		return
+	}
+	go hooks.Run(context.Background(), "Notification", "", map[string]any{"notification_type": kind, "message": message})
 }
 
 // ---------- 手动压缩 ----------

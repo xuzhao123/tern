@@ -122,17 +122,31 @@ function chatFlow(r) {
   });
   return flow;
 }
-// 这一轮成功改过的工作区文件：edit_file / write_file 的 path 参数，按调用顺序去重；created 记下是不是这一轮新建的。
+// 这一轮成功改过的工作区文件：edit_file / write_file 的 path 参数、apply_patch 结果里的各个文件，按调用顺序去重；
+// created 记下是不是这一轮新建的，deleted 记下最后是不是被删了。
 export function turnFiles(r, turn) {
   const files = [];
   for (const c of r.calls) {
     if (c.turn !== turn) continue;
     for (const t of c.tools) {
+      if (t.state !== "ok") continue;
+      const touch = (path) => {
+        let f = files.find((x) => x.path === path);
+        if (!f) files.push(f = { path, created: false });
+        return f;
+      };
+      if (t.name === "apply_patch") {
+        for (const p of parse(t.result)?.result?.files || []) {
+          const f = touch(p.path);
+          if (p.action === "added") f.created = true, f.deleted = false;
+          if (p.action === "deleted") f.deleted = true;
+        }
+        continue;
+      }
       if (t.name !== "edit_file" && t.name !== "write_file") continue;
-      const path = t.state === "ok" ? parse(t.args)?.path : "";
+      const path = parse(t.args)?.path;
       if (!path) continue;
-      let f = files.find((x) => x.path === path);
-      if (!f) files.push(f = { path, created: false });
+      const f = touch(path);
       if (t.name === "write_file" && parse(t.result)?.result?.created) f.created = true;
     }
   }
@@ -175,7 +189,7 @@ function changedLine(r, turn) {
     row.onclick = () => openDiff(r, [f.path]);
     const n = el("span", "tf-count"); n.dataset.path = f.path;
     fillCount(n, counts?.get(f.path));
-    row.append(el("span", "tf-tag", f.created ? "新建" : "修改"), el("span", "tf-path", f.path), n);
+    row.append(el("span", "tf-tag", f.deleted ? (f.created ? "新建后删除" : "删除") : f.created ? "新建" : "修改"), el("span", "tf-path", f.path), n);
     card.append(row);
   }
   if (files.length > 8) card.append(el("div", "meta", `还有 ${files.length - 8} 个文件，在改动面板里看`));
@@ -262,6 +276,12 @@ function toolLabel(t) {
   const count = (add, del) => [el("span", "diff-count-add", "+" + add), ...(del === undefined ? [] : [el("span", "diff-count-delete", "−" + del)])];
   switch (t.name) {
     case "edit_file": return args.path && { verb: "编辑", target: args.path, counts: count(lineCount(args.new_string), lineCount(args.old_string)) };
+    case "apply_patch": {
+      const files = out.files || [];
+      if (!files.length) return { verb: "应用补丁", target: "" };
+      const add = files.reduce((n, f) => n + (f.added || 0), 0), del = files.reduce((n, f) => n + (f.removed || 0), 0);
+      return { verb: "应用补丁", target: files.length === 1 ? files[0].path : `${files.length} 个文件`, counts: count(add, del) };
+    }
     case "write_file": {
       const lines = out.lines ?? lineCount(args.content);
       return args.path && (out.created === false ? { verb: "重写", target: args.path, counts: [el("span", "", lines + " 行")] } : { verb: "新建", target: args.path, counts: count(lines) });
@@ -527,7 +547,7 @@ function drawChat() {
       // 分叉时带过来的轮次只能到原对话里撤销（agent 的撤销会顺着续接链走进原对话）。
       if (turn?.checkpoint && !turn.rewound && !turn.inherited && r.workspace && r.exit && !r.source && !ui.replay && !ui.loading) {
         const b = el("button", "link", "撤销");
-        b.title = "撤销到这一轮之前：把这一轮及之后用 edit_file / write_file 改过的文件放回去，对话退回上一轮";
+        b.title = "撤销到这一轮之前：把这一轮及之后用 edit_file / write_file / apply_patch 改过的文件放回去，对话退回上一轮";
         b.onclick = () => rewindTurn(r, turn);
         tools.append(b);
       }

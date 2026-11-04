@@ -82,7 +82,7 @@ export const TOOL_INFO = {
   web_search: ["必应搜索", "web_search：无头 Chrome 打开必应搜索。必应多半不给自动化浏览器结果，搜索交给 DeepSeek，所以默认关"],
   open_page: ["打开网页", "open_page：无头 Chrome 打开网页读正文，会执行页面脚本，适合要渲染后才有内容的页面；只读"],
   ds_search:["DeepSeek 搜索", "ds_search / ds_fetch：DeepSeek 服务端搜索与抓取网页，按次计费，用 DEEPSEEK_API_KEY"],
-  coding: ["编码工具", "read_file / glob / grep / edit_file / write_file：只在对话选的工作区里读写"],
+  coding: ["编码工具", "read_file / glob / grep / edit_file / write_file / apply_patch：只在对话选的工作区里读写"],
 };
 function runTools(r) {
   // 单个工具按最近一次请求实际带的工具列表显示；还没发请求时按开始时的快照（disallowed_tools）。
@@ -877,7 +877,7 @@ export async function rewindTurn(r, t, edit = false) {
       files(box, "恢复", plan.restore); files(box, "删除（这几轮新建的）", plan.delete);
       if (!plan.restore.length && !plan.delete.length) box.push(el("div", "meta", "这几轮没有用编码工具改过文件。"));
       files(box, "bash 改过、不会还原（没有快照）", plan.unsnapshotted);
-      box.push(el("div", "meta", "只撤销 edit_file、write_file 的改动；bash 改的文件没有快照。"));
+      box.push(el("div", "meta", "只撤销 edit_file、write_file、apply_patch 的改动；bash 改的文件没有快照。"));
     }
     if (m !== "chat" && plan.conflicts?.length) {
       box.push(el("div", "err", "这些文件在 agent 最后一次编辑之后又被改过（bash、人或别的程序），撤销会覆盖那些改动："));

@@ -9,7 +9,10 @@ export function bashCard(r, c, t) {
   if (running) icon.append(el("span", "spin"));
   // 一行里省掉开头进工作区的 cd（命令都在 /workspace 里跑）；点开的终端照原样显示整条命令。
   const shown = typeof args.command === "string" ? args.command.replace(/^cd\s+\/workspace\/?\s*&&\s*/, "") : t.args;
-  const head = [icon, el("span", "hub-chip", "bash"), el("span", "targs", clip(shown, 90))];
+  // 模型写了 description 时一行里显示它（命令点开看），没写就显示命令本身。
+  const said = typeof args.description === "string" && args.description.trim();
+  const head = [icon, el("span", "hub-chip", "bash"), el("span", "targs", clip(said || shown, 90))];
+  if (said) head.at(-1).title = shown;
   // background=true 的命令立刻返回 job_id，没有退出码；之后用 bash_output 读输出。
   const code = bashExit(out);
   if (out.job_id) head.push(el("span", "exit-chip", "后台 " + out.job_id));
@@ -25,6 +28,7 @@ export function bashCard(r, c, t) {
   if (out.truncated) notes.push(`输出共 ${out.output_bytes} 字节，只保留开头和结尾各 8KB`);
   if (out.saved_output) notes.push(`结果共 ${out.total_lines} 行，上面是模型看到的预览；完整内容存为 ${out.saved_output}，模型用 read_output 读回`);
   if (out.note) notes.push(out.note);
+  if (out.cwd_note) notes.push(out.cwd_note);
   if (out.workspace_changes) notes.push("改了工作区：" + out.workspace_changes.join("、") + "（没有快照，撤销时不会还原）");
   // 旧存档只有主机名，原因一律是“不在白名单”；之后的记录带 network_hint，写着每个主机被拒的原因。
   if (out.network_denied) notes.push(out.network_hint?.startsWith("访问被代理拒绝") ? out.network_hint : "被代理拒绝的主机：" + out.network_denied.join("、") + "（不在白名单）");

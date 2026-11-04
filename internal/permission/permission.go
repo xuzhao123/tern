@@ -133,7 +133,46 @@ func (r rule) matches(category, name, value string) bool {
 }
 
 // Decide 返回这次调用的决定（allow、ask、deny）和原因。category 是工具声明里的权限类别，空表示按工具名。
+// apply_patch 一次改几个文件：每个路径各判一次，取最严的（deny > ask > allow）。
 func Decide(name, category, arguments string) (string, string) {
+	if name == "apply_patch" && category == "Edit" {
+		var args struct{ Input string }
+		_ = json.Unmarshal([]byte(arguments), &args)
+		paths := patchPaths(args.Input)
+		if len(paths) == 0 {
+			return decide(name, category, `{"path":""}`)
+		}
+		rank := map[string]int{"allow": 0, "ask": 1, "deny": 2}
+		effect, reason := "allow", ""
+		for _, p := range paths {
+			data, _ := json.Marshal(map[string]string{"path": p})
+			e, why := decide(name, category, string(data))
+			if reason == "" || rank[e] > rank[effect] {
+				effect, reason = e, why
+				if len(paths) > 1 {
+					reason += "（" + p + "）"
+				}
+			}
+		}
+		return effect, reason
+	}
+	return decide(name, category, arguments)
+}
+
+// patchPaths 从 apply_patch 的补丁里取出路径（新建、删除、修改、改名目标）。只认文件头，不校验格式：格式错的补丁由工具自己拒绝。
+func patchPaths(input string) []string {
+	var paths []string
+	for _, line := range strings.Split(input, "\n") {
+		for _, head := range []string{"*** Add File: ", "*** Delete File: ", "*** Update File: ", "*** Move to: "} {
+			if p, ok := strings.CutPrefix(strings.TrimRight(line, "\r"), head); ok {
+				paths = append(paths, strings.TrimSpace(p))
+			}
+		}
+	}
+	return paths
+}
+
+func decide(name, category, arguments string) (string, string) {
 	category, value := subject(name, category, arguments)
 	for _, effect := range []string{"deny", "ask", "allow"} {
 		for _, r := range rules {

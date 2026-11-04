@@ -78,6 +78,9 @@ type State struct {
 	Announced int `json:"announced,omitempty"`
 	// 已经提醒过的请求预算档位（50、75）。预算跨续跑累计，续跑接着用；续聊每轮从 0 重算，压缩不变。
 	Budget int `json:"budget,omitempty"`
+	// bash 的工作目录（同 Claude Code，跨轮保留）：命令看到的路径，根目录时为空；CwdHost 记它是宿主机还是沙箱里的路径。
+	Cwd     string `json:"cwd,omitempty"`
+	CwdHost bool   `json:"cwd_host,omitempty"`
 }
 
 // FinalCheck 是收尾检查的结论：Passed 为 false 时 Detail 是 hook 给出的原因（比如编译错误）。
