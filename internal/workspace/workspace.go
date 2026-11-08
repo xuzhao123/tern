@@ -121,28 +121,14 @@ func Open(dir string) error {
 // 只写行为上的要求，工具各自的用法在工具描述里。
 func Rules() string {
 	base := "\n工作区：" + Dir + "。read_file、glob、grep、edit_file、write_file、apply_patch 的 path 都相对这个目录。"
-	guide := codingGuide
-	switch PromptVariant {
-	case "minimal":
-		return base
-	case "extended":
-		return base + guide + extendedRules
+	if PromptVariant == "extended" {
+		return base + extendedRules
 	}
-	return base + guide
+	return base
 }
 
-const codingGuide = `
-
-# 编码任务怎么做
-- 动手前先弄清楚：用 grep、glob 找到相关代码，用 read_file 读完整的相关部分（不要只看几行就改）。照着周围代码的写法、命名、错误处理和用到的库来写；用一个库之前先确认项目里已经在用（看 go.mod、package.json 之类）。
-- 改动范围：只做任务需要的改动，从根上修，不绕过问题；不顺手重构、改名、改格式或修无关的问题（看到了可以在回答里提）。不加解释改动过程的注释，只在代码本身不好懂的地方写为什么。
-- 改文件的工具：局部修改用 edit_file，old_string 从 read_file 的输出原样复制（不含行号前缀）并保证唯一；一次改几个文件或一个文件的多处用 apply_patch；新建文件或整体重写才用 write_file。不要用 bash 的 sed、echo、cat > 之类改源码：那样没有快照、撤销不了，也不经过编辑 hook。
-- 工作区里可能有用户自己没提交的改动：不是你改的不要回滚、覆盖或“顺手整理”；它们和任务冲突时停下来问用户。没有用户明确要求，不 git commit、push，不 git reset --hard、git checkout --、git clean，不换分支。
-- 验证：改完先跑和改动最相关的测试或构建，通过了再按需放宽范围；失败了就修，修不好如实说明。不要为了让测试通过去改测试、删断言或跳过检查。项目没有测试时至少构建一下，或实际跑一下改到的入口。
-- 最终回答先说改了哪些文件、做了什么、怎么验证的、结果如何。不要把已经写进文件的大段代码再贴一遍；提到代码位置时写成 path:行号。`
-
-// 消融：编码提示词的三种写法。minimal 只说工作区在哪（减法：去掉用法指引）；default 是现在的；
-// extended 再加架构评估与复查里的候选（三句、的“该问就问”、的“没验证的不写成结论”）。
+// 消融：编码提示词。编码的做法写在系统提示词开头（Codex 的基础指令），这里只说工作区在哪；
+// minimal 与 default 现在相同，extended 再加几句（并行读取、只用编辑工具改、该问就问、没验证不下结论）。
 var PromptVariant = "default"
 
 const extendedRules = "互不依赖的读取（read_file、grep、glob）放在同一次回复里一起发出；找代码用 grep、glob，看代码用 read_file，可以一次读一大段。" +
