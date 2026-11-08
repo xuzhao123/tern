@@ -270,7 +270,7 @@ func ParseFrontmatter(text string) (map[string]string, string, error) {
 }
 
 func Prompt() string {
-	lines := []string{"\n可用 skills（只列名字与用途）。任务与某个 skill 相关时，先调用 load_skill 读取全文，再按其中的步骤执行；无关任务不要加载："}
+	lines := []string{"\n可用 skills（只列名字与用途）。任务明确属于某个 skill 的用途时，先调用 load_skill 读取全文，再按其中的步骤执行；只是沾点边、或者拿不准的，不要加载："}
 	for _, s := range Index {
 		lines = append(lines, "- "+s.Name+"："+s.Description)
 	}
