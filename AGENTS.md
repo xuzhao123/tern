@@ -21,6 +21,7 @@ tern 是用 Go 实现的 agent harness，由 learning-agent 演变而来。启�
 ## 验证
 
 - gofmt、`go vet`、`go build`，改了页面脚本再 `node --check`。
+- 用真实模型测试只用方舟（豆包）里的 `deepseek-v4.1-flash`（`-provider ark -model deepseek-v4.1-flash`）；方舟欠费就不测了，不换别的模型或供应商，在结果里说明没测。
 - 会改仓库内容的验证在临时 clone 里做，用完删除；运行 clone 编出的程序时把 `TERN_HOME` 设成 clone 或临时目录，不碰 `~/.tern`。网页端的验证用常驻账号 `qa`（账号名与密码在 `.env` 的 `TERN_QA_USER`、`TERN_QA_PASSWORD`；还没改名的 `.env` 里是旧名字 `OBSERVER_TEST_USER`、`OBSERVER_TEST_PASSWORD`，验收脚本两个都认；不写进提交的文件）。
 - 验证不在长期记忆里留下不是用户原话的事实；测试写进去的，用 `-memory-forget` 删掉。
 
