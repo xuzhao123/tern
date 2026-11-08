@@ -12,11 +12,6 @@ tern 是用 Go 实现的 agent harness，由 learning-agent 演变而来。启�
 - **各包目录下的 AGENTS.md 写着那个包的约束。**tern 读写那个目录的文件时会自动加载；设计或修改某个包之前，先读它的那份。
 - 设计在 `spec/`，索引见 `spec/README.md`。内置的命令与 skill 在 `internal/commands/builtin/`、`internal/skills/builtin/`，`hooks/` 里放 hook 脚本，都只放真实使用的；`eval/`、`queue/` 里的题目和示例任务是任务输入，要提交。
 
-## 分工
-
-- 新功能先由 Claude Code 在 `spec/` 写设计，用户确认后由 tern 照着实现。要偏离 spec，先把改动和原因写回 spec，再改代码。
-- spec 按文件列出改动，写明这一期不做什么，给出验收命令和预期结果。实现在分支或 clone 上做，提交前由人 review。
-
 ## 写代码
 
 - 只做任务要求的改动；短小直接，命名、注释密度和写法与周围代码一致。不为未来需求增加接口、配置、分层和防御性代码。
@@ -25,7 +20,7 @@ tern 是用 Go 实现的 agent harness，由 learning-agent 演变而来。启�
 
 ## 验证
 
-- gofmt、`go vet`、`go build`，改了页面脚本再 `node --check`；然后用真实模型实际运行。不写 mock、脚本模型，不写死模型的工具决策与答案。例外（用户 2026-10-31 同意）：编码评测题的校验脚本（`eval/coding/checks/`）在没有模型的沙箱里跑，可以用本地假的模型接口、假的 OAuth 或 ssh 来检查代码行为；它校验的是实现，不替代真实模型的验收。纯逻辑（解析、路径校验、状态边界）可以写 `*_test.go`（用户 2026-11-03 同意），但不写 mock 模型、脚本模型，不替代真实模型验收。
+- gofmt、`go vet`、`go build`，改了页面脚本再 `node --check`。
 - 会改仓库内容的验证在临时 clone 里做，用完删除；运行 clone 编出的程序时把 `TERN_HOME` 设成 clone 或临时目录，不碰 `~/.tern`。网页端的验证用常驻账号 `qa`（账号名与密码在 `.env` 的 `TERN_QA_USER`、`TERN_QA_PASSWORD`；还没改名的 `.env` 里是旧名字 `OBSERVER_TEST_USER`、`OBSERVER_TEST_PASSWORD`，验收脚本两个都认；不写进提交的文件）。
 - 验证不在长期记忆里留下不是用户原话的事实；测试写进去的，用 `-memory-forget` 删掉。
 
